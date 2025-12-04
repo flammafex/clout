@@ -173,7 +173,7 @@ export interface SlidePackage {
  * In Clout: ContentGossipMessage spreads posts to propagate content
  */
 export interface ContentGossipMessage {
-  readonly type: 'post' | 'trust' | 'revoke' | 'slide';
+  readonly type: 'post' | 'trust' | 'revoke' | 'slide' | 'state-sync' | 'state-request';
 
   /** For posts */
   readonly post?: PostPackage;
@@ -183,6 +183,19 @@ export interface ContentGossipMessage {
 
   /** For encrypted slides */
   readonly slide?: SlidePackage;
+
+  /** For CRDT state synchronization */
+  readonly stateSync?: {
+    readonly publicKey: string;
+    readonly stateBinary: Uint8Array;
+    readonly version: number;
+  };
+
+  /** For requesting peer state */
+  readonly stateRequest?: {
+    readonly publicKey: string;
+    readonly currentVersion: number;
+  };
 
   /** Message timestamp */
   readonly timestamp: number;

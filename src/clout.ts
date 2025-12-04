@@ -21,6 +21,10 @@ export interface GossipNode extends ContentGossip {
   getFeed?(): PostPackage[];
   getSlides?(): SlidePackage[];
   getStats?(): any;
+  setStateSyncHandler(handler: (publicKey: string, stateBinary: Uint8Array) => Promise<void>): void;
+  setStateRequestHandler(handler: (publicKey: string) => Promise<Uint8Array | null>): void;
+  broadcastState(publicKey: string, stateBinary: Uint8Array): Promise<void>;
+  requestState(publicKey: string, currentVersion?: number): Promise<void>;
 }
 
 export interface CloutConfig {
@@ -52,7 +56,9 @@ export class Clout {
   // State
   private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
-  
+  private stateSyncTimer?: NodeJS.Timeout;
+  private readonly stateSyncInterval = 30000; // Sync every 30 seconds
+
   // Note: receivedSlides removed in favor of local store
 
   constructor(config: CloutConfig) {
@@ -110,6 +116,23 @@ export class Clout {
       this.gossip.subscribe(async (msg: ContentGossipMessage) => {
         await this.handleGossipMessage(msg);
       });
+
+      // Set up CRDT state synchronization handlers
+      this.gossip.setStateSyncHandler(async (publicKey: string, stateBinary: Uint8Array) => {
+        await this.handleStateSync(publicKey, stateBinary);
+      });
+
+      this.gossip.setStateRequestHandler(async (publicKey: string) => {
+        return this.handleStateRequest(publicKey);
+      });
+
+      // Start periodic state sync
+      this.startStateSyncTimer();
+
+      // Request initial state from peers
+      setTimeout(() => {
+        this.requestPeerStates();
+      }, 2000); // Wait 2s for peer connections to establish
     }
   }
 
@@ -149,6 +172,96 @@ export class Clout {
       }
     } catch (err) {
       console.error('[Clout] Error handling gossip message:', err);
+    }
+  }
+
+  /**
+   * Handle incoming CRDT state sync from peer
+   */
+  private async handleStateSync(publicKey: string, stateBinary: Uint8Array): Promise<void> {
+    try {
+      console.log(`[Clout] 📦 Merging state from ${publicKey.slice(0, 8)}`);
+
+      // Merge the remote state into our Chronicle
+      this.state.merge(stateBinary);
+
+      // The CRDT will automatically reconcile conflicts
+      // Our local changes are preserved, remote changes are incorporated
+      const mergedState = this.state.getState();
+      console.log(`[Clout] ✅ State merged. Posts: ${mergedState.myPosts.length}, Trust signals: ${mergedState.myTrustSignals.length}`);
+    } catch (error: any) {
+      console.error(`[Clout] ❌ Failed to merge state:`, error.message);
+    }
+  }
+
+  /**
+   * Handle state request from peer
+   */
+  private async handleStateRequest(publicKey: string): Promise<Uint8Array | null> {
+    try {
+      console.log(`[Clout] 📤 Sending state to ${publicKey.slice(0, 8)}`);
+
+      // Export our Chronicle state as binary
+      const stateBinary = this.state.exportSync();
+      return stateBinary;
+    } catch (error: any) {
+      console.error(`[Clout] ❌ Failed to export state:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Start periodic state synchronization timer
+   */
+  private startStateSyncTimer(): void {
+    // Clear any existing timer
+    if (this.stateSyncTimer) {
+      clearInterval(this.stateSyncTimer);
+    }
+
+    // Broadcast state periodically
+    this.stateSyncTimer = setInterval(() => {
+      this.broadcastState();
+    }, this.stateSyncInterval);
+
+    console.log(`[Clout] 🔄 State sync enabled (every ${this.stateSyncInterval / 1000}s)`);
+  }
+
+  /**
+   * Broadcast our current state to all peers
+   */
+  private async broadcastState(): Promise<void> {
+    if (!this.gossip) return;
+
+    try {
+      const stateBinary = this.state.exportSync();
+      await this.gossip.broadcastState(this.publicKeyHex, stateBinary);
+    } catch (error: any) {
+      console.error(`[Clout] ❌ Failed to broadcast state:`, error.message);
+    }
+  }
+
+  /**
+   * Request state from all trusted peers
+   */
+  private async requestPeerStates(): Promise<void> {
+    if (!this.gossip) return;
+
+    try {
+      console.log(`[Clout] 📥 Requesting state from peers`);
+      await this.gossip.requestState(this.publicKeyHex);
+    } catch (error: any) {
+      console.error(`[Clout] ❌ Failed to request state:`, error.message);
+    }
+  }
+
+  /**
+   * Stop state synchronization and clean up
+   */
+  destroy(): void {
+    if (this.stateSyncTimer) {
+      clearInterval(this.stateSyncTimer);
+      this.stateSyncTimer = undefined;
     }
   }
 
