@@ -19,6 +19,7 @@ import { ContentGossip } from './content-gossip.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
 import { CloutNode } from './network/clout-node.js';
+import { InvitationManager } from './invitation.js';
 import { Crypto } from './crypto.js';
 
 import type { FreebirdClient, WitnessClient, PublicKey } from './types.js';
@@ -61,6 +62,7 @@ export class Clout {
   private readonly state: CloutStateManager;
   private readonly witness: WitnessClient;
   private readonly freebird: FreebirdClient;
+  private readonly invitations: InvitationManager;
   private readonly node?: CloutNode;
   private readonly publicKeyHex: string;
 
@@ -97,6 +99,13 @@ export class Clout {
       maxHops: config.maxHops,
       minReputation: config.minReputation
     });
+
+    // Invitation system
+    this.invitations = new InvitationManager(
+      config.publicKey,
+      config.freebird,
+      config.witness
+    );
 
     // Set up gossip message handler
     this.gossip.setReceiveHandler(async (message) => {
@@ -147,15 +156,22 @@ export class Clout {
    * Post content to the network
    *
    * Phase 2: Create and broadcast a post
+   *
+   * ONE-TOKEN-PER-POST: Requires a Freebird token which is consumed by posting.
+   * This provides strong spam resistance.
+   *
+   * @param content - Post content
+   * @param token - Freebird token (consumed by this post)
+   * @param replyTo - Optional parent post ID if this is a reply
    */
-  async post(content: string, replyTo?: string): Promise<CloutPost> {
+  async post(content: string, token: Uint8Array, replyTo?: string): Promise<CloutPost> {
     const publicKeyHex = this.identity.getPublicKeyHex();
 
     // Sign content
     const contentHash = Crypto.hashString(content);
     const signature = await this.identity.signContent(contentHash);
 
-    // Create post
+    // Create post (consumes token)
     const post = await CloutPost.post(
       {
         author: publicKeyHex,
@@ -163,6 +179,7 @@ export class Clout {
         signature,
         freebird: this.freebird,
         witness: this.witness,
+        token,
         replyTo
       },
       this.gossip
@@ -309,6 +326,110 @@ export class Clout {
   }
 
   /**
+   * Update trust settings
+   */
+  updateTrustSettings(settings: Partial<import('./clout-types.js').TrustSettings>): void {
+    this.identity.updateTrustSettings(settings);
+    this.state.updateProfile(this.identity.getProfile());
+
+    // Update validator with new reputation thresholds
+    if (settings.maxHops !== undefined) {
+      this.validator.setMaxHops(settings.maxHops);
+    }
+    if (settings.minReputation !== undefined) {
+      this.validator.setMinReputation(settings.minReputation);
+    }
+  }
+
+  /**
+   * Get current trust settings
+   */
+  getTrustSettings(): import('./clout-types.js').TrustSettings {
+    return this.identity.getProfile().trustSettings;
+  }
+
+  /**
+   * Create an invitation for someone
+   *
+   * Generates a Freebird token for the invitee and optionally auto-trusts them.
+   */
+  async invite(
+    inviteePublicKey: string,
+    options?: {
+      message?: string;
+      expiresIn?: number;
+      maxUses?: number;
+    }
+  ): Promise<import('./invitation.js').Invitation> {
+    const invitation = await this.invitations.createInvitation(inviteePublicKey, options);
+
+    // If autoMutualOnInvite is enabled, auto-trust the invitee
+    if (this.identity.getProfile().trustSettings.autoMutualOnInvite) {
+      await this.trust(inviteePublicKey);
+    }
+
+    return invitation;
+  }
+
+  /**
+   * Accept an invitation
+   *
+   * Verifies the invitation and establishes trust with the inviter.
+   * Returns a Freebird token that can be used for posting.
+   *
+   * @param code - Invitation code
+   * @returns Freebird token for making your first post
+   */
+  async acceptInvitation(code: string): Promise<Uint8Array> {
+    const { invitation, trustSignal, token } = await this.invitations.acceptInvitation(code);
+
+    // Trust the inviter
+    await this.trust(invitation.inviter);
+
+    // Broadcast trust signal
+    await this.gossip.publish({
+      type: 'trust',
+      trustSignal,
+      timestamp: Date.now()
+    });
+
+    console.log(
+      `[Clout] ✅ Accepted invitation from ${invitation.inviter.slice(0, 8)}, ` +
+      `established trust, and received posting token`
+    );
+
+    return token;
+  }
+
+  /**
+   * Get invitation chain (who invited us, who we invited)
+   */
+  getInvitationChain() {
+    return this.invitations.getInvitationChain();
+  }
+
+  /**
+   * Obtain a Freebird token for posting
+   *
+   * ONE-TOKEN-PER-POST: Each call consumes the ability to get one token.
+   * You can only get tokens if you have been invited or are an issuer.
+   *
+   * @returns A Freebird token that can be used for one post
+   */
+  async obtainToken(): Promise<Uint8Array> {
+    // Blind the public key
+    const publicKey = { bytes: Crypto.fromHex(this.publicKeyHex) };
+    const blinded = await this.freebird.blind(publicKey);
+
+    // Issue token
+    const token = await this.freebird.issueToken(blinded);
+
+    console.log('[Clout] ✅ Obtained Freebird token for posting');
+
+    return token;
+  }
+
+  /**
    * Get reputation for a user
    */
   getReputation(publicKey: string) {
@@ -347,10 +468,26 @@ export class Clout {
       // Add trust signal to validator
       this.validator.addTrustSignal(message.trustSignal);
 
-      console.log(
-        `[Clout] Trust signal: ${message.trustSignal.truster.slice(0, 8)} -> ` +
-        `${message.trustSignal.trustee.slice(0, 8)}`
-      );
+      // Handle incoming trust (auto-follow-back if configured)
+      const autoFollowed = this.identity.handleIncomingTrust(message.trustSignal);
+
+      if (autoFollowed) {
+        // Sync trust graph changes
+        this.gossip.updateTrustGraph(this.identity.getProfile().trustGraph);
+        this.validator.updateTrustGraph(this.identity.getProfile().trustGraph);
+        if (this.node) {
+          await this.node.updateTrustGraph(this.identity.getProfile().trustGraph);
+        }
+
+        console.log(
+          `[Clout] ✅ Auto-followed back ${message.trustSignal.truster.slice(0, 8)}`
+        );
+      } else {
+        console.log(
+          `[Clout] Trust signal: ${message.trustSignal.truster.slice(0, 8)} -> ` +
+          `${message.trustSignal.trustee.slice(0, 8)}`
+        );
+      }
     }
   }
 

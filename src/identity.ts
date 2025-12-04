@@ -9,12 +9,14 @@
 
 import { Crypto } from './crypto.js';
 import type { PublicKey, FreebirdClient } from './types.js';
-import type { CloutProfile, TrustSignal } from './clout-types.js';
+import type { CloutProfile, TrustSignal, TrustSettings } from './clout-types.js';
+import { DEFAULT_TRUST_SETTINGS } from './clout-types.js';
 
 export interface IdentityConfig {
   readonly publicKey: PublicKey;
   readonly privateKey: Uint8Array;
   readonly freebird: FreebirdClient;
+  readonly trustSettings?: Partial<TrustSettings>;
 }
 
 /**
@@ -34,10 +36,14 @@ export class CloutIdentity {
     this.privateKey = config.privateKey;
     this.freebird = config.freebird;
 
-    // Initialize profile
+    // Initialize profile with trust settings
     this.profile = {
       publicKey: Crypto.toHex(this.publicKey.bytes),
       trustGraph: new Set<string>(),
+      trustSettings: {
+        ...DEFAULT_TRUST_SETTINGS,
+        ...config.trustSettings
+      },
       metadata: {}
     };
   }
@@ -165,8 +171,59 @@ export class CloutIdentity {
     return {
       publicKey: this.profile.publicKey,
       trustGraph: new Set(this.profile.trustGraph),
+      trustSettings: { ...this.profile.trustSettings },
       metadata: this.profile.metadata ? { ...this.profile.metadata } : undefined
     };
+  }
+
+  /**
+   * Update trust settings
+   */
+  updateTrustSettings(settings: Partial<TrustSettings>): void {
+    this.profile = {
+      ...this.profile,
+      trustSettings: {
+        ...this.profile.trustSettings,
+        ...settings
+      }
+    };
+  }
+
+  /**
+   * Handle incoming trust signal
+   *
+   * Processes trust signals from others and auto-follows-back if configured.
+   *
+   * @param signal - Trust signal from another user
+   * @returns Whether auto-follow-back was triggered
+   */
+  handleIncomingTrust(signal: TrustSignal): boolean {
+    // Check if this signal is for us
+    if (signal.trustee !== this.profile.publicKey) {
+      return false;
+    }
+
+    // Check if revocation
+    if (signal.revoked) {
+      // Someone untrusted us - optionally remove them from our graph
+      if (this.profile.trustGraph.has(signal.truster)) {
+        console.log(`[Identity] ${signal.truster.slice(0, 8)} untrusted us, removing from trust graph`);
+        this.untrust(signal.truster);
+      }
+      return false;
+    }
+
+    // Check auto-follow-back setting
+    if (this.profile.trustSettings.autoFollowBack) {
+      // Only auto-follow if not already trusting
+      if (!this.profile.trustGraph.has(signal.truster)) {
+        console.log(`[Identity] Auto-following back ${signal.truster.slice(0, 8)}`);
+        this.trust(signal.truster);
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**

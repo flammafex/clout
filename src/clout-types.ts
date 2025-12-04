@@ -9,6 +9,37 @@
 import type { PublicKey, Attestation } from './types.js';
 
 /**
+ * Trust settings - Configurable trust behavior
+ */
+export interface TrustSettings {
+  /** When someone trusts you, automatically trust them back */
+  readonly autoFollowBack: boolean;
+
+  /** When you invite someone, automatically create mutual trust */
+  readonly autoMutualOnInvite: boolean;
+
+  /** Require approval before accepting trust from others */
+  readonly requireApproval: boolean;
+
+  /** Maximum trust distance to display in feed (1-3) */
+  readonly maxHops: number;
+
+  /** Minimum reputation score to show posts (0-1) */
+  readonly minReputation: number;
+}
+
+/**
+ * Default trust settings
+ */
+export const DEFAULT_TRUST_SETTINGS: TrustSettings = {
+  autoFollowBack: false,        // One-way follows by default
+  autoMutualOnInvite: true,     // Invitations create mutual trust
+  requireApproval: false,       // Accept trust signals automatically
+  maxHops: 3,                   // Show up to 3 degrees
+  minReputation: 0.3            // Minimum score of 0.3
+};
+
+/**
  * CloutProfile - The core identity primitive
  *
  * In Scarcity, "Money" is the primitive.
@@ -20,6 +51,9 @@ export interface CloutProfile {
 
   /** Web of Trust - public keys this agent trusts */
   readonly trustGraph: Set<string>;
+
+  /** Trust settings - Configurable behavior */
+  readonly trustSettings: TrustSettings;
 
   /** Display metadata (optional) */
   readonly metadata?: {

@@ -34,16 +34,22 @@ export type { ReputationConfig } from './reputation.js';
 
 export { CloutStateManager } from './chronicle/clout-state.js';
 
+export { InvitationManager } from './invitation.js';
+export type { Invitation } from './invitation.js';
+
 // Types
 export type {
   CloutProfile,
   PostPackage,
   TrustSignal,
+  TrustSettings,
   Feed,
   ContentGossipMessage,
   ReputationScore,
   CloutState
 } from './clout-types.js';
+
+export { DEFAULT_TRUST_SETTINGS } from './clout-types.js';
 
 // Network layer (Phase 6: P2P Integration)
 export { CloutNode } from './network/clout-node.js';

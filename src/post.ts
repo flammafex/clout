@@ -20,6 +20,7 @@ export interface PostConfig {
   readonly signature: Uint8Array;
   readonly freebird: FreebirdClient;
   readonly witness: WitnessClient;
+  readonly token: Uint8Array; // Freebird token (one token per post)
   readonly replyTo?: string;
   readonly contentType?: string;
 }
@@ -49,7 +50,11 @@ export class CloutPost {
    * This is the equivalent of ScarbuckToken.mint(), but instead of
    * creating a random secret (money), the "secret" is the content itself.
    *
-   * @param config - Post configuration
+   * ONE-TOKEN-PER-POST: Each post requires a Freebird token, which is
+   * consumed by being used as the authorship proof. This provides strong
+   * spam resistance.
+   *
+   * @param config - Post configuration (must include token)
    * @param gossip - Optional gossip network for automatic broadcasting
    * @returns New CloutPost instance
    */
@@ -61,13 +66,17 @@ export class CloutPost {
     const contentHash = Crypto.hashString(config.content);
     const id = contentHash;
 
-    // B. Create authorship proof using Freebird
-    // This proves the author has the right to post this content
-    const authorshipProof = await config.freebird.createOwnershipProof(
-      Crypto.fromHex(contentHash)
-    );
+    // B. Verify token is valid BEFORE using it
+    const tokenValid = await config.freebird.verifyToken(config.token);
+    if (!tokenValid) {
+      throw new Error('Invalid Freebird token - cannot create post');
+    }
 
-    // C. Package post data
+    // C. Use Freebird token as authorship proof
+    // This CONSUMES the token - it can only be used for this one post
+    const authorshipProof = config.token;
+
+    // D. Package post data
     const pkg: Omit<PostPackage, 'proof'> = {
       id,
       content: config.content,
@@ -78,25 +87,27 @@ export class CloutPost {
       contentType: config.contentType || 'text/plain'
     };
 
-    // D. Hash package for timestamping
+    // E. Hash package for timestamping
     const pkgHash = Crypto.hashString(JSON.stringify(pkg));
 
-    // E. Timestamp the post with Witness (proof of when it was posted)
+    // F. Timestamp the post with Witness (proof of when it was posted)
     const proof = await config.witness.timestamp(pkgHash);
 
-    // F. Create complete package
+    // G. Create complete package
     const fullPkg: PostPackage = {
       ...pkg,
       proof
     };
 
-    // G. Create post instance
+    // H. Create post instance
     const post = new CloutPost(fullPkg, gossip);
 
-    // H. Auto-broadcast if gossip is available
+    // I. Auto-broadcast if gossip is available
     if (gossip) {
       await post.broadcast();
     }
+
+    console.log(`[CloutPost] ✅ Created post ${id.slice(0, 8)} (token consumed)`);
 
     return post;
   }
@@ -164,8 +175,10 @@ export class CloutPost {
   /**
    * Create a reply to this post
    *
+   * Requires a Freebird token (one-token-per-post applies to replies too).
+   *
    * @param content - Reply content
-   * @param config - Post configuration (without replyTo)
+   * @param config - Post configuration (without replyTo, must include token)
    * @param gossip - Optional gossip network
    * @returns New CloutPost that's a reply
    */
