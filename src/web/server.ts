@@ -13,6 +13,7 @@ import { IdentityManager } from '../cli/identity-manager.js';
 import { InfrastructureManager } from '../cli/infrastructure.js';
 import { Clout } from '../clout.js';
 import { tryLoadWasm } from '../vendor/hypertoken/WasmBridge.js';
+import { FileSystemStore } from '../store/file-store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -248,13 +249,18 @@ export class CloutWebServer {
     console.log('Initializing Clout infrastructure...');
     const infra = await this.infraManager.initialize();
 
+    // Initialize persistent storage
+    const store = new FileSystemStore();
+    await store.init();
+    console.log('Persistent storage initialized at ~/.clout/local-data.json');
+
     this.clout = new Clout({
       publicKey: identity.publicKey,
       privateKey: secretKey,
       freebird: infra.freebird,
       witness: infra.witness,
-      gossip: infra.gossip
-      // store will be auto-initialized
+      gossip: infra.gossip,
+      store
     });
 
     this.initialized = true;

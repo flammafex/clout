@@ -8,10 +8,12 @@ import { Command } from '../command.js';
 import { IdentityManager } from '../identity-manager.js';
 import { InfrastructureManager } from '../infrastructure.js';
 import { Clout } from '../../clout.js';
+import { FileSystemStore } from '../../store/file-store.js';
 
 export class CloutCommand extends Command {
   private identityManager = new IdentityManager();
   private infraManager = new InfrastructureManager();
+  private store?: FileSystemStore;
 
   constructor() {
     super('clout', 'Post, follow, and interact with Clout protocol');
@@ -64,7 +66,15 @@ export class CloutCommand extends Command {
     }
   }
 
-  private getClout(): Clout {
+  private async getStore(): Promise<FileSystemStore> {
+    if (!this.store) {
+      this.store = new FileSystemStore();
+      await this.store.init();
+    }
+    return this.store;
+  }
+
+  private async getClout(): Promise<Clout> {
     const identity = this.identityManager.getIdentity();
     const infra = this.infraManager.getInfrastructure();
     const secretKey = this.identityManager.getSecretKey();
@@ -74,13 +84,15 @@ export class CloutCommand extends Command {
       throw new Error('Infrastructure not initialized. Run "clout init" first.');
     }
 
+    const store = await this.getStore();
+
     return new Clout({
       publicKey: identity.publicKey,
       privateKey: secretKey,
       freebird: infra.freebird,
       witness: infra.witness,
-      gossip: infra.gossip
-      // Store will be auto-initialized by Clout
+      gossip: infra.gossip,
+      store
     });
   }
 
@@ -93,7 +105,7 @@ export class CloutCommand extends Command {
     const message = args.join(' ');
     
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
 
       // Auto-buy ticket if needed
       // Fix TS2339: use hasActiveTicket() instead of ticketBooth.hasTicket()
@@ -120,7 +132,7 @@ export class CloutCommand extends Command {
     const message = args.slice(1).join(' ');
     
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
 
       // Fix TS2339: use hasActiveTicket()
       if (!clout.hasActiveTicket()) {
@@ -145,7 +157,7 @@ export class CloutCommand extends Command {
     const targetKey = args[0];
     
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
       await clout.trust(targetKey);
       // Success message logged by Clout
     } catch (error: any) {
@@ -157,7 +169,7 @@ export class CloutCommand extends Command {
     const limit = args.length > 0 ? parseInt(args[0], 10) : 20;
     
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
       
       const feed = await clout.getFeed();
       const posts = feed.posts.slice(0, limit);
@@ -194,7 +206,7 @@ export class CloutCommand extends Command {
     const postId = args[0];
     
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
       const feed = await clout.getFeed();
       
       const parentPost = feed.posts.find(p => p.id === postId);
@@ -239,7 +251,7 @@ export class CloutCommand extends Command {
     const message = args.slice(1).join(' ');
     
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
       await clout.slide(recipient, message);
       // Success message logged by Clout
     } catch (error: any) {
@@ -251,7 +263,7 @@ export class CloutCommand extends Command {
     const limit = args.length > 0 ? parseInt(args[0], 10) : 10;
     
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
       const inbox = await clout.getInbox();
 
       if (inbox.slides.length === 0) {
@@ -302,7 +314,7 @@ export class CloutCommand extends Command {
       return;
     }
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
       const { code } = await clout.invite(args[0], {});
       console.log(`\nInvitation created!`);
       // In real app, code would be hex string
@@ -313,7 +325,7 @@ export class CloutCommand extends Command {
 
   private async handleTicket(): Promise<void> {
     try {
-      const clout = this.getClout();
+      const clout = await this.getClout();
       // Fix TS2339: use hasActiveTicket()
       const hasTicket = clout.hasActiveTicket();
       
