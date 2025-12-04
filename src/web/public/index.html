@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scarcity Web Wallet</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🔨 Scarcity Web Wallet</h1>
+      <p class="subtitle">Privacy-preserving P2P value transfer</p>
+      <div class="status">
+        <span id="status-indicator" class="status-dot"></span>
+        <span id="status-text">Not initialized</span>
+      </div>
+    </header>
+
+    <div id="init-section" class="section">
+      <h2>Initialize Wallet</h2>
+      <p>Click to connect to the Scarcity network</p>
+      <button id="init-btn" class="btn btn-primary">Initialize Network</button>
+    </div>
+
+    <div id="main-app" style="display: none;">
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="wallets">Wallets</button>
+        <button class="tab-btn" data-tab="tokens">Tokens</button>
+        <button class="tab-btn" data-tab="send">Send</button>
+        <button class="tab-btn" data-tab="receive">Receive</button>
+        <button class="tab-btn" data-tab="operations">Operations</button>
+      </nav>
+
+      <!-- Wallets Tab -->
+      <div id="wallets-tab" class="tab-content active">
+        <div class="section">
+          <div class="section-header">
+            <h2>Your Wallets</h2>
+            <button id="create-wallet-btn" class="btn btn-small">+ New Wallet</button>
+          </div>
+
+          <div id="wallet-list" class="wallet-list"></div>
+
+          <div id="create-wallet-form" class="form-card" style="display: none;">
+            <h3>Create New Wallet</h3>
+            <input type="text" id="new-wallet-name" placeholder="Wallet name" class="input">
+            <label class="checkbox-label">
+              <input type="checkbox" id="set-default" checked>
+              Set as default wallet
+            </label>
+            <div class="form-actions">
+              <button id="create-wallet-submit" class="btn btn-primary">Create</button>
+              <button id="create-wallet-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+
+          <div id="import-wallet-form" class="form-card" style="display: none;">
+            <h3>Import Wallet</h3>
+            <input type="text" id="import-wallet-name" placeholder="Wallet name" class="input">
+            <input type="text" id="import-secret-key" placeholder="Secret key (hex)" class="input">
+            <div class="form-actions">
+              <button id="import-wallet-submit" class="btn btn-primary">Import</button>
+              <button id="import-wallet-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+
+          <button id="import-wallet-btn" class="btn btn-small" style="margin-top: 1rem;">Import Wallet</button>
+        </div>
+      </div>
+
+      <!-- Tokens Tab -->
+      <div id="tokens-tab" class="tab-content">
+        <div class="section">
+          <div class="section-header">
+            <h2>Tokens</h2>
+            <div>
+              <select id="token-wallet-filter" class="select">
+                <option value="">All wallets</option>
+              </select>
+              <button id="mint-token-btn" class="btn btn-small">Mint Token</button>
+            </div>
+          </div>
+
+          <div id="balance-display" class="balance-card">
+            <div class="balance-label">Total Balance</div>
+            <div class="balance-amount" id="total-balance">0</div>
+            <div class="balance-tokens" id="token-count">0 tokens</div>
+          </div>
+
+          <div id="token-list" class="token-list"></div>
+
+          <div id="mint-form" class="form-card" style="display: none;">
+            <h3>Mint New Token</h3>
+            <select id="mint-wallet" class="select">
+              <option value="">Select wallet</option>
+            </select>
+            <input type="number" id="mint-amount" placeholder="Amount" class="input" min="1">
+            <div class="form-actions">
+              <button id="mint-submit" class="btn btn-primary">Mint Token</button>
+              <button id="mint-cancel" class="btn btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Send Tab -->
+      <div id="send-tab" class="tab-content">
+        <div class="section">
+          <h2>Send Token</h2>
+          <div class="form-card">
+            <select id="send-token" class="select">
+              <option value="">Select token to send</option>
+            </select>
+            <input type="text" id="send-recipient" placeholder="Recipient public key (hex)" class="input">
+            <div class="form-actions">
+              <button id="send-submit" class="btn btn-primary">Send Token</button>
+            </div>
+          </div>
+          <div id="send-result" class="result-card" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Receive Tab -->
+      <div id="receive-tab" class="tab-content">
+        <div class="section">
+          <h2>Receive Token</h2>
+          <div class="form-card">
+            <select id="receive-wallet" class="select">
+              <option value="">Select receiving wallet</option>
+            </select>
+            <textarea id="receive-transfer" placeholder="Paste transfer data (JSON)" class="textarea" rows="8"></textarea>
+            <div class="form-actions">
+              <button id="receive-submit" class="btn btn-primary">Receive Token</button>
+            </div>
+          </div>
+          <div id="receive-result" class="result-card" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Operations Tab -->
+      <div id="operations-tab" class="tab-content">
+        <div class="section">
+          <h2>Token Operations</h2>
+
+          <div class="form-card">
+            <h3>Split Token</h3>
+            <select id="split-token" class="select">
+              <option value="">Select token to split</option>
+            </select>
+            <input type="text" id="split-amounts" placeholder="Amounts (comma-separated, e.g., 10,20,30)" class="input">
+            <div class="form-actions">
+              <button id="split-submit" class="btn btn-primary">Split Token</button>
+            </div>
+            <div id="split-result" class="result-card" style="display: none;"></div>
+          </div>
+
+          <div class="form-card">
+            <h3>Merge Tokens</h3>
+            <div id="merge-token-checkboxes" class="checkbox-list"></div>
+            <div class="form-actions">
+              <button id="merge-submit" class="btn btn-primary">Merge Selected Tokens</button>
+            </div>
+            <div id="merge-result" class="result-card" style="display: none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="loading" class="loading" style="display: none;">
+      <div class="spinner"></div>
+      <p id="loading-text">Processing...</p>
+    </div>
+
+    <div id="error-toast" class="toast error" style="display: none;"></div>
+    <div id="success-toast" class="toast success" style="display: none;"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
