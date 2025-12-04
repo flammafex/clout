@@ -239,7 +239,7 @@ export class WebRTCPeer implements NetworkPeer {
     }
 
     // Update metrics (simplified)
-    this.metadata.metrics.messagesSent++;
+    this.metadata.metrics!.messagesSent++;
     this.metadata.lastSeen = Date.now();
   }
 
