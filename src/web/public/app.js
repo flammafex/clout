@@ -90,6 +90,7 @@ async function initializeClout() {
     // Load initial data
     await loadFeed();
     await loadIdentity();
+    await loadProfile();
   } catch (error) {
     updateStatus(`Error: ${error.message}`, false);
     $('init-btn').disabled = false;
@@ -378,6 +379,86 @@ function setupCharCounter() {
   textarea.addEventListener('input', () => {
     counter.textContent = textarea.value.length;
   });
+
+  // Bio character counter
+  const bioTextarea = $('profile-bio');
+  const bioCounter = $('bio-char-count');
+  bioTextarea.addEventListener('input', () => {
+    bioCounter.textContent = bioTextarea.value.length;
+  });
+}
+
+// Profile functions
+async function loadProfile() {
+  try {
+    const data = await apiCall('/identity');
+    const profile = data;
+
+    // Update display
+    $('profile-name-display').textContent = profile.metadata?.displayName || '(No name set)';
+    $('profile-bio-display').textContent = profile.metadata?.bio || '';
+    $('profile-avatar-display').textContent = profile.metadata?.avatar || '👤';
+    $('profile-key-display').textContent = profile.publicKey.slice(0, 16) + '...';
+
+    // Show bio only if it exists
+    if (profile.metadata?.bio) {
+      $('profile-bio-display').style.display = 'block';
+    } else {
+      $('profile-bio-display').style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Failed to load profile:', error);
+  }
+}
+
+function showProfileEdit() {
+  // Load current values into form
+  apiCall('/identity').then(data => {
+    const profile = data;
+    $('profile-name').value = profile.metadata?.displayName || '';
+    $('profile-bio').value = profile.metadata?.bio || '';
+    $('profile-avatar').value = profile.metadata?.avatar || '';
+    $('bio-char-count').textContent = ($('profile-bio').value || '').length;
+  });
+
+  // Toggle view/edit
+  $('profile-view').style.display = 'none';
+  $('profile-edit').style.display = 'block';
+  $('profile-result').style.display = 'none';
+}
+
+function cancelProfileEdit() {
+  $('profile-view').style.display = 'block';
+  $('profile-edit').style.display = 'none';
+  $('profile-result').style.display = 'none';
+}
+
+async function saveProfile() {
+  const displayName = $('profile-name').value.trim();
+  const bio = $('profile-bio').value.trim();
+  const avatar = $('profile-avatar').value.trim();
+
+  try {
+    $('save-profile-btn').disabled = true;
+    $('save-profile-btn').textContent = 'Saving...';
+
+    await apiCall('/profile', 'POST', { displayName, bio, avatar });
+
+    showResult('profile-result', 'Profile updated! Changes will sync to peers automatically.', true);
+
+    // Reload profile display
+    await loadProfile();
+
+    // Switch back to view mode after short delay
+    setTimeout(() => {
+      cancelProfileEdit();
+    }, 1500);
+  } catch (error) {
+    showResult('profile-result', `Error: ${error.message}`, false);
+  } finally {
+    $('save-profile-btn').disabled = false;
+    $('save-profile-btn').textContent = 'Save Profile';
+  }
 }
 
 // Initialize app
@@ -410,6 +491,11 @@ document.addEventListener('DOMContentLoaded', () => {
   $('slide-message').addEventListener('input', () => {
     $('slide-char-count').textContent = $('slide-message').value.length;
   });
+
+  // Profile event listeners
+  $('edit-profile-btn').addEventListener('click', showProfileEdit);
+  $('save-profile-btn').addEventListener('click', saveProfile);
+  $('cancel-edit-btn').addEventListener('click', cancelProfileEdit);
 
   // Check health
   apiCall('/health').then(data => {

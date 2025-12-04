@@ -88,7 +88,7 @@ export class CloutWebServer {
     // Update Profile
     this.app.post('/api/profile', async (req, res) => {
       try {
-        await this.ensureInitialized();
+        if (!this.initialized) throw new Error('Not initialized');
 
         const { displayName, bio, avatar } = req.body;
         const metadata: any = {};

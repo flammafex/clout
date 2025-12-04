@@ -488,6 +488,92 @@ h2 {
   word-wrap: break-word;
 }
 
+/* Profile Styles */
+.profile-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 600px;
+}
+
+.profile-header {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+  align-items: flex-start;
+}
+
+.profile-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  flex-shrink: 0;
+}
+
+.profile-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-info h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text);
+  font-size: 1.5rem;
+}
+
+.profile-bio {
+  color: var(--text);
+  margin: 0.5rem 0;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.profile-key {
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  color: var(--text-dim);
+  margin: 0.5rem 0 0 0;
+  word-break: break-all;
+}
+
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: var(--border);
+}
+
+.help-text {
+  color: var(--text-dim);
+  margin-bottom: 1.5rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .container {
