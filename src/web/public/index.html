@@ -30,6 +30,7 @@
         <button class="tab-btn active" data-tab="feed">Feed</button>
         <button class="tab-btn" data-tab="post">Post</button>
         <button class="tab-btn" data-tab="trust">Trust</button>
+        <button class="tab-btn" data-tab="thread" style="display: none;">Thread</button>
         <button class="tab-btn" data-tab="identity">Identity</button>
         <button class="tab-btn" data-tab="stats">Stats</button>
       </nav>
@@ -97,6 +98,27 @@
               <li><strong>Distance 3:</strong> Extended network</li>
             </ul>
             <p>You'll only see posts from people within your trust network (up to 3 hops away).</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Thread Tab -->
+      <div id="thread-tab" class="tab-content">
+        <div class="section">
+          <div class="section-header">
+            <h2>🧵 Thread</h2>
+            <button id="back-to-feed-btn" class="btn btn-small">← Back to Feed</button>
+          </div>
+
+          <div id="thread-content">
+            <!-- Parent post -->
+            <div id="thread-parent" class="thread-parent"></div>
+
+            <!-- Replies -->
+            <div id="thread-replies" class="thread-replies">
+              <h3>Replies</h3>
+              <div id="thread-replies-list"></div>
+            </div>
           </div>
         </div>
       </div>
