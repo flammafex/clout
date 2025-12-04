@@ -4,7 +4,7 @@
 _A mission of [The Carpocratian Church of Commonality and Equality](https://carpocratian.org/en/church/)_.</div>
 <div align=center><img src="mission.png" width=256 height=200></div></div>
 
-# Clout - Uncensorable Reputation Protocol
+# START SPREADING THE NEWS
 
 **Clout** is an uncensorable reputation protocol that inverts the logic of [Scarcity](https://github.com/flammafex/Scarcity):
 
@@ -120,7 +120,7 @@ Clout is built in 5 phases by refactoring Scarcity's core components:
 - Your profile is a CRDT that syncs P2P
 - Follow someone = merge their Chronicle into your view
 
-## Installation
+## BE A PART OF IT
 
 ```bash
 npm install
