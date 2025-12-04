@@ -238,6 +238,55 @@ Posts from untrusted sources **vanish from your reality**. They never enter your
 
 Each user computes their own feed based on their unique trust graph. There is no global feed, no centralized algorithm. Your reality is defined by who **you** trust.
 
+### The Dunbar Number and Network Scale
+
+Clout's architecture is designed around **Dunbar's number** (~150) - the cognitive limit to the number of people with whom one can maintain stable social relationships.
+
+#### Why 3 Hops?
+
+The default `maxHops: 3` setting creates natural network boundaries that align with human cognitive limits:
+
+- **Distance 1** (Direct trust): ~50-150 people you personally trust
+- **Distance 2** (Friends of friends): ~2,500-22,500 people (50² to 150²)
+- **Distance 3** (Extended network): ~125,000-3,375,000 people (50³ to 150³)
+
+This creates a **self-regulating network size** where:
+1. Your feed remains **cognitively manageable** (not millions of posts)
+2. The network is **large enough** for content diversity
+3. **Trust degrades naturally** with distance (0.9 → 0.6 → 0.3)
+
+#### Contrast with Traditional Social Networks
+
+Traditional platforms try to **exceed cognitive limits**:
+- Facebook: Average 338 friends (>2× Dunbar's number)
+- Twitter: No limit on follows (easily 1000+ for active users)
+- Result: **Algorithmic curation becomes necessary** because humans can't process that much
+
+Clout instead **respects cognitive limits**:
+- Your direct trust list stays manageable (~150 or less)
+- Extended network grows naturally through transitive trust
+- No algorithmic feed curation needed - the trust graph itself provides natural filtering
+- You maintain **meaningful relationships** rather than parasocial ones
+
+#### The "Village Scale" Network
+
+Think of Clout as creating **village-scale social networks**:
+- **Distance 1**: Your village (~150 people)
+- **Distance 2**: Neighboring villages you know through your villagers
+- **Distance 3**: The extended region - far enough to be diverse, close enough to be trustworthy
+
+This mirrors how humans **evolved to socialize** - in small, interconnected groups with transitive trust, not in massive anonymous crowds requiring algorithmic oversight.
+
+#### Implications for Content Moderation
+
+Because each user's feed is limited by their trust graph:
+- **No global moderation needed** - you only see content from your extended network
+- **Natural spam resistance** - spammers must infiltrate trust networks, not just create accounts
+- **Subjective reality** - different trust graphs see entirely different "internets"
+- **Cultural diversity** - isolated trust networks can maintain different norms without conflict
+
+Clout's design acknowledges that **human social cognition doesn't scale infinitely**, and builds a protocol that works **with** our cognitive limits rather than against them.
+
 ## Comparison to Scarcity
 
 | Component | Scarcity (Money) | Clout (Reputation) |
