@@ -37,7 +37,7 @@ async function main() {
   const commandArgs = args.slice(1);
 
   // Map commands - Clout commands get the full args
-  const cloutCommands = ['post', 'reply', 'follow', 'trust', 'feed', 'thread', 'slide', 'slides', 'id', 'invite', 'ticket', 'pass'];
+  const cloutCommands = ['post', 'reply', 'follow', 'trust', 'feed', 'thread', 'slide', 'slides', 'profile', 'id', 'invite', 'ticket', 'pass'];
 
   if (cloutCommands.includes(commandName)) {
     const cloutCmd = new CloutCommand();

@@ -4,15 +4,16 @@ import { Crypto } from './crypto.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
 import type { FreebirdClient, WitnessClient } from './types.js';
-import { 
-  type TrustSignal, 
-  type ReputationScore, 
-  type Feed, 
-  type PostPackage, 
-  type SlidePackage, 
+import {
+  type TrustSignal,
+  type ReputationScore,
+  type Feed,
+  type PostPackage,
+  type SlidePackage,
   type Inbox,
   type CloutStore,
   type ContentGossipMessage,
+  type CloutProfile,
   DEFAULT_TRUST_SETTINGS
 } from './clout-types.js';
 
@@ -483,12 +484,68 @@ export class Clout {
   }
 
   /**
-   * Get the current user's profile and trust graph
+   * Get the current user's profile (from Chronicle state)
    */
-  getProfile() {
-    return {
+  getProfile(): CloutProfile {
+    const state = this.state.getState();
+    return state.profile || {
       publicKey: this.publicKeyHex,
-      trustGraph: this.trustGraph
+      trustGraph: this.trustGraph,
+      trustSettings: DEFAULT_TRUST_SETTINGS
+    };
+  }
+
+  /**
+   * Update profile metadata (display name, bio, avatar)
+   * Changes sync automatically via Chronicle CRDT
+   */
+  async setProfileMetadata(metadata: {
+    displayName?: string;
+    bio?: string;
+    avatar?: string;
+  }): Promise<void> {
+    console.log(`[Clout] 📝 Updating profile metadata`);
+
+    // Get current profile
+    const currentProfile = this.getProfile();
+
+    // Merge new metadata with existing
+    const updatedMetadata = {
+      ...currentProfile.metadata,
+      ...metadata
+    };
+
+    // Update profile in Chronicle (which will auto-sync to peers)
+    this.state.updateProfile({
+      publicKey: this.publicKeyHex,
+      trustGraph: this.trustGraph,
+      trustSettings: currentProfile.trustSettings,
+      metadata: updatedMetadata
+    });
+
+    console.log(`[Clout] ✅ Profile updated:`, updatedMetadata);
+
+    // Immediately broadcast updated state to peers
+    if (this.gossip) {
+      await this.broadcastState();
+    }
+  }
+
+  /**
+   * Get profile for any user (from Chronicle state or local knowledge)
+   */
+  getProfileForUser(publicKey: string): CloutProfile | null {
+    // If it's our own key, return our profile
+    if (publicKey === this.publicKeyHex) {
+      return this.getProfile();
+    }
+
+    // TODO: In a full implementation, we'd fetch from peer state
+    // For now, return minimal profile
+    return {
+      publicKey,
+      trustGraph: new Set(),
+      trustSettings: DEFAULT_TRUST_SETTINGS
     };
   }
 
