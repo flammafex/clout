@@ -298,6 +298,29 @@ h2 {
   border-color: var(--primary);
 }
 
+/* Thread View */
+.thread-parent-post {
+  border: 2px solid var(--primary) !important;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(139, 92, 246, 0.05));
+}
+
+.thread-replies {
+  margin-top: 2rem;
+}
+
+.thread-replies h3 {
+  color: var(--text);
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  padding-left: 0.5rem;
+  border-left: 3px solid var(--secondary);
+}
+
+.thread-replies-list .feed-item {
+  margin-left: 1.5rem;
+  border-left: 2px solid var(--border);
+}
+
 .empty-state {
   text-align: center;
   color: var(--text-dim);

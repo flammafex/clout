@@ -108,18 +108,68 @@ async function loadFeed() {
     }
 
     feedList.innerHTML = data.posts.map(post => `
-      <div class="feed-item">
+      <div class="feed-item" onclick="viewThread('${post.id}')" style="cursor: pointer;">
         <div class="feed-author">${post.author.slice(0, 16)}...</div>
         ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
         <div class="feed-content">${escapeHtml(post.content)}</div>
         <div class="feed-footer">
           <div class="feed-timestamp">${new Date(post.timestamp).toLocaleString()}</div>
-          <button class="btn-reply" onclick="startReply('${post.id}', '${post.author.slice(0, 16)}')">Reply</button>
+          <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${post.author.slice(0, 16)}')">Reply</button>
         </div>
       </div>
     `).join('');
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
+  }
+}
+
+// View Thread
+async function viewThread(postId) {
+  try {
+    const data = await apiCall(`/thread/${postId}`);
+
+    // Show thread tab button and switch to it
+    const threadTabBtn = $$('.tab-btn')[3]; // Thread tab is 4th
+    threadTabBtn.style.display = 'block';
+
+    $$('.tab-btn').forEach(b => b.classList.remove('active'));
+    threadTabBtn.classList.add('active');
+    $$('.tab-content').forEach(content => content.classList.remove('active'));
+    $('thread-tab').classList.add('active');
+
+    // Display parent post
+    const parent = data.parent;
+    $('thread-parent').innerHTML = `
+      <div class="feed-item thread-parent-post">
+        <div class="feed-author">${parent.author.slice(0, 16)}...</div>
+        ${parent.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${parent.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); viewThread('${parent.replyTo}')">View parent</a></div>` : ''}
+        <div class="feed-content">${escapeHtml(parent.content)}</div>
+        <div class="feed-footer">
+          <div class="feed-timestamp">${new Date(parent.timestamp).toLocaleString()}</div>
+          <button class="btn-reply" onclick="startReply('${parent.id}', '${parent.author.slice(0, 16)}')">Reply</button>
+        </div>
+      </div>
+    `;
+
+    // Display replies
+    const repliesList = $('thread-replies-list');
+    if (data.replies.length === 0) {
+      repliesList.innerHTML = '<p class="empty-state">No replies yet. Be the first to reply!</p>';
+    } else {
+      repliesList.innerHTML = data.replies.map(reply => `
+        <div class="feed-item" onclick="viewThread('${reply.id}')" style="cursor: pointer;">
+          <div class="feed-author">${reply.author.slice(0, 16)}...</div>
+          <div class="feed-content">${escapeHtml(reply.content)}</div>
+          <div class="feed-footer">
+            <div class="feed-timestamp">${new Date(reply.timestamp).toLocaleString()}</div>
+            <button class="btn-reply" onclick="event.stopPropagation(); startReply('${reply.id}', '${reply.author.slice(0, 16)}')">Reply</button>
+          </div>
+        </div>
+      `).join('');
+    }
+  } catch (error) {
+    console.error('Error loading thread:', error);
+    alert(`Error loading thread: ${error.message}`);
   }
 }
 
@@ -276,6 +326,19 @@ document.addEventListener('DOMContentLoaded', () => {
   $('create-post-btn').addEventListener('click', createPost);
   $('trust-btn').addEventListener('click', trustUser);
   $('refresh-feed-btn').addEventListener('click', loadFeed);
+  $('back-to-feed-btn').addEventListener('click', () => {
+    // Switch back to feed tab
+    $$('.tab-btn').forEach(b => b.classList.remove('active'));
+    $$('.tab-btn')[0].classList.add('active'); // Feed is first
+    $$('.tab-content').forEach(content => content.classList.remove('active'));
+    $('feed-tab').classList.add('active');
+
+    // Hide thread tab button
+    $$('.tab-btn')[3].style.display = 'none';
+
+    // Reload feed
+    loadFeed();
+  });
 
   // Check health
   apiCall('/health').then(data => {

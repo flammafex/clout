@@ -191,6 +191,51 @@ export class CloutWebServer {
       }
     });
 
+    // Get thread (post + all direct replies)
+    this.app.get('/api/thread/:postId', async (req, res) => {
+      try {
+        await this.ensureInitialized();
+
+        const { postId } = req.params;
+        const feed = this.clout!.getFeed();
+
+        // Find the parent post
+        const parentPost = feed.posts.find(p => p.id === postId);
+        if (!parentPost) {
+          return res.status(404).json({ success: false, error: 'Post not found' });
+        }
+
+        // Find all direct replies to this post
+        const replies = feed.posts
+          .filter(p => p.replyTo === postId)
+          .sort((a, b) => a.proof.timestamp - b.proof.timestamp);
+
+        res.json({
+          success: true,
+          data: {
+            parent: {
+              id: parentPost.id,
+              content: parentPost.content,
+              author: parentPost.author,
+              timestamp: parentPost.proof.timestamp,
+              contentType: parentPost.contentType,
+              replyTo: parentPost.replyTo
+            },
+            replies: replies.map(post => ({
+              id: post.id,
+              content: post.content,
+              author: post.author,
+              timestamp: post.proof.timestamp,
+              contentType: post.contentType,
+              replyTo: post.replyTo
+            }))
+          }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
     // Get stats
     this.app.get('/api/stats', async (req, res) => {
       try {

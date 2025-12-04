@@ -40,6 +40,9 @@ export class CloutCommand extends Command {
       case 'feed':
         await this.handleFeed(subcommandArgs);
         break;
+      case 'thread':
+        await this.handleThread(subcommandArgs);
+        break;
       case 'identity':
       case 'id':
         await this.handleIdentity(subcommandArgs);
@@ -289,6 +292,107 @@ export class CloutCommand extends Command {
   }
 
   /**
+   * View thread (post + replies)
+   */
+  private async handleThread(args: string[]): Promise<void> {
+    if (args.length === 0) {
+      console.error('Error: Post ID required');
+      console.error('Usage: clout thread <postId>');
+      process.exit(1);
+    }
+
+    const postId = args[0];
+
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
+      console.error('Error: No default identity. Create one with: clout identity create');
+      process.exit(1);
+    }
+
+    const identity = this.identityManager.getIdentity(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
+
+    // Initialize infrastructure
+    console.log('🔨 Initializing Clout infrastructure...');
+    const infra = await this.infraManager.initialize();
+
+    // Create Clout instance
+    const clout = new Clout({
+      publicKey: identity.publicKey,
+      privateKey: secretKey,
+      freebird: infra.freebird,
+      witness: infra.witness,
+      gossip: infra.gossip
+    });
+
+    // Get feed and find thread
+    const feed = clout.getFeed();
+    const parentPost = feed.posts.find(p => p.id === postId);
+
+    if (!parentPost) {
+      console.error(`Error: Post ${postId} not found in feed`);
+      process.exit(1);
+    }
+
+    // Find all replies
+    const replies = feed.posts
+      .filter(p => p.replyTo === postId)
+      .sort((a, b) => a.proof.timestamp - b.proof.timestamp);
+
+    // Display thread
+    console.log(`\n🧵 Thread: ${postId.slice(0, 16)}...`);
+    console.log(`═══════════════════════════════════════════════════════\n`);
+
+    // Parent post
+    const timestamp = new Date(parentPost.proof.timestamp).toLocaleString();
+    const authorShort = parentPost.author.slice(0, 16) + '...';
+
+    console.log(`┌─────────────────────────────────────────────────────┐`);
+    console.log(`│ ${authorShort.padEnd(50)} │`);
+    if (parentPost.replyTo) {
+      console.log(`│ ↳ Reply to ${parentPost.replyTo.slice(0, 8)}...`.padEnd(53) + ' │');
+    }
+    console.log(`├─────────────────────────────────────────────────────┤`);
+    console.log(`│ ${parentPost.content.padEnd(50).slice(0, 50)} │`);
+    if (parentPost.content.length > 50) {
+      const lines = parentPost.content.match(/.{1,50}/g) || [];
+      for (let i = 1; i < lines.length; i++) {
+        console.log(`│ ${lines[i].padEnd(50)} │`);
+      }
+    }
+    console.log(`├─────────────────────────────────────────────────────┤`);
+    console.log(`│ ${timestamp.padEnd(50)} │`);
+    console.log(`└─────────────────────────────────────────────────────┘\n`);
+
+    // Replies
+    if (replies.length === 0) {
+      console.log('No replies yet.\n');
+    } else {
+      console.log(`${replies.length} ${replies.length === 1 ? 'Reply' : 'Replies'}:\n`);
+
+      for (const reply of replies) {
+        const replyTimestamp = new Date(reply.proof.timestamp).toLocaleString();
+        const replyAuthorShort = reply.author.slice(0, 16) + '...';
+
+        console.log(`  ┌───────────────────────────────────────────────────┐`);
+        console.log(`  │ ${replyAuthorShort.padEnd(48)} │`);
+        console.log(`  ├───────────────────────────────────────────────────┤`);
+        console.log(`  │ ${reply.content.padEnd(48).slice(0, 48)} │`);
+        if (reply.content.length > 48) {
+          const lines = reply.content.match(/.{1,48}/g) || [];
+          for (let i = 1; i < lines.length; i++) {
+            console.log(`  │ ${lines[i].padEnd(48)} │`);
+          }
+        }
+        console.log(`  ├───────────────────────────────────────────────────┤`);
+        console.log(`  │ ${replyTimestamp.padEnd(48)} │`);
+        console.log(`  └───────────────────────────────────────────────────┘\n`);
+      }
+    }
+  }
+
+  /**
    * Show identity
    */
   private async handleIdentity(args: string[]): Promise<void> {
@@ -376,6 +480,7 @@ USAGE:
   clout reply <postId> <message> Reply to a post
   clout follow <publicKey>       Trust/follow a user
   clout feed [limit]             View your feed (default 20 posts)
+  clout thread <postId>          View a thread (post + replies)
   clout identity                 Show your identity
   clout invite <publicKey>       Create an invitation
   clout ticket                   Check day pass status
@@ -386,6 +491,9 @@ EXAMPLES:
 
   # Reply to a post
   clout reply 1db5bcf8 "Great post!"
+
+  # View a thread
+  clout thread 1db5bcf8
 
   # Follow someone
   clout follow a1b2c3d4e5f6...
