@@ -45,6 +45,27 @@ export type {
   CloutState
 } from './clout-types.js';
 
+// Network layer (Phase 6: P2P Integration)
+export { CloutNode } from './network/clout-node.js';
+export { PeerManager } from './network/peer-manager.js';
+export { DHTDiscovery } from './network/dht-discovery.js';
+export { RelayServer } from './network/relay-server.js';
+export { RelayClient } from './network/relay-client.js';
+export { WebRTCPeer } from './network/webrtc-peer.js';
+
+export type {
+  NetworkConfig,
+  NetworkPeer,
+  NodeType,
+  PeerState,
+  PeerMetadata,
+  PeerInfo,
+  PeerDiscovery,
+  NetworkStats,
+  NetworkMessage,
+  RelayMessage
+} from './network-types.js';
+
 // Re-export Scarcity infrastructure (crypto, integrations, etc.)
 export { Crypto } from './crypto.js';
 export { FreebirdAdapter } from './integrations/freebird.js';

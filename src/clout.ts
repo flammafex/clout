@@ -18,6 +18,7 @@ import { CloutPost } from './post.js';
 import { ContentGossip } from './content-gossip.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
+import { CloutNode } from './network/clout-node.js';
 import { Crypto } from './crypto.js';
 
 import type { FreebirdClient, WitnessClient, PublicKey } from './types.js';
@@ -28,6 +29,7 @@ import type {
   ContentGossipMessage,
   Feed
 } from './clout-types.js';
+import type { NodeType } from './network-types.js';
 
 export interface CloutConfig {
   readonly publicKey: PublicKey;
@@ -36,6 +38,15 @@ export interface CloutConfig {
   readonly witness: WitnessClient;
   readonly maxHops?: number;
   readonly minReputation?: number;
+
+  /** Network configuration (optional - for P2P networking) */
+  readonly network?: {
+    readonly nodeType?: NodeType;
+    readonly relayServers?: string[];
+    readonly enableDHT?: boolean;
+    readonly maxPeers?: number;
+    readonly listenPort?: number;
+  };
 }
 
 /**
@@ -50,10 +61,13 @@ export class Clout {
   private readonly state: CloutStateManager;
   private readonly witness: WitnessClient;
   private readonly freebird: FreebirdClient;
+  private readonly node?: CloutNode;
+  private readonly publicKeyHex: string;
 
   constructor(config: CloutConfig) {
     this.freebird = config.freebird;
     this.witness = config.witness;
+    this.publicKeyHex = Crypto.toHex(config.publicKey.bytes);
 
     // Phase 1: Identity & Trust
     this.identity = new CloutIdentity({
@@ -88,6 +102,45 @@ export class Clout {
     this.gossip.setReceiveHandler(async (message) => {
       await this.handleGossipMessage(message);
     });
+
+    // Phase 6: P2P Network (optional)
+    if (config.network) {
+      this.node = new CloutNode({
+        publicKey: this.publicKeyHex,
+        trustGraph: this.identity.getProfile().trustGraph,
+        nodeType: config.network.nodeType || 'light' as NodeType,
+        relayServers: config.network.relayServers,
+        enableDHT: config.network.enableDHT,
+        maxPeers: config.network.maxPeers,
+        listenPort: config.network.listenPort,
+        onMessage: async (peer, message) => {
+          // Messages from P2P network flow into gossip layer
+          await this.gossip.onReceive(message, peer.id);
+        }
+      });
+    }
+  }
+
+  /**
+   * Start P2P networking
+   */
+  async startNetwork(): Promise<void> {
+    if (!this.node) {
+      console.warn('[Clout] No network configuration provided');
+      return;
+    }
+
+    await this.node.start();
+    console.log('[Clout] Network started');
+  }
+
+  /**
+   * Stop P2P networking
+   */
+  async stopNetwork(): Promise<void> {
+    if (this.node) {
+      await this.node.stop();
+    }
   }
 
   /**
@@ -137,6 +190,11 @@ export class Clout {
     this.gossip.updateTrustGraph(this.identity.getProfile().trustGraph);
     this.validator.updateTrustGraph(this.identity.getProfile().trustGraph);
 
+    // Update P2P network (connect to newly trusted peer)
+    if (this.node) {
+      await this.node.updateTrustGraph(this.identity.getProfile().trustGraph);
+    }
+
     // Create trust signal
     const signal: TrustSignal = {
       truster: this.identity.getPublicKeyHex(),
@@ -150,12 +208,21 @@ export class Clout {
     // Add to state
     this.state.addTrustSignal(signal);
 
-    // Broadcast trust signal
+    // Broadcast trust signal via gossip
     await this.gossip.publish({
       type: 'trust',
       trustSignal: signal,
       timestamp: Date.now()
     });
+
+    // Broadcast via P2P network if available
+    if (this.node) {
+      await this.node.broadcast({
+        type: 'trust',
+        trustSignal: signal,
+        timestamp: Date.now()
+      });
+    }
 
     // Add to validator's trust signal cache
     this.validator.addTrustSignal(signal);
@@ -173,6 +240,11 @@ export class Clout {
     // Update gossip and validator
     this.gossip.updateTrustGraph(this.identity.getProfile().trustGraph);
     this.validator.updateTrustGraph(this.identity.getProfile().trustGraph);
+
+    // Update P2P network (disconnect from untrusted peer)
+    if (this.node) {
+      await this.node.updateTrustGraph(this.identity.getProfile().trustGraph);
+    }
 
     // Broadcast revocation
     const signal: TrustSignal = {
