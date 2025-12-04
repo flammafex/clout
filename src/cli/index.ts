@@ -1,15 +1,12 @@
 #!/usr/bin/env node
 /**
- * Scarcity CLI - Command-line interface for Scarcity protocol
+ * Clout CLI - Command-line interface for Clout protocol
  *
- * A comprehensive CLI for managing tokens, wallets, and network operations.
+ * A CLI for managing identity, posts, and trust relationships.
  */
 
 import { Command } from './command.js';
 import { WalletCommand } from './commands/wallet.js';
-import { TokenCommand } from './commands/token.js';
-import { HTLCCommand } from './commands/htlc.js';
-import { BridgeCommand } from './commands/bridge.js';
 import { ConfigCommand } from './commands/config.js';
 import { InteractiveCommand } from './commands/interactive.js';
 
@@ -26,7 +23,7 @@ async function main() {
 
   // Show version
   if (args[0] === '--version' || args[0] === '-v') {
-    console.log(`Scarcity CLI v${VERSION}`);
+    console.log(`Clout CLI v${VERSION}`);
     process.exit(0);
   }
 
@@ -37,9 +34,6 @@ async function main() {
   // Map commands
   const commands: { [key: string]: Command } = {
     wallet: new WalletCommand(),
-    token: new TokenCommand(),
-    htlc: new HTLCCommand(),
-    bridge: new BridgeCommand(),
     config: new ConfigCommand(),
     interactive: new InteractiveCommand(),
     repl: new InteractiveCommand(), // Alias
@@ -66,17 +60,14 @@ async function main() {
 
 function showHelp() {
   console.log(`
-Scarcity CLI v${VERSION}
-Privacy-preserving P2P value transfer protocol
+Clout CLI v${VERSION}
+Uncensorable reputation protocol - P2P social network with trust-based filtering
 
 USAGE:
-  scar <command> [options]
+  clout <command> [options]
 
 COMMANDS:
   wallet         Manage wallets and keys
-  token          Token operations (mint, transfer, split, merge)
-  htlc           Hash Time-Locked Contracts
-  bridge         Cross-federation bridge operations
   config         Configuration management
   interactive    Interactive REPL mode
 
@@ -86,16 +77,10 @@ OPTIONS:
 
 EXAMPLES:
   # Create a new wallet
-  scar wallet create
+  clout wallet create
 
-  # Mint a token
-  scar token mint --amount 100
-
-  # Transfer a token
-  scar token transfer <token-id> <recipient-public-key>
-
-  # Split a token
-  scar token split <token-id> --amounts 30,40,30
+  # Start interactive mode
+  clout interactive
 
   # Start interactive mode
   scar interactive
