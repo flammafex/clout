@@ -5,12 +5,12 @@
  */
 
 import { Command } from '../command.js';
-import { WalletManager } from '../wallet.js';
+import { IdentityManager } from '../identity-manager.js';
 import { InfrastructureManager } from '../infrastructure.js';
 import { Clout } from '../../clout.js';
 
 export class CloutCommand extends Command {
-  private walletManager = new WalletManager();
+  private identityManager = new IdentityManager();
   private infraManager = new InfrastructureManager();
 
   constructor() {
@@ -68,14 +68,14 @@ export class CloutCommand extends Command {
     const message = args.join(' ');
 
     // Get default wallet
-    const defaultWallet = this.walletManager.getDefaultWalletName();
+    const defaultWallet = this.identityManager.getDefaultWalletName();
     if (!defaultWallet) {
-      console.error('Error: No default wallet. Create one with: clout wallet create');
+      console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.walletManager.getWallet(defaultWallet);
-    const secretKey = this.walletManager.getSecretKey(defaultWallet);
+    const wallet = this.identityManager.getWallet(defaultWallet);
+    const secretKey = this.identityManager.getSecretKey(defaultWallet);
 
     // Initialize infrastructure
     console.log('🔨 Initializing Clout infrastructure...');
@@ -126,14 +126,14 @@ export class CloutCommand extends Command {
     const targetPublicKey = args[0];
 
     // Get default wallet
-    const defaultWallet = this.walletManager.getDefaultWalletName();
+    const defaultWallet = this.identityManager.getDefaultWalletName();
     if (!defaultWallet) {
-      console.error('Error: No default wallet. Create one with: clout wallet create');
+      console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.walletManager.getWallet(defaultWallet);
-    const secretKey = this.walletManager.getSecretKey(defaultWallet);
+    const wallet = this.identityManager.getWallet(defaultWallet);
+    const secretKey = this.identityManager.getSecretKey(defaultWallet);
 
     // Initialize infrastructure
     console.log('🔨 Initializing Clout infrastructure...');
@@ -164,14 +164,14 @@ export class CloutCommand extends Command {
     const limit = args.length > 0 ? parseInt(args[0], 10) : 20;
 
     // Get default wallet
-    const defaultWallet = this.walletManager.getDefaultWalletName();
+    const defaultWallet = this.identityManager.getDefaultWalletName();
     if (!defaultWallet) {
-      console.error('Error: No default wallet. Create one with: clout wallet create');
+      console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.walletManager.getWallet(defaultWallet);
-    const secretKey = this.walletManager.getSecretKey(defaultWallet);
+    const wallet = this.identityManager.getWallet(defaultWallet);
+    const secretKey = this.identityManager.getSecretKey(defaultWallet);
 
     // Initialize infrastructure
     console.log('🔨 Initializing Clout infrastructure...');
@@ -230,18 +230,18 @@ export class CloutCommand extends Command {
    */
   private async handleIdentity(args: string[]): Promise<void> {
     // Get default wallet
-    const defaultWallet = this.walletManager.getDefaultWalletName();
+    const defaultWallet = this.identityManager.getDefaultWalletName();
     if (!defaultWallet) {
-      console.error('Error: No default wallet. Create one with: clout wallet create');
+      console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.walletManager.getWallet(defaultWallet);
+    const wallet = this.identityManager.getWallet(defaultWallet);
 
     console.log(`\n═══════════════════════════════════════════════════════`);
     console.log(`                   YOUR IDENTITY`);
     console.log(`═══════════════════════════════════════════════════════\n`);
-    console.log(`  Wallet: ${defaultWallet}`);
+    console.log(`  Identity: ${defaultWallet}`);
     console.log(`  Public Key: ${wallet.publicKey}`);
     console.log(`  Created: ${new Date(wallet.created).toLocaleString()}`);
     console.log(`\n═══════════════════════════════════════════════════════\n`);
@@ -260,14 +260,14 @@ export class CloutCommand extends Command {
     const recipientPublicKey = args[0];
 
     // Get default wallet
-    const defaultWallet = this.walletManager.getDefaultWalletName();
+    const defaultWallet = this.identityManager.getDefaultWalletName();
     if (!defaultWallet) {
-      console.error('Error: No default wallet. Create one with: clout wallet create');
+      console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.walletManager.getWallet(defaultWallet);
-    const secretKey = this.walletManager.getSecretKey(defaultWallet);
+    const wallet = this.identityManager.getWallet(defaultWallet);
+    const secretKey = this.identityManager.getSecretKey(defaultWallet);
 
     // Initialize infrastructure
     console.log('🔨 Initializing Clout infrastructure...');

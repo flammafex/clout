@@ -1,13 +1,13 @@
 /**
- * Wallet command - Manage wallets and keys (DEPRECATED - use identity command)
+ * Identity command - Manage identities and keys
  */
 
 import { Command } from '../command.js';
 import { IdentityManager } from '../identity-manager.js';
 
-export class WalletCommand extends Command {
+export class IdentityCommand extends Command {
   constructor() {
-    super('wallet', 'Manage wallets and keys');
+    super('identity', 'Manage identities and keys');
   }
 
   async execute(args: string[]): Promise<void> {
@@ -68,49 +68,49 @@ export class WalletCommand extends Command {
     const setDefault = options.default !== false;
 
     try {
-      const walletData = manager.createWallet(name, setDefault);
+      const identity = manager.createIdentity(name, setDefault);
 
-      console.log('✅ Wallet created successfully!');
+      console.log('✅ Identity created successfully!');
       console.log('');
-      console.log(`Name:       ${walletData.name}`);
-      console.log(`Public Key: ${walletData.publicKey}`);
+      console.log(`Name:       ${identity.name}`);
+      console.log(`Public Key: ${identity.publicKey}`);
       console.log('');
       console.log('⚠️  IMPORTANT: Back up your secret key!');
       console.log('');
-      console.log(`Secret Key: ${walletData.secretKey}`);
+      console.log(`Secret Key: ${identity.secretKey}`);
       console.log('');
-      console.log('Store this secret key safely. You will need it to access your tokens.');
-      console.log('Anyone with this secret key can spend your tokens!');
+      console.log('Store this secret key safely. You will need it to sign posts and trust signals.');
+      console.log('Anyone with this secret key can impersonate your identity!');
       console.log('');
 
       if (setDefault) {
-        console.log(`✓ Set as default wallet`);
+        console.log(`✓ Set as default identity`);
       }
     } catch (error: any) {
-      console.error(`Failed to create wallet: ${error.message}`);
+      console.error(`Failed to create identity: ${error.message}`);
       process.exit(1);
     }
   }
 
   private async list(manager: IdentityManager): Promise<void> {
-    const wallets = manager.listWallets();
-    const defaultWallet = manager.getDefaultWalletName();
+    const identities = manager.listIdentities();
+    const defaultIdentity = manager.getDefaultIdentityName();
 
-    if (wallets.length === 0) {
-      console.log('No wallets found. Create one with: scar wallet create');
+    if (identities.length === 0) {
+      console.log('No identities found. Create one with: clout identity create');
       return;
     }
 
     console.log('');
-    console.log('Wallets:');
+    console.log('Identities:');
     console.log('');
 
-    for (const w of wallets) {
-      const isDefault = w.name === defaultWallet ? ' (default)' : '';
-      const date = new Date(w.created).toLocaleString();
+    for (const identity of identities) {
+      const isDefault = identity.name === defaultIdentity ? ' (default)' : '';
+      const date = new Date(identity.created).toLocaleString();
 
-      console.log(`  ${w.name}${isDefault}`);
-      console.log(`    Public Key: ${w.publicKey}`);
+      console.log(`  ${identity.name}${isDefault}`);
+      console.log(`    Public Key: ${identity.publicKey}`);
       console.log(`    Created:    ${date}`);
       console.log('');
     }
@@ -120,27 +120,27 @@ export class WalletCommand extends Command {
     const name = positional[1];
 
     try {
-      const walletData = manager.getWallet(name);
-      const isDefault = name === manager.getDefaultWalletName() || (!name && manager.getDefaultWalletName());
-      const date = new Date(walletData.created).toLocaleString();
+      const identity = manager.getIdentity(name);
+      const isDefault = name === manager.getDefaultIdentityName() || (!name && manager.getDefaultIdentityName());
+      const date = new Date(identity.created).toLocaleString();
 
       console.log('');
-      console.log(`Wallet: ${walletData.name}${isDefault ? ' (default)' : ''}`);
+      console.log(`Identity: ${identity.name}${isDefault ? ' (default)' : ''}`);
       console.log('');
-      console.log(`Public Key: ${walletData.publicKey}`);
+      console.log(`Public Key: ${identity.publicKey}`);
       console.log(`Created:    ${date}`);
       console.log('');
 
       if (options.secret) {
         console.log('⚠️  SECRET KEY (keep safe!):');
-        console.log(walletData.secretKey);
+        console.log(identity.secretKey);
         console.log('');
       } else {
         console.log('Use --secret to show secret key');
         console.log('');
       }
     } catch (error: any) {
-      console.error(`Failed to show wallet: ${error.message}`);
+      console.error(`Failed to show identity: ${error.message}`);
       process.exit(1);
     }
   }
@@ -151,19 +151,19 @@ export class WalletCommand extends Command {
     const setDefault = options.default === true;
 
     try {
-      const walletData = manager.importWallet(name, secretKey as string, setDefault);
+      const identity = manager.importIdentity(name, secretKey as string, setDefault);
 
-      console.log('✅ Wallet imported successfully!');
+      console.log('✅ Identity imported successfully!');
       console.log('');
-      console.log(`Name:       ${walletData.name}`);
-      console.log(`Public Key: ${walletData.publicKey}`);
+      console.log(`Name:       ${identity.name}`);
+      console.log(`Public Key: ${identity.publicKey}`);
       console.log('');
 
       if (setDefault) {
-        console.log(`✓ Set as default wallet`);
+        console.log(`✓ Set as default identity`);
       }
     } catch (error: any) {
-      console.error(`Failed to import wallet: ${error.message}`);
+      console.error(`Failed to import identity: ${error.message}`);
       process.exit(1);
     }
   }
@@ -179,10 +179,10 @@ export class WalletCommand extends Command {
       console.log('');
       console.log(secretKey);
       console.log('');
-      console.log('Anyone with this secret key can spend your tokens!');
+      console.log('Anyone with this secret key can impersonate your identity!');
       console.log('');
     } catch (error: any) {
-      console.error(`Failed to export wallet: ${error.message}`);
+      console.error(`Failed to export identity: ${error.message}`);
       process.exit(1);
     }
   }
@@ -192,7 +192,7 @@ export class WalletCommand extends Command {
 
     if (!options.confirm) {
       console.error('');
-      console.error('⚠️  WARNING: This will permanently delete the wallet!');
+      console.error('⚠️  WARNING: This will permanently delete the identity!');
       console.error('Make sure you have backed up the secret key.');
       console.error('');
       console.error('To confirm deletion, add --confirm flag');
@@ -201,13 +201,13 @@ export class WalletCommand extends Command {
     }
 
     try {
-      manager.deleteWallet(name);
+      manager.deleteIdentity(name);
 
       console.log('');
-      console.log(`✅ Wallet '${name}' deleted`);
+      console.log(`✅ Identity '${name}' deleted`);
       console.log('');
     } catch (error: any) {
-      console.error(`Failed to delete wallet: ${error.message}`);
+      console.error(`Failed to delete identity: ${error.message}`);
       process.exit(1);
     }
   }
@@ -219,10 +219,10 @@ export class WalletCommand extends Command {
       manager.setDefault(name);
 
       console.log('');
-      console.log(`✅ Set '${name}' as default wallet`);
+      console.log(`✅ Set '${name}' as default identity`);
       console.log('');
     } catch (error: any) {
-      console.error(`Failed to set default wallet: ${error.message}`);
+      console.error(`Failed to set default identity: ${error.message}`);
       process.exit(1);
     }
   }
@@ -230,47 +230,47 @@ export class WalletCommand extends Command {
   showHelp(): void {
     console.log(`
 USAGE:
-  scar wallet <subcommand> [options]
+  clout identity <subcommand> [options]
 
 SUBCOMMANDS:
-  create [name]              Create a new wallet
-  list                       List all wallets
-  show [name]                Show wallet details
-  import <name> --secret KEY Import wallet from secret key
-  export [name]              Export wallet secret key
-  delete <name> --confirm    Delete a wallet
-  default <name>             Set default wallet
+  create [name]              Create a new identity
+  list                       List all identities
+  show [name]                Show identity details
+  import <name> --secret KEY Import identity from secret key
+  export [name]              Export identity secret key
+  delete <name> --confirm    Delete an identity
+  default <name>             Set default identity
 
 OPTIONS:
   --secret      Show/provide secret key
-  --default     Set as default wallet
+  --default     Set as default identity
   --confirm     Confirm destructive operation
   -h, --help    Show this help message
 
 EXAMPLES:
-  # Create a new wallet
-  scar wallet create
+  # Create a new identity
+  clout identity create
 
-  # Create a named wallet
-  scar wallet create alice
+  # Create a named identity
+  clout identity create alice
 
-  # List all wallets
-  scar wallet list
+  # List all identities
+  clout identity list
 
-  # Show wallet with secret
-  scar wallet show alice --secret
+  # Show identity with secret
+  clout identity show alice --secret
 
-  # Import a wallet
-  scar wallet import bob --secret 0x1234...
+  # Import an identity
+  clout identity import bob --secret 0x1234...
 
-  # Export wallet secret
-  scar wallet export alice
+  # Export identity secret
+  clout identity export alice
 
-  # Set default wallet
-  scar wallet default alice
+  # Set default identity
+  clout identity default alice
 
-  # Delete a wallet
-  scar wallet delete bob --confirm
+  # Delete an identity
+  clout identity delete bob --confirm
 `);
   }
 }
