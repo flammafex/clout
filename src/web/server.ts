@@ -12,6 +12,7 @@ import { dirname } from 'path';
 import { IdentityManager } from '../cli/identity-manager.js';
 import { InfrastructureManager } from '../cli/infrastructure.js';
 import { Clout } from '../clout.js';
+import { tryLoadWasm } from '../vendor/hypertoken/WasmBridge.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -268,6 +269,9 @@ export class CloutWebServer {
    * Start the server
    */
   async start(): Promise<void> {
+    // Initialize WASM backend for Chronicle (7x performance boost)
+    await tryLoadWasm();
+
     return new Promise((resolve) => {
       this.app.listen(this.port, () => {
         console.log(`\n🌐 Clout Web UI`);
