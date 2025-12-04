@@ -13,6 +13,7 @@
 
 import { Clout, CloutConfig } from '../../src/index.js';
 import { Crypto } from '../../src/crypto.js';
+import { tryLoadWasm } from '../../src/vendor/hypertoken/WasmBridge.js';
 
 // Mock implementations for testing
 class MockFreebirdClient {
@@ -104,6 +105,9 @@ async function sleep(ms: number): Promise<void> {
 }
 
 async function runTests() {
+  // Initialize WASM backend for Chronicle (7x performance boost)
+  await tryLoadWasm();
+
   console.log('\n========================================');
   console.log('Clout Multi-Node Integration Tests (Day Pass)');
   console.log('========================================\n');
