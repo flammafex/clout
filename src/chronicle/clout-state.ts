@@ -152,11 +152,12 @@ export class CloutStateManager extends Emitter {
     if (!local) return remote;
     if (!remote) return local;
 
-    // Keep local trust graph (it's personal)
+    // Keep local trust graph and settings (they're personal)
     // But merge metadata if remote has updates
     return {
       publicKey: local.publicKey,
       trustGraph: local.trustGraph, // Always keep local
+      trustSettings: local.trustSettings, // Always keep local
       metadata: local.metadata || remote.metadata
     };
   }
