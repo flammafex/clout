@@ -309,6 +309,29 @@ export class Clout {
   }
 
   /**
+   * Update trust settings
+   */
+  updateTrustSettings(settings: Partial<import('./clout-types.js').TrustSettings>): void {
+    this.identity.updateTrustSettings(settings);
+    this.state.updateProfile(this.identity.getProfile());
+
+    // Update validator with new reputation thresholds
+    if (settings.maxHops !== undefined) {
+      this.validator.setMaxHops(settings.maxHops);
+    }
+    if (settings.minReputation !== undefined) {
+      this.validator.setMinReputation(settings.minReputation);
+    }
+  }
+
+  /**
+   * Get current trust settings
+   */
+  getTrustSettings(): import('./clout-types.js').TrustSettings {
+    return this.identity.getProfile().trustSettings;
+  }
+
+  /**
    * Get reputation for a user
    */
   getReputation(publicKey: string) {
@@ -347,10 +370,26 @@ export class Clout {
       // Add trust signal to validator
       this.validator.addTrustSignal(message.trustSignal);
 
-      console.log(
-        `[Clout] Trust signal: ${message.trustSignal.truster.slice(0, 8)} -> ` +
-        `${message.trustSignal.trustee.slice(0, 8)}`
-      );
+      // Handle incoming trust (auto-follow-back if configured)
+      const autoFollowed = this.identity.handleIncomingTrust(message.trustSignal);
+
+      if (autoFollowed) {
+        // Sync trust graph changes
+        this.gossip.updateTrustGraph(this.identity.getProfile().trustGraph);
+        this.validator.updateTrustGraph(this.identity.getProfile().trustGraph);
+        if (this.node) {
+          await this.node.updateTrustGraph(this.identity.getProfile().trustGraph);
+        }
+
+        console.log(
+          `[Clout] ✅ Auto-followed back ${message.trustSignal.truster.slice(0, 8)}`
+        );
+      } else {
+        console.log(
+          `[Clout] Trust signal: ${message.trustSignal.truster.slice(0, 8)} -> ` +
+          `${message.trustSignal.trustee.slice(0, 8)}`
+        );
+      }
     }
   }
 
