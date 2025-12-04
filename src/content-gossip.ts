@@ -55,6 +55,12 @@ interface SlideRecord {
   firstSeen: number;
 }
 
+interface PeerStateRecord {
+  publicKey: string;
+  version: number;
+  lastSync: number;
+}
+
 /**
  * ContentGossip - Trust-based content propagation
  *
@@ -66,6 +72,7 @@ export class ContentGossip {
   private readonly seenPosts = new Map<string, PostRecord>();
   private readonly seenTrustSignals = new Map<string, TrustRecord>();
   private readonly seenSlides = new Map<string, SlideRecord>();
+  private readonly peerStates = new Map<string, PeerStateRecord>();
   private readonly peerConnections: PeerConnection[] = [];
   private readonly witness: WitnessClient;
   private readonly freebird: FreebirdClient;
@@ -76,6 +83,8 @@ export class ContentGossip {
   private readonly maxHops: number;
   private receiveHandler?: (data: ContentGossipMessage) => Promise<void>;
   private pruneTimer?: NodeJS.Timeout;
+  private stateSyncHandler?: (publicKey: string, stateBinary: Uint8Array) => Promise<void>;
+  private stateRequestHandler?: (publicKey: string) => Promise<Uint8Array | null>;
 
   // OPTIMIZATION: Cached adjacency list for O(1) hop distance lookups
   private readonly trustAdjacencyList = new Map<string, Set<string>>();
@@ -189,6 +198,10 @@ export class ContentGossip {
       await this.handleTrustMessage(data.trustSignal, peerId);
     } else if (data.type === 'slide' && data.slide) {
       await this.handleSlideMessage(data.slide, peerId);
+    } else if (data.type === 'state-sync' && data.stateSync) {
+      await this.handleStateSyncMessage(data.stateSync, peerId);
+    } else if (data.type === 'state-request' && data.stateRequest) {
+      await this.handleStateRequestMessage(data.stateRequest, peerId);
     }
   }
 
@@ -374,6 +387,84 @@ export class ContentGossip {
   }
 
   /**
+   * Handle incoming state sync message
+   */
+  private async handleStateSyncMessage(
+    stateSync: { publicKey: string; stateBinary: Uint8Array; version: number },
+    peerId?: string
+  ): Promise<void> {
+    console.log(
+      `[ContentGossip] 📦 Received state sync from ${stateSync.publicKey.slice(0, 8)} (v${stateSync.version})`
+    );
+
+    // Check if this is a trusted peer (within our trust graph)
+    if (!this.trustGraph.has(stateSync.publicKey)) {
+      const hopDistance = this.calculateHopDistance(stateSync.publicKey);
+      if (hopDistance > this.maxHops) {
+        console.log(`[ContentGossip] Ignoring state from untrusted peer (${hopDistance} hops)`);
+        return;
+      }
+    }
+
+    // Check if we already have this version
+    const existing = this.peerStates.get(stateSync.publicKey);
+    if (existing && existing.version >= stateSync.version) {
+      console.log(`[ContentGossip] Already have version ${existing.version}, ignoring v${stateSync.version}`);
+      return;
+    }
+
+    // Update peer state record
+    this.peerStates.set(stateSync.publicKey, {
+      publicKey: stateSync.publicKey,
+      version: stateSync.version,
+      lastSync: Date.now()
+    });
+
+    // Pass to handler (Clout will merge into its Chronicle)
+    if (this.stateSyncHandler) {
+      await this.stateSyncHandler(stateSync.publicKey, stateSync.stateBinary);
+    }
+  }
+
+  /**
+   * Handle incoming state request message
+   */
+  private async handleStateRequestMessage(
+    stateRequest: { publicKey: string; currentVersion: number },
+    peerId?: string
+  ): Promise<void> {
+    console.log(
+      `[ContentGossip] 📨 State request from ${stateRequest.publicKey.slice(0, 8)} (has v${stateRequest.currentVersion})`
+    );
+
+    // Check if this is a trusted peer
+    if (!this.trustGraph.has(stateRequest.publicKey)) {
+      const hopDistance = this.calculateHopDistance(stateRequest.publicKey);
+      if (hopDistance > this.maxHops) {
+        console.log(`[ContentGossip] Ignoring request from untrusted peer (${hopDistance} hops)`);
+        return;
+      }
+    }
+
+    // Get our state from handler (Clout will export from its Chronicle)
+    if (this.stateRequestHandler) {
+      const stateBinary = await this.stateRequestHandler(stateRequest.publicKey);
+      if (stateBinary) {
+        // Send our state to the requesting peer
+        await this.broadcast({
+          type: 'state-sync',
+          stateSync: {
+            publicKey: stateRequest.publicKey,
+            stateBinary,
+            version: Date.now() // Simple version: timestamp
+          },
+          timestamp: Date.now()
+        });
+      }
+    }
+  }
+
+  /**
    * OPTIMIZATION: Incrementally update graph caches when trust signals arrive
    *
    * This updates the adjacency list and recalculates hop distances
@@ -510,6 +601,53 @@ export class ContentGossip {
    */
   subscribe(handler: (data: ContentGossipMessage) => Promise<void>): void {
     this.setReceiveHandler(handler);
+  }
+
+  /**
+   * Register handler for state sync messages
+   * Handler receives: (publicKey, stateBinary) => Promise<void>
+   */
+  setStateSyncHandler(handler: (publicKey: string, stateBinary: Uint8Array) => Promise<void>): void {
+    this.stateSyncHandler = handler;
+  }
+
+  /**
+   * Register handler for state requests
+   * Handler returns: Promise<Uint8Array | null> (state binary or null if unavailable)
+   */
+  setStateRequestHandler(handler: (publicKey: string) => Promise<Uint8Array | null>): void {
+    this.stateRequestHandler = handler;
+  }
+
+  /**
+   * Broadcast our state to all peers
+   */
+  async broadcastState(publicKey: string, stateBinary: Uint8Array): Promise<void> {
+    console.log(`[ContentGossip] 📤 Broadcasting state for ${publicKey.slice(0, 8)}`);
+    await this.broadcast({
+      type: 'state-sync',
+      stateSync: {
+        publicKey,
+        stateBinary,
+        version: Date.now()
+      },
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Request state from all peers
+   */
+  async requestState(publicKey: string, currentVersion: number = 0): Promise<void> {
+    console.log(`[ContentGossip] 📥 Requesting state for ${publicKey.slice(0, 8)}`);
+    await this.broadcast({
+      type: 'state-request',
+      stateRequest: {
+        publicKey,
+        currentVersion
+      },
+      timestamp: Date.now()
+    });
   }
 
   /**
