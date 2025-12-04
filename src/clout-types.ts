@@ -225,6 +225,9 @@ export interface Inbox {
  * Each agent's profile and feed state that can be merged P2P.
  */
 export interface CloutState {
+  // --- ADD THIS LINE ---
+  [key: string]: any; 
+
   /** Current agent's profile */
   profile?: CloutProfile;
 
