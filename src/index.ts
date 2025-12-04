@@ -34,6 +34,9 @@ export type { ReputationConfig } from './reputation.js';
 
 export { CloutStateManager } from './chronicle/clout-state.js';
 
+export { InvitationManager } from './invitation.js';
+export type { Invitation } from './invitation.js';
+
 // Types
 export type {
   CloutProfile,

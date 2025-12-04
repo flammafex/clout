@@ -19,6 +19,7 @@ import { ContentGossip } from './content-gossip.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
 import { CloutNode } from './network/clout-node.js';
+import { InvitationManager } from './invitation.js';
 import { Crypto } from './crypto.js';
 
 import type { FreebirdClient, WitnessClient, PublicKey } from './types.js';
@@ -61,6 +62,7 @@ export class Clout {
   private readonly state: CloutStateManager;
   private readonly witness: WitnessClient;
   private readonly freebird: FreebirdClient;
+  private readonly invitations: InvitationManager;
   private readonly node?: CloutNode;
   private readonly publicKeyHex: string;
 
@@ -97,6 +99,13 @@ export class Clout {
       maxHops: config.maxHops,
       minReputation: config.minReputation
     });
+
+    // Invitation system
+    this.invitations = new InvitationManager(
+      config.publicKey,
+      config.freebird,
+      config.witness
+    );
 
     // Set up gossip message handler
     this.gossip.setReceiveHandler(async (message) => {
@@ -329,6 +338,60 @@ export class Clout {
    */
   getTrustSettings(): import('./clout-types.js').TrustSettings {
     return this.identity.getProfile().trustSettings;
+  }
+
+  /**
+   * Create an invitation for someone
+   *
+   * Generates a Freebird token for the invitee and optionally auto-trusts them.
+   */
+  async invite(
+    inviteePublicKey: string,
+    options?: {
+      message?: string;
+      expiresIn?: number;
+      maxUses?: number;
+    }
+  ): Promise<import('./invitation.js').Invitation> {
+    const invitation = await this.invitations.createInvitation(inviteePublicKey, options);
+
+    // If autoMutualOnInvite is enabled, auto-trust the invitee
+    if (this.identity.getProfile().trustSettings.autoMutualOnInvite) {
+      await this.trust(inviteePublicKey);
+    }
+
+    return invitation;
+  }
+
+  /**
+   * Accept an invitation
+   *
+   * Verifies the invitation and establishes trust with the inviter.
+   */
+  async acceptInvitation(code: string): Promise<void> {
+    const { invitation, trustSignal } = await this.invitations.acceptInvitation(code);
+
+    // Trust the inviter
+    await this.trust(invitation.inviter);
+
+    // Broadcast trust signal
+    await this.gossip.publish({
+      type: 'trust',
+      trustSignal,
+      timestamp: Date.now()
+    });
+
+    console.log(
+      `[Clout] ✅ Accepted invitation from ${invitation.inviter.slice(0, 8)} ` +
+      `and established mutual trust`
+    );
+  }
+
+  /**
+   * Get invitation chain (who invited us, who we invited)
+   */
+  getInvitationChain() {
+    return this.invitations.getInvitationChain();
   }
 
   /**
