@@ -43,6 +43,12 @@ export class CloutCommand extends Command {
       case 'thread':
         await this.handleThread(subcommandArgs);
         break;
+      case 'slide':
+        await this.handleSlide(subcommandArgs);
+        break;
+      case 'slides':
+        await this.handleSlides(subcommandArgs);
+        break;
       case 'identity':
       case 'id':
         await this.handleIdentity(subcommandArgs);
@@ -471,6 +477,127 @@ export class CloutCommand extends Command {
     console.log('  clout post "Your message"  - Will auto-obtain day pass');
   }
 
+  /**
+   * Send an encrypted slide (DM)
+   */
+  private async handleSlide(args: string[]): Promise<void> {
+    if (args.length < 2) {
+      console.error('Error: Recipient public key and message required');
+      console.error('Usage: clout slide <recipientPublicKey> "Your message here"');
+      process.exit(1);
+    }
+
+    const recipientKey = args[0];
+    const message = args.slice(1).join(' ');
+
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
+      console.error('Error: No default identity. Create one with: clout identity create');
+      process.exit(1);
+    }
+
+    const identity = this.identityManager.getIdentity(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
+
+    // Initialize infrastructure
+    console.log('🔨 Initializing Clout infrastructure...');
+    const infra = await this.infraManager.initialize();
+
+    // Create Clout instance
+    const clout = new Clout({
+      publicKey: identity.publicKey,
+      privateKey: secretKey,
+      freebird: infra.freebird,
+      witness: infra.witness,
+      gossip: infra.gossip
+    });
+
+    // Send slide
+    console.log(`📬 Sending encrypted slide to ${recipientKey.slice(0, 16)}...`);
+    const slide = await clout.slide(recipientKey, message);
+
+    console.log(`\n✅ Slide sent!`);
+    console.log(`   Slide ID: ${slide.id.slice(0, 16)}...`);
+    console.log(`   Recipient: ${recipientKey.slice(0, 16)}...`);
+    console.log(`   Encrypted: Yes (end-to-end encrypted)`);
+  }
+
+  /**
+   * View inbox (received slides)
+   */
+  private async handleSlides(args: string[]): Promise<void> {
+    const limit = args.length > 0 ? parseInt(args[0]) : 20;
+
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
+      console.error('Error: No default identity. Create one with: clout identity create');
+      process.exit(1);
+    }
+
+    const identity = this.identityManager.getIdentity(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
+
+    // Initialize infrastructure
+    console.log('🔨 Initializing Clout infrastructure...');
+    const infra = await this.infraManager.initialize();
+
+    // Create Clout instance
+    const clout = new Clout({
+      publicKey: identity.publicKey,
+      privateKey: secretKey,
+      freebird: infra.freebird,
+      witness: infra.witness,
+      gossip: infra.gossip
+    });
+
+    // Get inbox
+    const inbox = clout.getInbox();
+
+    if (inbox.slides.length === 0) {
+      console.log('\n📭 No slides yet');
+      return;
+    }
+
+    console.log(`\n═══════════════════════════════════════════════════════`);
+    console.log(`                    YOUR SLIDES (${inbox.slides.length})`);
+    console.log(`═══════════════════════════════════════════════════════\n`);
+
+    const slidesToShow = inbox.slides.slice(0, limit);
+
+    for (const slide of slidesToShow) {
+      const timestamp = new Date(slide.proof.timestamp).toLocaleString();
+      const senderShort = slide.sender.slice(0, 16) + '...';
+
+      // Decrypt message
+      let decryptedMessage = '';
+      try {
+        decryptedMessage = clout.decryptSlide(slide);
+      } catch (error: any) {
+        decryptedMessage = '[Decryption failed]';
+      }
+
+      console.log(`┌─────────────────────────────────────────────────────┐`);
+      console.log(`│ From: ${senderShort.padEnd(43)} │`);
+      console.log(`├─────────────────────────────────────────────────────┤`);
+      console.log(`│ ${decryptedMessage.padEnd(50).slice(0, 50)} │`);
+      if (decryptedMessage.length > 50) {
+        const lines = decryptedMessage.match(/.{1,50}/g) || [];
+        for (let i = 1; i < lines.length; i++) {
+          console.log(`│ ${lines[i].padEnd(50)} │`);
+        }
+      }
+      console.log(`├─────────────────────────────────────────────────────┤`);
+      console.log(`│ ${timestamp.padEnd(50)} │`);
+      console.log(`└─────────────────────────────────────────────────────┘\n`);
+    }
+
+    if (inbox.slides.length > limit) {
+      console.log(`Showing ${limit} of ${inbox.slides.length} slides. Use 'clout slides ${inbox.slides.length}' to see all.\n`);
+    }
+  }
+
   showHelp(): void {
     console.log(`
 Clout Command - Core protocol operations
@@ -481,6 +608,8 @@ USAGE:
   clout follow <publicKey>       Trust/follow a user
   clout feed [limit]             View your feed (default 20 posts)
   clout thread <postId>          View a thread (post + replies)
+  clout slide <publicKey> <msg>  Send encrypted DM (slide)
+  clout slides [limit]           View your slides inbox
   clout identity                 Show your identity
   clout invite <publicKey>       Create an invitation
   clout ticket                   Check day pass status
@@ -494,6 +623,12 @@ EXAMPLES:
 
   # View a thread
   clout thread 1db5bcf8
+
+  # Send an encrypted slide (DM)
+  clout slide a1b2c3d4e5f6... "Hey, this is private!"
+
+  # View your slides
+  clout slides
 
   # Follow someone
   clout follow a1b2c3d4e5f6...

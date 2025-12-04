@@ -5,6 +5,9 @@
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 import { randomBytes } from 'crypto';
+import { x25519 } from '@noble/curves/ed25519';
+import { xchacha20poly1305 } from '@noble/ciphers/chacha';
+import { managedNonce } from '@noble/ciphers/webcrypto';
 
 export class Crypto {
   /**
@@ -169,5 +172,64 @@ export class Crypto {
     const mask = (1 << (4 - targetBits)) - 1;
 
     return (nextValue & ~mask) === 0;
+  }
+
+  /**
+   * Encrypt a message for a recipient using their public key
+   * Uses X25519 key exchange + XChaCha20-Poly1305 AEAD
+   *
+   * @param message - The plaintext message to encrypt
+   * @param recipientPublicKey - Recipient's 32-byte public key
+   * @returns Object with ephemeral public key and ciphertext
+   */
+  static encrypt(message: string, recipientPublicKey: Uint8Array): {
+    ephemeralPublicKey: Uint8Array;
+    ciphertext: Uint8Array;
+  } {
+    // Generate ephemeral keypair for this message
+    const ephemeralSecret = this.randomBytes(32);
+    const ephemeralPublic = x25519.getPublicKey(ephemeralSecret);
+
+    // Perform ECDH to get shared secret
+    const sharedSecret = x25519.getSharedSecret(ephemeralSecret, recipientPublicKey);
+
+    // Derive encryption key from shared secret
+    const encryptionKey = this.hash(sharedSecret, 'ENCRYPTION_KEY').slice(0, 32);
+
+    // Encrypt message with XChaCha20-Poly1305
+    const plaintext = new TextEncoder().encode(message);
+    const cipher = managedNonce(xchacha20poly1305)(encryptionKey);
+    const ciphertext = cipher.encrypt(plaintext);
+
+    return {
+      ephemeralPublicKey: ephemeralPublic,
+      ciphertext
+    };
+  }
+
+  /**
+   * Decrypt a message using our secret key
+   *
+   * @param ephemeralPublicKey - Sender's ephemeral public key
+   * @param ciphertext - The encrypted message
+   * @param secretKey - Our 32-byte secret key
+   * @returns The decrypted plaintext message
+   */
+  static decrypt(
+    ephemeralPublicKey: Uint8Array,
+    ciphertext: Uint8Array,
+    secretKey: Uint8Array
+  ): string {
+    // Perform ECDH to get same shared secret
+    const sharedSecret = x25519.getSharedSecret(secretKey, ephemeralPublicKey);
+
+    // Derive same encryption key
+    const encryptionKey = this.hash(sharedSecret, 'ENCRYPTION_KEY').slice(0, 32);
+
+    // Decrypt message
+    const cipher = managedNonce(xchacha20poly1305)(encryptionKey);
+    const plaintext = cipher.decrypt(ciphertext);
+
+    return new TextDecoder().decode(plaintext);
   }
 }
