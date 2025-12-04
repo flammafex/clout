@@ -2,6 +2,7 @@
 
 const API_BASE = '/api';
 let initialized = false;
+let replyingTo = null; // Track which post we're replying to
 
 // Utility functions
 const $ = (id) => document.getElementById(id);
@@ -109,13 +110,44 @@ async function loadFeed() {
     feedList.innerHTML = data.posts.map(post => `
       <div class="feed-item">
         <div class="feed-author">${post.author.slice(0, 16)}...</div>
+        ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
         <div class="feed-content">${escapeHtml(post.content)}</div>
-        <div class="feed-timestamp">${new Date(post.timestamp).toLocaleString()}</div>
+        <div class="feed-footer">
+          <div class="feed-timestamp">${new Date(post.timestamp).toLocaleString()}</div>
+          <button class="btn-reply" onclick="startReply('${post.id}', '${post.author.slice(0, 16)}')">Reply</button>
+        </div>
       </div>
     `).join('');
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
   }
+}
+
+// Start Reply
+function startReply(postId, author) {
+  replyingTo = postId;
+
+  // Switch to post tab
+  $$('.tab-btn').forEach(b => b.classList.remove('active'));
+  $$('.tab-btn')[1].classList.add('active'); // Post tab is second
+  $$('.tab-content').forEach(content => content.classList.remove('active'));
+  $('post-tab').classList.add('active');
+
+  // Update UI to show we're replying
+  $('post-content').placeholder = `Reply to ${author}...`;
+  $('post-content').focus();
+
+  // Show cancel button
+  const helpText = document.querySelector('.help-text');
+  helpText.innerHTML = `Replying to post ${postId.slice(0, 8)}... <button onclick="cancelReply()" class="btn btn-small">Cancel</button>`;
+}
+
+// Cancel Reply
+function cancelReply() {
+  replyingTo = null;
+  $('post-content').placeholder = "What's on your mind?";
+  const helpText = document.querySelector('.help-text');
+  helpText.textContent = 'Share your thoughts with your trust network';
 }
 
 // Create Post
@@ -131,11 +163,21 @@ async function createPost() {
     $('create-post-btn').disabled = true;
     $('create-post-btn').textContent = 'Posting...';
 
-    await apiCall('/post', 'POST', { content });
+    const body = { content };
+    if (replyingTo) {
+      body.replyTo = replyingTo;
+    }
 
-    showResult('post-result', 'Post created successfully!', true);
+    await apiCall('/post', 'POST', body);
+
+    showResult('post-result', replyingTo ? 'Reply posted!' : 'Post created successfully!', true);
     $('post-content').value = '';
     $('char-count').textContent = '0';
+
+    // Reset reply state
+    if (replyingTo) {
+      cancelReply();
+    }
 
     // Refresh feed
     await loadFeed();

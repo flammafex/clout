@@ -96,7 +96,7 @@ export class Clout {
   /**
    * Publish a new post
    */
-  async post(content: string): Promise<CloutPost> {
+  async post(content: string, replyTo?: string): Promise<CloutPost> {
     // 1. Check for Day Pass
     if (!this.currentTicket) {
       throw new Error("No active Day Pass. Call buyDayPass() first.");
@@ -109,14 +109,15 @@ export class Clout {
 
     // 2. Sign Content (Placeholder using Hash + PrivKey for MVP)
     // In prod, use Ed25519 signature
-    const signature = Crypto.hash(content, this.privateKey); 
+    const signature = Crypto.hash(content, this.privateKey);
 
     const config: PostConfig = {
       author: this.publicKeyHex,
       content,
       signature,
       freebird: this.freebird,
-      witness: this.witness
+      witness: this.witness,
+      replyTo
     };
 
     // 3. Create & Gossip Post

@@ -122,7 +122,8 @@ export class CloutWebServer {
               content: post.content,
               author: post.author,
               timestamp: post.proof.timestamp,
-              contentType: post.contentType
+              contentType: post.contentType,
+              replyTo: post.replyTo
             })),
             totalPosts: feed.posts.length
           }
@@ -137,7 +138,7 @@ export class CloutWebServer {
       try {
         await this.ensureInitialized();
 
-        const { content } = req.body;
+        const { content, replyTo } = req.body;
         if (!content) {
           return res.status(400).json({ success: false, error: 'Content required' });
         }
@@ -150,8 +151,8 @@ export class CloutWebServer {
           console.log('Day pass already obtained or error:', error.message);
         }
 
-        // Create post
-        const post = await this.clout!.post(content);
+        // Create post (with optional replyTo)
+        const post = await this.clout!.post(content, replyTo);
         const pkg = post.getPackage();
 
         res.json({
@@ -160,7 +161,8 @@ export class CloutWebServer {
             id: pkg.id,
             content: pkg.content,
             author: pkg.author,
-            timestamp: pkg.proof.timestamp
+            timestamp: pkg.proof.timestamp,
+            replyTo: pkg.replyTo
           }
         });
       } catch (error: any) {

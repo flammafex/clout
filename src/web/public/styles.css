@@ -268,6 +268,36 @@ h2 {
   font-size: 0.85rem;
 }
 
+.feed-reply-indicator {
+  color: var(--secondary);
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+  font-style: italic;
+}
+
+.feed-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.btn-reply {
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-reply:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
 .empty-state {
   text-align: center;
   color: var(--text-dim);
