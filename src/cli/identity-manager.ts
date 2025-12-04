@@ -217,35 +217,4 @@ export class IdentityManager {
   getDefaultIdentityName(): string | undefined {
     return this.store.defaultIdentity;
   }
-
-  // Legacy compatibility methods (for gradual migration)
-  /** @deprecated Use createIdentity instead */
-  createWallet(name: string, setDefault = true): IdentityData {
-    return this.createIdentity(name, setDefault);
-  }
-
-  /** @deprecated Use getIdentity instead */
-  getWallet(name?: string): IdentityData {
-    return this.getIdentity(name);
-  }
-
-  /** @deprecated Use listIdentities instead */
-  listWallets(): IdentityData[] {
-    return this.listIdentities();
-  }
-
-  /** @deprecated Use getDefaultIdentityName instead */
-  getDefaultWalletName(): string | undefined {
-    return this.getDefaultIdentityName();
-  }
-
-  /** @deprecated Use deleteIdentity instead */
-  deleteWallet(name: string): void {
-    return this.deleteIdentity(name);
-  }
-
-  /** @deprecated Use importIdentity instead */
-  importWallet(name: string, secretKeyHex: string, setDefault = false): IdentityData {
-    return this.importIdentity(name, secretKeyHex, setDefault);
-  }
 }

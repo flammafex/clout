@@ -89,8 +89,8 @@ export class CloutWebServer {
       try {
         await this.ensureInitialized();
 
-        const defaultIdentity = this.identityManager.getDefaultWalletName();
-        const identity = this.identityManager.getWallet(defaultIdentity!);
+        const defaultIdentity = this.identityManager.getDefaultIdentityName();
+        const identity = this.identityManager.getIdentity(defaultIdentity!);
 
         res.json({
           success: true,
@@ -220,14 +220,14 @@ export class CloutWebServer {
    */
   private async initializeClout(): Promise<void> {
     // Get or create default identity
-    let defaultIdentity = this.identityManager.getDefaultWalletName();
+    let defaultIdentity = this.identityManager.getDefaultIdentityName();
     if (!defaultIdentity) {
       console.log('No default identity found, creating one...');
-      const identity = this.identityManager.createWallet('default', true);
+      const identity = this.identityManager.createIdentity('default', true);
       defaultIdentity = identity.name;
     }
 
-    const identity = this.identityManager.getWallet(defaultIdentity);
+    const identity = this.identityManager.getIdentity(defaultIdentity);
     const secretKey = this.identityManager.getSecretKey(defaultIdentity);
 
     // Initialize infrastructure
