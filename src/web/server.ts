@@ -9,7 +9,7 @@ import cors from 'cors';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { WalletManager } from '../cli/wallet.js';
+import { IdentityManager } from '../cli/identity-manager.js';
 import { InfrastructureManager } from '../cli/infrastructure.js';
 import { Clout } from '../clout.js';
 
@@ -24,14 +24,14 @@ interface ApiResponse<T = any> {
 
 export class CloutWebServer {
   private app: express.Application;
-  private walletManager: WalletManager;
+  private identityManager: IdentityManager;
   private infraManager: InfrastructureManager;
   private clout?: Clout;
   private initialized = false;
 
   constructor(private port = 3000) {
     this.app = express();
-    this.walletManager = new WalletManager();
+    this.identityManager = new IdentityManager();
     this.infraManager = new InfrastructureManager();
 
     this.setupMiddleware();
@@ -89,15 +89,15 @@ export class CloutWebServer {
       try {
         await this.ensureInitialized();
 
-        const defaultWallet = this.walletManager.getDefaultWalletName();
-        const wallet = this.walletManager.getWallet(defaultWallet!);
+        const defaultIdentity = this.identityManager.getDefaultWalletName();
+        const identity = this.identityManager.getWallet(defaultIdentity!);
 
         res.json({
           success: true,
           data: {
-            publicKey: wallet.publicKey,
-            name: defaultWallet,
-            created: wallet.created
+            publicKey: identity.publicKey,
+            name: defaultIdentity,
+            created: identity.created
           }
         });
       } catch (error: any) {
@@ -219,16 +219,16 @@ export class CloutWebServer {
    * Initialize Clout instance
    */
   private async initializeClout(): Promise<void> {
-    // Get or create default wallet
-    let defaultWallet = this.walletManager.getDefaultWalletName();
-    if (!defaultWallet) {
-      console.log('No default wallet found, creating one...');
-      const wallet = this.walletManager.createWallet('default', true);
-      defaultWallet = wallet.name;
+    // Get or create default identity
+    let defaultIdentity = this.identityManager.getDefaultWalletName();
+    if (!defaultIdentity) {
+      console.log('No default identity found, creating one...');
+      const identity = this.identityManager.createWallet('default', true);
+      defaultIdentity = identity.name;
     }
 
-    const wallet = this.walletManager.getWallet(defaultWallet);
-    const secretKey = this.walletManager.getSecretKey(defaultWallet);
+    const identity = this.identityManager.getWallet(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
 
     // Initialize infrastructure
     console.log('Initializing Clout infrastructure...');
@@ -236,7 +236,7 @@ export class CloutWebServer {
 
     // Create Clout instance
     this.clout = new Clout({
-      publicKey: wallet.publicKey,
+      publicKey: identity.publicKey,
       privateKey: secretKey,
       freebird: infra.freebird,
       witness: infra.witness,
@@ -244,7 +244,7 @@ export class CloutWebServer {
     });
 
     this.initialized = true;
-    console.log(`Clout initialized with identity: ${wallet.publicKey.slice(0, 16)}...`);
+    console.log(`Clout initialized with identity: ${identity.publicKey.slice(0, 16)}...`);
   }
 
   /**

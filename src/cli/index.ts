@@ -7,6 +7,7 @@
 
 import { Command } from './command.js';
 import { WalletCommand } from './commands/wallet.js';
+import { IdentityCommand } from './commands/identity.js';
 import { ConfigCommand } from './commands/config.js';
 import { InteractiveCommand } from './commands/interactive.js';
 import { CloutCommand } from './commands/clout.js';
@@ -33,7 +34,7 @@ async function main() {
   const commandArgs = args.slice(1);
 
   // Map commands - Clout commands get the full args
-  const cloutCommands = ['post', 'follow', 'trust', 'feed', 'identity', 'id', 'invite', 'ticket', 'pass'];
+  const cloutCommands = ['post', 'follow', 'trust', 'feed', 'id', 'invite', 'ticket', 'pass'];
 
   if (cloutCommands.includes(commandName)) {
     const cloutCmd = new CloutCommand();
@@ -51,7 +52,8 @@ async function main() {
 
   // Other commands
   const commands: { [key: string]: Command } = {
-    wallet: new WalletCommand(),
+    identity: new IdentityCommand(),
+    wallet: new WalletCommand(), // Legacy - use 'identity' instead
     config: new ConfigCommand(),
     interactive: new InteractiveCommand(),
     repl: new InteractiveCommand(), // Alias
@@ -88,12 +90,13 @@ CORE COMMANDS:
   post           Create a new post
   follow         Trust/follow a user (alias: trust)
   feed           View your feed
-  identity       Show your identity (alias: id)
+  id             Show your identity (quick view)
   invite         Create an invitation
   ticket         Check day pass status (alias: pass)
 
 MANAGEMENT:
-  wallet         Manage wallets and keys
+  identity       Manage identities and keys
+  wallet         Manage wallets and keys (legacy - use identity)
   config         Configuration management
   interactive    Interactive REPL mode
 
@@ -102,8 +105,8 @@ OPTIONS:
   -v, --version  Show version information
 
 EXAMPLES:
-  # Create a new wallet
-  clout wallet create
+  # Create a new identity
+  clout identity create
 
   # Post a message
   clout post "Hello, Clout!"
