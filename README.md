@@ -1,3 +1,9 @@
+[<div align=center><img src="clout.webp">](https://carpocratian.org/en/church/)
+[<div align=center><br><img src="church.png" width=72 height=72>](https://carpocratian.org/en/church/)
+
+_A mission of [The Carpocratian Church of Commonality and Equality](https://carpocratian.org/en/church/)_.</div>
+<div align=center><img src="mission.png" width=256 height=200></div></div>
+
 # Clout - Uncensorable Reputation Protocol
 
 **Clout** is an uncensorable reputation protocol that inverts the logic of [Scarcity](https://github.com/flammafex/Scarcity):
