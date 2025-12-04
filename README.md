@@ -4,7 +4,7 @@
 _A mission of [The Carpocratian Church of Commonality and Equality](https://carpocratian.org/en/church/)_.</div>
 <div align=center><img src="mission.png" width=256 height=200></div></div>
 
-# Clout - Uncensorable Reputation Protocol
+# START SPREADING THE NEWS
 
 **Clout** is an uncensorable reputation protocol that inverts the logic of [Scarcity](https://github.com/flammafex/Scarcity):
 
@@ -26,6 +26,70 @@ By leveraging the same cryptographic primitives (Freebird, Witness, HyperToken) 
 - **Operation**: Post content, propagate to trusted network
 - **Gossip Logic**: "I trust this author, ACCEPT and propagate it"
 - **Validator**: Checks if author is trusted (graph distance)
+
+## Features
+
+### 🔐 Encrypted DMs (Slides)
+End-to-end encrypted direct messages that propagate through the gossip network while remaining readable only by sender and recipient.
+
+- **X25519 key exchange** with **XChaCha20-Poly1305 AEAD** encryption
+- Messages called "slides" - encrypted DMs that slide through your network
+- Ephemeral keypairs for forward secrecy
+- No day pass required for sending slides
+
+```bash
+# Send an encrypted slide
+clout slide <recipientPublicKey> "Your private message here"
+
+# View your inbox
+clout slides
+```
+
+### 💬 Replies & Threading
+Flat thread model (Twitter/X style) with clickable posts and reply chains.
+
+- Reply to any post with `replyTo` field
+- View entire thread with parent post and all replies
+- Navigate thread hierarchies with "View parent" links
+- CLI: `clout reply <postId> "Your reply"` and `clout thread <postId>`
+
+### 🌐 Web UI
+Complete web interface for managing your Clout identity and interacting with the network.
+
+```bash
+# Start the web server
+npm run web
+
+# Open http://localhost:3000 in your browser
+```
+
+Features:
+- **Feed tab**: View posts from your trust network
+- **Post tab**: Create posts and replies
+- **Trust tab**: Manage your web of trust
+- **Slides tab**: Send/receive encrypted DMs
+- **Thread tab**: Navigate conversation threads
+- **Identity tab**: View your public key and identity info
+- **Stats tab**: Network statistics
+
+### 🆔 Identity Management
+Cryptographic identity system for managing keypairs.
+
+```bash
+# Create a new identity
+clout identity create
+
+# List all identities
+clout identity list
+
+# Show your identity
+clout id
+```
+
+Each identity consists of:
+- **Public Key**: Your visible address (like a username)
+- **Identity Name**: Local label for the keypair (only on your device)
+- **Secret Key**: Stored securely in `~/.clout/identities.json`
 
 ## Architecture
 
@@ -56,7 +120,7 @@ Clout is built in 5 phases by refactoring Scarcity's core components:
 - Your profile is a CRDT that syncs P2P
 - Follow someone = merge their Chronicle into your view
 
-## Installation
+## BE A PART OF IT
 
 ```bash
 npm install
@@ -64,6 +128,36 @@ npm run build
 ```
 
 ## Quick Start
+
+### CLI Usage
+
+```bash
+# Create your identity
+clout identity create
+
+# Post a message
+clout post "Hello, decentralized world!"
+
+# Reply to a post
+clout reply <postId> "Great post!"
+
+# Trust/follow someone
+clout follow <publicKey>
+
+# View your feed
+clout feed
+
+# View a conversation thread
+clout thread <postId>
+
+# Send an encrypted slide (DM)
+clout slide <publicKey> "Private message"
+
+# View your slides inbox
+clout slides
+```
+
+### Programmatic Usage
 
 ```typescript
 import { Clout, Crypto, FreebirdAdapter, WitnessAdapter } from 'clout';
@@ -93,9 +187,22 @@ await clout.trust('0x1234...'); // Their public key
 // Post content
 const post = await clout.post('Hello, decentralized world!');
 
+// Reply to a post
+const reply = await clout.post('Great point!', post.id);
+
+// Send encrypted slide (DM)
+const slide = await clout.slide('0x1234...', 'Private message');
+
 // Get your feed (only posts from trusted network)
 const feed = clout.getFeed();
 console.log(feed.posts);
+
+// Get your inbox (decrypted slides)
+const inbox = clout.getInbox();
+for (const slide of inbox.slides) {
+  const message = clout.decryptSlide(slide);
+  console.log(`From ${slide.sender}: ${message}`);
+}
 
 // Get reputation of a user
 const reputation = clout.getReputation('0x1234...');
@@ -131,6 +238,55 @@ Posts from untrusted sources **vanish from your reality**. They never enter your
 
 Each user computes their own feed based on their unique trust graph. There is no global feed, no centralized algorithm. Your reality is defined by who **you** trust.
 
+### The Dunbar Number and Network Scale
+
+Clout's architecture is designed around **Dunbar's number** (~150) - the cognitive limit to the number of people with whom one can maintain stable social relationships.
+
+#### Why 3 Hops?
+
+The default `maxHops: 3` setting creates natural network boundaries that align with human cognitive limits:
+
+- **Distance 1** (Direct trust): ~50-150 people you personally trust
+- **Distance 2** (Friends of friends): ~2,500-22,500 people (50² to 150²)
+- **Distance 3** (Extended network): ~125,000-3,375,000 people (50³ to 150³)
+
+This creates a **self-regulating network size** where:
+1. Your feed remains **cognitively manageable** (not millions of posts)
+2. The network is **large enough** for content diversity
+3. **Trust degrades naturally** with distance (0.9 → 0.6 → 0.3)
+
+#### Contrast with Traditional Social Networks
+
+Traditional platforms try to **exceed cognitive limits**:
+- Facebook: Average 338 friends (>2× Dunbar's number)
+- Twitter: No limit on follows (easily 1000+ for active users)
+- Result: **Algorithmic curation becomes necessary** because humans can't process that much
+
+Clout instead **respects cognitive limits**:
+- Your direct trust list stays manageable (~150 or less)
+- Extended network grows naturally through transitive trust
+- No algorithmic feed curation needed - the trust graph itself provides natural filtering
+- You maintain **meaningful relationships** rather than parasocial ones
+
+#### The "Village Scale" Network
+
+Think of Clout as creating **village-scale social networks**:
+- **Distance 1**: Your village (~150 people)
+- **Distance 2**: Neighboring villages you know through your villagers
+- **Distance 3**: The extended region - far enough to be diverse, close enough to be trustworthy
+
+This mirrors how humans **evolved to socialize** - in small, interconnected groups with transitive trust, not in massive anonymous crowds requiring algorithmic oversight.
+
+#### Implications for Content Moderation
+
+Because each user's feed is limited by their trust graph:
+- **No global moderation needed** - you only see content from your extended network
+- **Natural spam resistance** - spammers must infiltrate trust networks, not just create accounts
+- **Subjective reality** - different trust graphs see entirely different "internets"
+- **Cultural diversity** - isolated trust networks can maintain different norms without conflict
+
+Clout's design acknowledges that **human social cognition doesn't scale infinitely**, and builds a protocol that works **with** our cognitive limits rather than against them.
+
 ## Comparison to Scarcity
 
 | Component | Scarcity (Money) | Clout (Reputation) |
@@ -144,11 +300,12 @@ Each user computes their own feed based on their unique trust graph. There is no
 
 ## Protocol Components
 
-- **CloutIdentity**: Manages your identity and trust graph
-- **CloutPost**: Creates immutable, timestamped posts
-- **ContentGossip**: Propagates content through web of trust
+- **IdentityManager**: Manages keypairs and cryptographic identities
+- **CloutPost**: Creates immutable, timestamped posts with reply support
+- **ContentGossip**: Propagates posts, slides, and trust signals through web of trust
 - **ReputationValidator**: Filters content by graph distance
-- **CloutStateManager**: CRDT-based state synchronization
+- **Crypto**: Encryption primitives (X25519 + XChaCha20-Poly1305)
+- **TicketBooth**: Day pass system for spam prevention
 
 ## Advanced Usage
 
