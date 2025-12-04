@@ -70,6 +70,10 @@ export class ContentGossip {
   private receiveHandler?: (data: ContentGossipMessage) => Promise<void>;
   private pruneTimer?: NodeJS.Timeout;
 
+  // OPTIMIZATION: Cached adjacency list for O(1) hop distance lookups
+  private readonly trustAdjacencyList = new Map<string, Set<string>>();
+  private readonly hopDistanceCache = new Map<string, number>();
+
   constructor(config: ContentGossipConfig) {
     this.witness = config.witness;
     this.freebird = config.freebird;
@@ -78,6 +82,11 @@ export class ContentGossip {
     this.pruneInterval = config.pruneInterval ?? 3600_000; // 1 hour
     this.maxPostAge = config.maxPostAge ?? (30 * 24 * 3600 * 1000); // 30 days
     this.maxHops = config.maxHops ?? 3; // Up to 3 degrees of separation
+
+    // Initialize adjacency list from initial trust graph (distance 1)
+    for (const trustedKey of this.trustGraph) {
+      this.hopDistanceCache.set(trustedKey, 1);
+    }
 
     this.startPruning();
   }
@@ -257,6 +266,9 @@ export class ContentGossip {
       firstSeen: Date.now()
     });
 
+    // OPTIMIZATION: Incrementally update adjacency list and hop distance cache
+    this.updateGraphCaches(signal.truster, signal.trustee);
+
     // Propagate
     await this.broadcast({ type: 'trust', trustSignal: signal, timestamp: Date.now() }, true);
 
@@ -267,30 +279,65 @@ export class ContentGossip {
   }
 
   /**
-   * Calculate hop distance in trust graph
+   * OPTIMIZATION: Incrementally update graph caches when trust signals arrive
+   *
+   * This updates the adjacency list and recalculates hop distances
+   * for affected nodes, avoiding the need to traverse the entire graph
+   * on every message.
+   */
+  private updateGraphCaches(truster: string, trustee: string): void {
+    // Update adjacency list
+    if (!this.trustAdjacencyList.has(truster)) {
+      this.trustAdjacencyList.set(truster, new Set());
+    }
+    this.trustAdjacencyList.get(truster)!.add(trustee);
+
+    // Calculate hop distance for trustee based on truster's distance
+    const trusterDistance = this.hopDistanceCache.get(truster);
+
+    if (trusterDistance !== undefined) {
+      const newDistance = trusterDistance + 1;
+      const existingDistance = this.hopDistanceCache.get(trustee);
+
+      // Update if this is a shorter path or first path
+      if (existingDistance === undefined || newDistance < existingDistance) {
+        this.hopDistanceCache.set(trustee, newDistance);
+
+        // Recursively update neighbors of trustee (if within maxHops)
+        if (newDistance < this.maxHops) {
+          const neighbors = this.trustAdjacencyList.get(trustee);
+          if (neighbors) {
+            for (const neighbor of neighbors) {
+              this.updateGraphCaches(trustee, neighbor);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Calculate hop distance in trust graph (OPTIMIZED)
    *
    * Returns:
    * - 0: Self
    * - 1: Direct follow
    * - 2: Friend of friend
    * - 999: Not trusted (beyond maxHops)
+   *
+   * OPTIMIZATION: O(1) lookup instead of O(n) BFS traversal.
+   * The hop distance cache is maintained incrementally as trust signals arrive.
    */
   private calculateHopDistance(publicKey: string): number {
-    // Distance 0: Self (handled elsewhere)
-    // Distance 1: Direct follow
+    // Distance 1: Direct trust
     if (this.trustGraph.has(publicKey)) {
       return 1;
     }
 
-    // Distance 2+: Friend of friend (simplified BFS)
-    // In production, we'd do full graph traversal with seen trust signals
-    for (const [key, record] of this.seenTrustSignals.entries()) {
-      const [truster, trustee] = key.split(':');
-
-      // If we trust the truster, and they trust the target
-      if (this.trustGraph.has(truster) && trustee === publicKey) {
-        return 2;
-      }
+    // Distance 2+: Lookup in pre-computed cache
+    const cachedDistance = this.hopDistanceCache.get(publicKey);
+    if (cachedDistance !== undefined) {
+      return cachedDistance;
     }
 
     // Not reachable within maxHops
@@ -301,11 +348,20 @@ export class ContentGossip {
    * Update local trust graph
    *
    * Allows dynamic trust graph updates.
+   * OPTIMIZATION: Rebuilds hop distance cache for direct trust relationships.
    */
   updateTrustGraph(newTrustGraph: Set<string>): void {
     this.trustGraph.clear();
     for (const key of newTrustGraph) {
       this.trustGraph.add(key);
+      // Update cache: all directly trusted nodes are at distance 1
+      this.hopDistanceCache.set(key, 1);
+    }
+
+    // Rebuild extended network cache from existing trust signals
+    for (const [key, record] of this.seenTrustSignals.entries()) {
+      const [truster, trustee] = key.split(':');
+      this.updateGraphCaches(truster, trustee);
     }
   }
 
