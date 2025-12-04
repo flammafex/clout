@@ -85,6 +85,37 @@ export class CloutWebServer {
       }
     });
 
+    // Update Profile
+    this.app.post('/api/profile', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const { displayName, bio, avatar } = req.body;
+        const metadata: any = {};
+
+        if (displayName !== undefined) metadata.displayName = displayName;
+        if (bio !== undefined) metadata.bio = bio;
+        if (avatar !== undefined) metadata.avatar = avatar;
+
+        if (Object.keys(metadata).length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'No metadata provided'
+          });
+        }
+
+        await this.clout!.setProfileMetadata(metadata);
+
+        const updatedProfile = this.clout!.getProfile();
+        res.json({
+          success: true,
+          data: updatedProfile
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
     // Get Feed
     this.app.get('/api/feed', async (req, res) => {
       try {

@@ -51,6 +51,9 @@ export class CloutCommand extends Command {
       case 'slides':
         await this.handleSlides(subcommandArgs);
         break;
+      case 'profile':
+        await this.handleProfile(subcommandArgs);
+        break;
       case 'identity':
         await this.handleIdentity();
         break;
@@ -298,6 +301,133 @@ export class CloutCommand extends Command {
       }
     } catch (error: any) {
       console.error('Failed to load slides:', error.message);
+    }
+  }
+
+  private async handleProfile(args: string[]): Promise<void> {
+    const subcommand = args[0];
+
+    if (!subcommand || subcommand === 'show') {
+      // Show current profile
+      await this.showProfile();
+    } else if (subcommand === 'set') {
+      // Set profile metadata
+      await this.setProfile(args.slice(1));
+    } else if (subcommand === 'get') {
+      // Get profile for a specific user
+      await this.getProfile(args[1]);
+    } else {
+      console.error('Usage:');
+      console.error('  clout profile show                    - Show your profile');
+      console.error('  clout profile set --name "..." --bio "..." --avatar "..."');
+      console.error('  clout profile get <publicKey>         - View another user\'s profile');
+    }
+  }
+
+  private async showProfile(): Promise<void> {
+    try {
+      const clout = await this.getClout();
+      const profile = clout.getProfile();
+
+      console.log('\n═══════════════════════════════════════════════');
+      console.log('                 YOUR PROFILE');
+      console.log('═══════════════════════════════════════════════\n');
+
+      if (profile.metadata?.displayName) {
+        console.log(`Name:        ${profile.metadata.displayName}`);
+      }
+      if (profile.metadata?.bio) {
+        console.log(`Bio:         ${profile.metadata.bio}`);
+      }
+      if (profile.metadata?.avatar) {
+        console.log(`Avatar:      ${profile.metadata.avatar}`);
+      }
+
+      console.log(`Public Key:  ${profile.publicKey.slice(0, 16)}...`);
+      console.log(`Following:   ${profile.trustGraph.size} users\n`);
+    } catch (error: any) {
+      console.error('Failed to get profile:', error.message);
+    }
+  }
+
+  private async setProfile(args: string[]): Promise<void> {
+    try {
+      // Parse arguments
+      const metadata: any = {};
+      for (let i = 0; i < args.length; i += 2) {
+        const flag = args[i];
+        const value = args[i + 1];
+
+        if (!value) {
+          console.error(`Missing value for ${flag}`);
+          return;
+        }
+
+        if (flag === '--name') {
+          metadata.displayName = value;
+        } else if (flag === '--bio') {
+          metadata.bio = value;
+        } else if (flag === '--avatar') {
+          metadata.avatar = value;
+        } else {
+          console.error(`Unknown flag: ${flag}`);
+          return;
+        }
+      }
+
+      if (Object.keys(metadata).length === 0) {
+        console.error('No metadata provided. Use --name, --bio, or --avatar');
+        return;
+      }
+
+      const clout = await this.getClout();
+      await clout.setProfileMetadata(metadata);
+
+      console.log('\n✅ Profile updated successfully!');
+      console.log('   Your profile will sync to peers automatically.\n');
+    } catch (error: any) {
+      console.error('Failed to update profile:', error.message);
+    }
+  }
+
+  private async getProfile(publicKey?: string): Promise<void> {
+    if (!publicKey) {
+      console.error('Error: Public key required');
+      console.error('Usage: clout profile get <publicKey>');
+      return;
+    }
+
+    try {
+      const clout = await this.getClout();
+      const profile = clout.getProfileForUser(publicKey);
+
+      if (!profile) {
+        console.log(`\nNo profile found for ${publicKey}\n`);
+        return;
+      }
+
+      console.log('\n═══════════════════════════════════════════════');
+      console.log(`            PROFILE: ${publicKey.slice(0, 16)}...`);
+      console.log('═══════════════════════════════════════════════\n');
+
+      if (profile.metadata?.displayName) {
+        console.log(`Name:        ${profile.metadata.displayName}`);
+      } else {
+        console.log(`Name:        (not set)`);
+      }
+
+      if (profile.metadata?.bio) {
+        console.log(`Bio:         ${profile.metadata.bio}`);
+      }
+
+      if (profile.metadata?.avatar) {
+        console.log(`Avatar:      ${profile.metadata.avatar}`);
+      }
+
+      console.log(`Public Key:  ${profile.publicKey.slice(0, 16)}...`);
+      console.log(`Following:   ${profile.trustGraph.size} users\n`);
+    } catch (error: any) {
+      console.error('Failed to get profile:', error.message);
     }
   }
 
