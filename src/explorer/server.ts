@@ -76,9 +76,10 @@ export class ExplorerServer {
         const infra = await this.infraManager.initialize();
 
         // Create and start collector with WebSocket broadcast hook
+        // Note: ContentGossip is used instead of NullifierGossip for Clout
         this.collector = new NullifierCollector({
           database: this.db,
-          gossip: infra.gossip,
+          gossip: infra.gossip as any, // ContentGossip from Clout
           witness: infra.witness,
           federation: federation || 'default',
           // Hook into the collector stream to broadcast to UI
