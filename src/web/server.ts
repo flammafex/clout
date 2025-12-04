@@ -244,13 +244,9 @@ export class CloutWebServer {
     const identity = this.identityManager.getIdentity();
     const secretKey = this.identityManager.getSecretKey();
 
-    // Get infrastructure
-    const infra = this.infraManager.getInfrastructure();
-
-    // Fix TS18048: Check for undefined infrastructure
-    if (!infra) {
-      throw new Error('Infrastructure not initialized');
-    }
+    // Initialize infrastructure (Freebird, Witness, Gossip)
+    console.log('Initializing Clout infrastructure...');
+    const infra = await this.infraManager.initialize();
 
     this.clout = new Clout({
       publicKey: identity.publicKey,
