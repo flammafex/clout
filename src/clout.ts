@@ -156,15 +156,22 @@ export class Clout {
    * Post content to the network
    *
    * Phase 2: Create and broadcast a post
+   *
+   * ONE-TOKEN-PER-POST: Requires a Freebird token which is consumed by posting.
+   * This provides strong spam resistance.
+   *
+   * @param content - Post content
+   * @param token - Freebird token (consumed by this post)
+   * @param replyTo - Optional parent post ID if this is a reply
    */
-  async post(content: string, replyTo?: string): Promise<CloutPost> {
+  async post(content: string, token: Uint8Array, replyTo?: string): Promise<CloutPost> {
     const publicKeyHex = this.identity.getPublicKeyHex();
 
     // Sign content
     const contentHash = Crypto.hashString(content);
     const signature = await this.identity.signContent(contentHash);
 
-    // Create post
+    // Create post (consumes token)
     const post = await CloutPost.post(
       {
         author: publicKeyHex,
@@ -172,6 +179,7 @@ export class Clout {
         signature,
         freebird: this.freebird,
         witness: this.witness,
+        token,
         replyTo
       },
       this.gossip
@@ -367,9 +375,13 @@ export class Clout {
    * Accept an invitation
    *
    * Verifies the invitation and establishes trust with the inviter.
+   * Returns a Freebird token that can be used for posting.
+   *
+   * @param code - Invitation code
+   * @returns Freebird token for making your first post
    */
-  async acceptInvitation(code: string): Promise<void> {
-    const { invitation, trustSignal } = await this.invitations.acceptInvitation(code);
+  async acceptInvitation(code: string): Promise<Uint8Array> {
+    const { invitation, trustSignal, token } = await this.invitations.acceptInvitation(code);
 
     // Trust the inviter
     await this.trust(invitation.inviter);
@@ -382,9 +394,11 @@ export class Clout {
     });
 
     console.log(
-      `[Clout] ✅ Accepted invitation from ${invitation.inviter.slice(0, 8)} ` +
-      `and established mutual trust`
+      `[Clout] ✅ Accepted invitation from ${invitation.inviter.slice(0, 8)}, ` +
+      `established trust, and received posting token`
     );
+
+    return token;
   }
 
   /**
@@ -392,6 +406,27 @@ export class Clout {
    */
   getInvitationChain() {
     return this.invitations.getInvitationChain();
+  }
+
+  /**
+   * Obtain a Freebird token for posting
+   *
+   * ONE-TOKEN-PER-POST: Each call consumes the ability to get one token.
+   * You can only get tokens if you have been invited or are an issuer.
+   *
+   * @returns A Freebird token that can be used for one post
+   */
+  async obtainToken(): Promise<Uint8Array> {
+    // Blind the public key
+    const publicKey = { bytes: Crypto.fromHex(this.publicKeyHex) };
+    const blinded = await this.freebird.blind(publicKey);
+
+    // Issue token
+    const token = await this.freebird.issueToken(blinded);
+
+    console.log('[Clout] ✅ Obtained Freebird token for posting');
+
+    return token;
   }
 
   /**
