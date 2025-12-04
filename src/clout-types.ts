@@ -237,12 +237,6 @@ export interface CloutState {
   /** Trust signals issued by this agent */
   myTrustSignals: TrustSignal[];
 
-  /** Cached feed (computed from trust graph) */
-  feed?: Feed;
-
-  /** Received slides (encrypted messages) */
-  inbox?: Inbox;
-
   /** Last sync timestamp */
   lastSync?: number;
 }

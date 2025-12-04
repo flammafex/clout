@@ -2,8 +2,17 @@ import { CloutPost, type PostConfig, type ContentGossip } from './post.js';
 import { TicketBooth, type CloutTicket } from './ticket-booth.js';
 import { Crypto } from './crypto.js';
 import { ReputationValidator } from './reputation.js';
+import { CloutStateManager } from './chronicle/clout-state.js';
 import type { FreebirdClient, WitnessClient } from './types.js';
-import type { TrustSignal, ReputationScore, Feed, PostPackage, SlidePackage, Inbox } from './clout-types.js';
+import { 
+  type TrustSignal, 
+  type ReputationScore, 
+  type Feed, 
+  type PostPackage, 
+  type SlidePackage, 
+  type Inbox,
+  DEFAULT_TRUST_SETTINGS
+} from './clout-types.js';
 
 // Extended Gossip Interface to include read methods (if available)
 export interface GossipNode extends ContentGossip {
@@ -34,6 +43,7 @@ export class Clout {
   // Sub-modules
   public readonly ticketBooth: TicketBooth;
   private readonly reputationValidator: ReputationValidator;
+  public readonly state: CloutStateManager;
   
   // State
   private currentTicket?: CloutTicket;
@@ -59,6 +69,19 @@ export class Clout {
       witness: this.witness,
       maxHops: config.maxHops ?? 3,
       minReputation: config.minReputation ?? 0.3
+    });
+
+    // 4. Initialize State Manager (CRDT / Phase 5)
+    this.state = new CloutStateManager({
+      profile: {
+        publicKey: this.publicKeyHex,
+        trustGraph: this.trustGraph,
+        trustSettings: {
+          ...DEFAULT_TRUST_SETTINGS,
+          maxHops: config.maxHops ?? DEFAULT_TRUST_SETTINGS.maxHops,
+          minReputation: config.minReputation ?? DEFAULT_TRUST_SETTINGS.minReputation
+        }
+      }
     });
   }
 
@@ -123,7 +146,13 @@ export class Clout {
     };
 
     // 3. Create & Gossip Post
-    return await CloutPost.post(config, this.currentTicket, this.gossip);
+    const post = await CloutPost.post(config, this.currentTicket, this.gossip);
+
+    // 4. Persist to CRDT State
+    // FIXED: Extract the raw PostPackage using .getPackage()
+    this.state.addPost(post.getPackage());
+
+    return post;
   }
 
   /**
@@ -210,6 +239,16 @@ export class Clout {
         type: 'trust',
         trustSignal: signal,
         timestamp: Date.now()
+      });
+
+      // 3. Persist to CRDT State
+      this.state.addTrustSignal(signal);
+      
+      // Update the profile in the state to reflect the new trust graph
+      this.state.updateProfile({
+        publicKey: this.publicKeyHex,
+        trustGraph: this.trustGraph,
+        trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
       });
     }
     
