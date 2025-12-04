@@ -5,7 +5,7 @@
 
 import * as A from "@automerge/automerge";
 import { Chronicle } from '../vendor/hypertoken/Chronicle.js'; // This is actually ChronicleWasm
-import { Emitter } from '../vendor/hypertoken/events.js';
+import { Emitter } from './events.js';
 import type { CloutState, PostPackage, TrustSignal, CloutProfile } from '../clout-types.js';
 
 // Default empty state
@@ -39,7 +39,8 @@ export class CloutStateManager extends Emitter {
     }
 
     // Initialize the WASM-backed Chronicle
-    this.chronicle = new Chronicle(startState as any);
+    // We sanitize startState to ensure no undefined values exist
+    this.chronicle = new Chronicle(JSON.parse(JSON.stringify(startState)));
 
     // Forward events from Chronicle to Clout listeners
     this.chronicle.on("state:changed", (payload: any) => {
@@ -64,7 +65,10 @@ export class CloutStateManager extends Emitter {
     this.chronicle.change("add post", (doc: any) => {
       const exists = doc.myPosts.some((p: any) => p.id === post.id);
       if (!exists) {
-        doc.myPosts.push(post);
+        // FIX: Sanitize post to remove 'undefined' fields (e.g. replyTo)
+        // Automerge throws RangeError if it encounters undefined
+        const cleanPost = JSON.parse(JSON.stringify(post));
+        doc.myPosts.push(cleanPost);
       }
     });
   }
@@ -75,16 +79,21 @@ export class CloutStateManager extends Emitter {
         (s: any) => s.truster === signal.truster && s.trustee === signal.trustee
       );
       if (idx !== -1) doc.myTrustSignals.splice(idx, 1);
-      doc.myTrustSignals.push(signal);
+      
+      // FIX: Sanitize signal
+      const cleanSignal = JSON.parse(JSON.stringify(signal));
+      doc.myTrustSignals.push(cleanSignal);
     });
   }
 
   updateProfile(profile: CloutProfile): void {
     this.chronicle.change("update profile", (doc: any) => {
-      doc.profile = {
+      // FIX: Sanitize profile and convert Set to Array
+      const cleanProfile = JSON.parse(JSON.stringify({
           ...profile,
           trustGraph: Array.from(profile.trustGraph)
-      };
+      }));
+      doc.profile = cleanProfile;
     });
   }
 

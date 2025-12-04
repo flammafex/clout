@@ -240,3 +240,20 @@ export interface CloutState {
   /** Last sync timestamp */
   lastSync?: number;
 }
+
+export interface CloutStore {
+  /** Persist a post to the local feed cache */
+  addPost(post: PostPackage): Promise<void>;
+  
+  /** Retrieve the local feed cache */
+  getFeed(): Promise<PostPackage[]>;
+  
+  /** Persist a received slide to the local inbox */
+  addSlide(slide: SlidePackage): Promise<void>;
+  
+  /** Retrieve the local inbox */
+  getInbox(): Promise<SlidePackage[]>;
+  
+  /** Initialize storage (load from disk/db) */
+  init(): Promise<void>;
+}

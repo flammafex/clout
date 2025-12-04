@@ -11,6 +11,8 @@ import {
   type PostPackage, 
   type SlidePackage, 
   type Inbox,
+  type CloutStore,
+  type ContentGossipMessage,
   DEFAULT_TRUST_SETTINGS
 } from './clout-types.js';
 
@@ -27,6 +29,7 @@ export interface CloutConfig {
   freebird: FreebirdClient;
   witness: WitnessClient;
   gossip?: GossipNode; // Use extended interface
+  store?: CloutStore;  // Local persistence for feed/inbox
   
   // Trust Settings
   maxHops?: number;
@@ -39,6 +42,7 @@ export class Clout {
   private readonly freebird: FreebirdClient;
   private readonly witness: WitnessClient;
   private readonly gossip?: GossipNode;
+  private readonly store?: CloutStore;
   
   // Sub-modules
   public readonly ticketBooth: TicketBooth;
@@ -48,7 +52,8 @@ export class Clout {
   // State
   private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
-  private readonly receivedSlides: SlidePackage[] = [];
+  
+  // Note: receivedSlides removed in favor of local store
 
   constructor(config: CloutConfig) {
     this.publicKeyHex = config.publicKey;
@@ -56,6 +61,7 @@ export class Clout {
     this.freebird = config.freebird;
     this.witness = config.witness;
     this.gossip = config.gossip;
+    this.store = config.store;
     
     // 1. Initialize TicketBooth (Anti-Sybil)
     this.ticketBooth = new TicketBooth(config.freebird, config.witness);
@@ -72,6 +78,7 @@ export class Clout {
     });
 
     // 4. Initialize State Manager (CRDT / Phase 5)
+    // This manages the syncable state (Profile, My Posts, My Trust Signals)
     this.state = new CloutStateManager({
       profile: {
         publicKey: this.publicKeyHex,
@@ -83,6 +90,66 @@ export class Clout {
         }
       }
     });
+
+    // 5. Initialize Storage & Gossip Subscription
+    // This handles local-only data (Feed, Inbox) to prevent privacy leaks in CRDT
+    this.initializeDataLayer();
+  }
+
+  /**
+   * Initialize local storage and subscribe to gossip
+   */
+  private async initializeDataLayer() {
+    // Initialize store if provided
+    if (this.store) {
+      await this.store.init();
+    }
+
+    // Subscribe to gossip to populate local store
+    if (this.gossip) {
+      this.gossip.subscribe(async (msg: ContentGossipMessage) => {
+        await this.handleGossipMessage(msg);
+      });
+    }
+  }
+
+  /**
+   * Handle incoming gossip messages
+   * Filters content based on trust/relevance and saves to local store
+   */
+  private async handleGossipMessage(msg: ContentGossipMessage): Promise<void> {
+    if (!this.store) return;
+
+    try {
+      switch (msg.type) {
+        case 'post':
+          if (msg.post) {
+            // Check Trust: Is this author in my web of trust?
+            const reputation = this.reputationValidator.computeReputation(msg.post.author);
+            if (reputation.visible) {
+              await this.store.addPost(msg.post);
+            }
+          }
+          break;
+
+        case 'slide':
+          if (msg.slide) {
+            // Check Relevance: Is this slide for me?
+            if (msg.slide.recipient === this.publicKeyHex) {
+              await this.store.addSlide(msg.slide);
+              console.log(`[Clout] 📬 Received new slide from ${msg.slide.sender.slice(0,8)}`);
+            }
+          }
+          break;
+          
+        case 'trust':
+           // Trust signals are primarily handled by the reputation validator/graph logic,
+           // but could also be persisted if you wanted a history of observed signals.
+           break;
+      }
+    } catch (err) {
+      console.error('[Clout] Error handling gossip message:', err);
+    }
   }
 
   // =================================================================
@@ -112,6 +179,13 @@ export class Clout {
   async obtainToken(): Promise<Uint8Array> {
     const blinded = await this.freebird.blind({ bytes: Crypto.fromHex(this.publicKeyHex) });
     return this.freebird.issueToken(blinded);
+  }
+
+  /**
+   * Check if the user has a valid Day Pass
+   */
+  hasActiveTicket(): boolean {
+    return !!this.currentTicket && Date.now() <= this.currentTicket.expiry;
   }
 
   // =================================================================
@@ -148,9 +222,13 @@ export class Clout {
     // 3. Create & Gossip Post
     const post = await CloutPost.post(config, this.currentTicket, this.gossip);
 
-    // 4. Persist to CRDT State
-    // FIXED: Extract the raw PostPackage using .getPackage()
-    this.state.addPost(post.getPackage());
+    // 4. Persist to CRDT State (for sync) and Local Store (for own feed)
+    const pkg = post.getPackage();
+    this.state.addPost(pkg);
+    
+    if (this.store) {
+      await this.store.addPost(pkg);
+    }
 
     return post;
   }
@@ -198,6 +276,12 @@ export class Clout {
         slide,
         timestamp: Date.now()
       });
+    }
+
+    // 6. Save to local store (Outbox/Sent items)
+    if (this.store) {
+      // We might want to store sent slides too, though getInbox() typically returns received
+      // For now, we only log it
     }
 
     console.log(`[Clout] 📬 Slide sent to ${recipientKey.slice(0, 8)}`);
@@ -298,10 +382,11 @@ export class Clout {
   /**
    * Get the computed feed
    */
-  getFeed(): Feed {
-    const posts = (this.gossip && this.gossip.getFeed) 
-      ? this.gossip.getFeed() 
-      : [];
+  async getFeed(): Promise<Feed> {
+    // Read from local store instead of gossip memory
+    const posts = this.store 
+      ? await this.store.getFeed()
+      : (this.gossip && this.gossip.getFeed) ? this.gossip.getFeed() : [];
 
     return {
       posts,
@@ -326,13 +411,14 @@ export class Clout {
   /**
    * Get inbox with decrypted slides
    */
-  getInbox(): Inbox {
-    const allSlides = (this.gossip && this.gossip.getSlides)
-      ? this.gossip.getSlides()
-      : [];
+  async getInbox(): Promise<Inbox> {
+    // Read from local store instead of gossip memory
+    const slides = this.store
+      ? await this.store.getInbox()
+      : (this.gossip && this.gossip.getSlides) ? this.gossip.getSlides() : [];
 
-    // Filter slides addressed to us
-    const mySlides = allSlides.filter(
+    // Filter slides addressed to us (store should already be filtered, but double check)
+    const mySlides = slides.filter(
       slide => slide.recipient === this.publicKeyHex
     );
 
@@ -365,12 +451,19 @@ export class Clout {
   /**
    * Get node statistics
    */
-  getStats() {
+  async getStats() {
     const gossipStats = (this.gossip && this.gossip.getStats)
       ? this.gossip.getStats()
       : { postCount: 0 };
 
-    const inbox = this.getInbox();
+    // Get inbox count safely
+    let slideCount = 0;
+    if (this.store) {
+      const inbox = await this.store.getInbox();
+      slideCount = inbox.length;
+    } else if (this.gossip && this.gossip.getSlides) {
+      slideCount = this.gossip.getSlides().length;
+    }
 
     return {
       identity: {
@@ -379,7 +472,7 @@ export class Clout {
       },
       state: {
         postCount: gossipStats.postCount,
-        slideCount: inbox.slides.length
+        slideCount
       }
     };
   }
