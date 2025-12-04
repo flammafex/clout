@@ -6,6 +6,9 @@
 
 import type { ContentGossipMessage } from './clout-types.js';
 
+// Re-export for network modules
+export type { ContentGossipMessage };
+
 /**
  * Node types in the Clout network
  */

@@ -248,7 +248,10 @@ export class CloutIdentity {
    * Useful for bootstrapping or syncing from backup.
    */
   importTrustGraph(trustGraph: string[]): void {
-    this.profile.trustGraph = new Set(trustGraph);
+    this.profile = {
+      ...this.profile,
+      trustGraph: new Set(trustGraph)
+    };
   }
 
   /**

@@ -8,9 +8,11 @@
  * 4. Forward messages when direct connection unavailable
  */
 
+/// <reference types="node" />
+
 import { WebSocket } from 'ws';
 import type { RelayMessage, PeerDiscovery, PeerInfo, NodeType } from '../network-types.js';
-import { NodeType as NT } from '../network-types.js';
+import { NodeType as NT, RelayMessageType } from '../network-types.js';
 
 export interface RelayClientConfig {
   readonly publicKey: string;
@@ -78,7 +80,7 @@ export class RelayClient implements PeerDiscovery {
    */
   private register(): void {
     this.send({
-      type: 'register',
+      type: RelayMessageType.REGISTER,
       from: this.config.publicKey,
       payload: {
         publicKey: this.config.publicKey,
@@ -121,7 +123,7 @@ export class RelayClient implements PeerDiscovery {
    */
   async signal(to: string, payload: any): Promise<void> {
     this.send({
-      type: 'signal',
+      type: RelayMessageType.SIGNAL,
       from: this.config.publicKey,
       to,
       payload
@@ -133,7 +135,7 @@ export class RelayClient implements PeerDiscovery {
    */
   async forward(to: string, payload: any): Promise<void> {
     this.send({
-      type: 'forward',
+      type: RelayMessageType.FORWARD,
       from: this.config.publicKey,
       to,
       payload
@@ -147,7 +149,7 @@ export class RelayClient implements PeerDiscovery {
     return new Promise((resolve) => {
       // Query relay for peers
       this.send({
-        type: 'query_peers',
+        type: RelayMessageType.QUERY_PEERS,
         from: this.config.publicKey,
         payload: { maxResults }
       });
@@ -158,7 +160,7 @@ export class RelayClient implements PeerDiscovery {
       }, 5000);
 
       const handler = (message: RelayMessage) => {
-        if (message.type === 'query_peers' && message.payload.peers) {
+        if (message.type === RelayMessageType.QUERY_PEERS && message.payload.peers) {
           clearTimeout(timeout);
           this.messageHandlers = this.messageHandlers.filter(h => h !== handler);
 

@@ -346,6 +346,13 @@ export class ContentGossip {
   }
 
   /**
+   * Subscribe to messages (alias for setReceiveHandler)
+   */
+  subscribe(handler: (data: ContentGossipMessage) => Promise<void>): void {
+    this.setReceiveHandler(handler);
+  }
+
+  /**
    * Add peer connection
    */
   addPeer(peer: PeerConnection): void {

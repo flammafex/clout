@@ -8,8 +8,11 @@
  * 4. Message forwarding for unreachable peers
  */
 
+/// <reference types="node" />
+
 import { WebSocketServer, WebSocket } from 'ws';
-import type { RelayMessage, RelayMessageType } from '../network-types.js';
+import type { RelayMessage } from '../network-types.js';
+import { RelayMessageType } from '../network-types.js';
 
 interface RegisteredClient {
   readonly publicKey: string;
@@ -143,7 +146,7 @@ export class RelayServer {
 
     // Send confirmation
     this.send(ws, {
-      type: 'register',
+      type: RelayMessageType.REGISTER,
       payload: {
         success: true,
         connectedPeers: this.clients.size
@@ -170,7 +173,7 @@ export class RelayServer {
 
     // Forward signal to recipient
     this.send(recipient.ws, {
-      type: 'signal',
+      type: RelayMessageType.SIGNAL,
       from: message.from,
       to,
       payload
@@ -200,7 +203,7 @@ export class RelayServer {
 
     // Forward message
     this.send(recipient.ws, {
-      type: 'forward',
+      type: RelayMessageType.FORWARD,
       from: message.from,
       to,
       payload
@@ -224,7 +227,7 @@ export class RelayServer {
       }));
 
     this.send(ws, {
-      type: 'query_peers',
+      type: RelayMessageType.QUERY_PEERS,
       payload: { peers }
     });
 
@@ -245,7 +248,7 @@ export class RelayServer {
    */
   private sendError(ws: WebSocket, error: string): void {
     this.send(ws, {
-      type: 'forward' as RelayMessageType, // Type assertion for error messages
+      type: RelayMessageType.FORWARD,
       payload: { error }
     });
   }
