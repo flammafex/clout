@@ -6,7 +6,6 @@
  */
 
 import { Command } from './command.js';
-import { WalletCommand } from './commands/wallet.js';
 import { IdentityCommand } from './commands/identity.js';
 import { ConfigCommand } from './commands/config.js';
 import { InteractiveCommand } from './commands/interactive.js';
@@ -53,7 +52,6 @@ async function main() {
   // Other commands
   const commands: { [key: string]: Command } = {
     identity: new IdentityCommand(),
-    wallet: new WalletCommand(), // Legacy - use 'identity' instead
     config: new ConfigCommand(),
     interactive: new InteractiveCommand(),
     repl: new InteractiveCommand(), // Alias
@@ -96,7 +94,6 @@ CORE COMMANDS:
 
 MANAGEMENT:
   identity       Manage identities and keys
-  wallet         Manage wallets and keys (legacy - use identity)
   config         Configuration management
   interactive    Interactive REPL mode
 

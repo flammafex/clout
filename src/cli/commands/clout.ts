@@ -67,15 +67,15 @@ export class CloutCommand extends Command {
 
     const message = args.join(' ');
 
-    // Get default wallet
-    const defaultWallet = this.identityManager.getDefaultWalletName();
-    if (!defaultWallet) {
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
       console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.identityManager.getWallet(defaultWallet);
-    const secretKey = this.identityManager.getSecretKey(defaultWallet);
+    const identity = this.identityManager.getIdentity(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
 
     // Initialize infrastructure
     console.log('🔨 Initializing Clout infrastructure...');
@@ -83,7 +83,7 @@ export class CloutCommand extends Command {
 
     // Create Clout instance
     const clout = new Clout({
-      publicKey: wallet.publicKey,
+      publicKey: identity.publicKey,
       privateKey: secretKey,
       freebird: infra.freebird,
       witness: infra.witness,
@@ -109,7 +109,7 @@ export class CloutCommand extends Command {
 
     console.log(`\n✅ Post created!`);
     console.log(`   ID: ${pkg.id.slice(0, 16)}...`);
-    console.log(`   Author: ${wallet.publicKey.slice(0, 16)}...`);
+    console.log(`   Author: ${identity.publicKey.slice(0, 16)}...`);
     console.log(`   Content: ${message}`);
   }
 
@@ -125,15 +125,15 @@ export class CloutCommand extends Command {
 
     const targetPublicKey = args[0];
 
-    // Get default wallet
-    const defaultWallet = this.identityManager.getDefaultWalletName();
-    if (!defaultWallet) {
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
       console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.identityManager.getWallet(defaultWallet);
-    const secretKey = this.identityManager.getSecretKey(defaultWallet);
+    const identity = this.identityManager.getIdentity(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
 
     // Initialize infrastructure
     console.log('🔨 Initializing Clout infrastructure...');
@@ -141,7 +141,7 @@ export class CloutCommand extends Command {
 
     // Create Clout instance
     const clout = new Clout({
-      publicKey: wallet.publicKey,
+      publicKey: identity.publicKey,
       privateKey: secretKey,
       freebird: infra.freebird,
       witness: infra.witness,
@@ -163,15 +163,15 @@ export class CloutCommand extends Command {
   private async handleFeed(args: string[]): Promise<void> {
     const limit = args.length > 0 ? parseInt(args[0], 10) : 20;
 
-    // Get default wallet
-    const defaultWallet = this.identityManager.getDefaultWalletName();
-    if (!defaultWallet) {
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
       console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.identityManager.getWallet(defaultWallet);
-    const secretKey = this.identityManager.getSecretKey(defaultWallet);
+    const identity = this.identityManager.getIdentity(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
 
     // Initialize infrastructure
     console.log('🔨 Initializing Clout infrastructure...');
@@ -179,7 +179,7 @@ export class CloutCommand extends Command {
 
     // Create Clout instance
     const clout = new Clout({
-      publicKey: wallet.publicKey,
+      publicKey: identity.publicKey,
       privateKey: secretKey,
       freebird: infra.freebird,
       witness: infra.witness,
@@ -229,21 +229,21 @@ export class CloutCommand extends Command {
    * Show identity
    */
   private async handleIdentity(args: string[]): Promise<void> {
-    // Get default wallet
-    const defaultWallet = this.identityManager.getDefaultWalletName();
-    if (!defaultWallet) {
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
       console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.identityManager.getWallet(defaultWallet);
+    const identity = this.identityManager.getIdentity(defaultIdentity);
 
     console.log(`\n═══════════════════════════════════════════════════════`);
     console.log(`                   YOUR IDENTITY`);
     console.log(`═══════════════════════════════════════════════════════\n`);
-    console.log(`  Identity: ${defaultWallet}`);
-    console.log(`  Public Key: ${wallet.publicKey}`);
-    console.log(`  Created: ${new Date(wallet.created).toLocaleString()}`);
+    console.log(`  Identity: ${defaultIdentity}`);
+    console.log(`  Public Key: ${identity.publicKey}`);
+    console.log(`  Created: ${new Date(identity.created).toLocaleString()}`);
     console.log(`\n═══════════════════════════════════════════════════════\n`);
   }
 
@@ -259,15 +259,15 @@ export class CloutCommand extends Command {
 
     const recipientPublicKey = args[0];
 
-    // Get default wallet
-    const defaultWallet = this.identityManager.getDefaultWalletName();
-    if (!defaultWallet) {
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
       console.error('Error: No default identity. Create one with: clout identity create');
       process.exit(1);
     }
 
-    const wallet = this.identityManager.getWallet(defaultWallet);
-    const secretKey = this.identityManager.getSecretKey(defaultWallet);
+    const identity = this.identityManager.getIdentity(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
 
     // Initialize infrastructure
     console.log('🔨 Initializing Clout infrastructure...');
@@ -275,7 +275,7 @@ export class CloutCommand extends Command {
 
     // Create Clout instance
     const clout = new Clout({
-      publicKey: wallet.publicKey,
+      publicKey: identity.publicKey,
       privateKey: secretKey,
       freebird: infra.freebird,
       witness: infra.witness,
