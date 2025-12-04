@@ -30,6 +30,9 @@ export class CloutCommand extends Command {
       case 'post':
         await this.handlePost(subcommandArgs);
         break;
+      case 'reply':
+        await this.handleReply(subcommandArgs);
+        break;
       case 'follow':
       case 'trust':
         await this.handleFollow(subcommandArgs);
@@ -109,6 +112,66 @@ export class CloutCommand extends Command {
 
     console.log(`\n✅ Post created!`);
     console.log(`   ID: ${pkg.id.slice(0, 16)}...`);
+    console.log(`   Author: ${identity.publicKey.slice(0, 16)}...`);
+    console.log(`   Content: ${message}`);
+  }
+
+  /**
+   * Reply to a post
+   */
+  private async handleReply(args: string[]): Promise<void> {
+    if (args.length < 2) {
+      console.error('Error: Post ID and message required');
+      console.error('Usage: clout reply <postId> "Your reply here"');
+      process.exit(1);
+    }
+
+    const postId = args[0];
+    const message = args.slice(1).join(' ');
+
+    // Get default identity
+    const defaultIdentity = this.identityManager.getDefaultIdentityName();
+    if (!defaultIdentity) {
+      console.error('Error: No default identity. Create one with: clout identity create');
+      process.exit(1);
+    }
+
+    const identity = this.identityManager.getIdentity(defaultIdentity);
+    const secretKey = this.identityManager.getSecretKey(defaultIdentity);
+
+    // Initialize infrastructure
+    console.log('🔨 Initializing Clout infrastructure...');
+    const infra = await this.infraManager.initialize();
+
+    // Create Clout instance
+    const clout = new Clout({
+      publicKey: identity.publicKey,
+      privateKey: secretKey,
+      freebird: infra.freebird,
+      witness: infra.witness,
+      gossip: infra.gossip
+    });
+
+    // Check if we have a day pass
+    console.log('🎟️  Checking for day pass...');
+    try {
+      // Try to get a token and buy a day pass
+      const token = await clout.obtainToken();
+      await clout.buyDayPass(token);
+    } catch (error: any) {
+      console.error(`Error: ${error.message}`);
+      console.error('Hint: You need a Freebird token to post. Use: clout invite <recipient>');
+      process.exit(1);
+    }
+
+    // Post the reply
+    console.log(`💬 Replying to post ${postId.slice(0, 16)}...`);
+    const post = await clout.post(message, postId);
+    const pkg = post.getPackage();
+
+    console.log(`\n✅ Reply created!`);
+    console.log(`   ID: ${pkg.id.slice(0, 16)}...`);
+    console.log(`   Reply to: ${postId.slice(0, 16)}...`);
     console.log(`   Author: ${identity.publicKey.slice(0, 16)}...`);
     console.log(`   Content: ${message}`);
   }
@@ -310,6 +373,7 @@ Clout Command - Core protocol operations
 
 USAGE:
   clout post <message>           Create a new post
+  clout reply <postId> <message> Reply to a post
   clout follow <publicKey>       Trust/follow a user
   clout feed [limit]             View your feed (default 20 posts)
   clout identity                 Show your identity
@@ -319,6 +383,9 @@ USAGE:
 EXAMPLES:
   # Post a message
   clout post "Hello, Clout!"
+
+  # Reply to a post
+  clout reply 1db5bcf8 "Great post!"
 
   # Follow someone
   clout follow a1b2c3d4e5f6...

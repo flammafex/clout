@@ -33,7 +33,7 @@ async function main() {
   const commandArgs = args.slice(1);
 
   // Map commands - Clout commands get the full args
-  const cloutCommands = ['post', 'follow', 'trust', 'feed', 'id', 'invite', 'ticket', 'pass'];
+  const cloutCommands = ['post', 'reply', 'follow', 'trust', 'feed', 'id', 'invite', 'ticket', 'pass'];
 
   if (cloutCommands.includes(commandName)) {
     const cloutCmd = new CloutCommand();
@@ -86,6 +86,7 @@ USAGE:
 
 CORE COMMANDS:
   post           Create a new post
+  reply          Reply to a post
   follow         Trust/follow a user (alias: trust)
   feed           View your feed
   id             Show your identity (quick view)
