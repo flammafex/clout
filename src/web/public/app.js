@@ -335,7 +335,7 @@ async function loadIdentity() {
     const data = await apiCall('/identity');
 
     $('identity-public-key').textContent = data.publicKey;
-    $('identity-name').textContent = data.name;
+    $('identity-name').textContent = data.metadata?.displayName || '(Not set - set in Profile tab)';
     $('identity-created').textContent = new Date(data.created).toLocaleString();
   } catch (error) {
     console.error('Error loading identity:', error);
@@ -347,10 +347,14 @@ async function loadStats() {
   try {
     const data = await apiCall('/stats');
 
-    $('stat-posts').textContent = data.totalPosts || 0;
-    $('stat-trusted').textContent = data.trustedCount || 0;
-    $('stat-network').textContent = data.networkSize || 0;
-    $('stat-hops').textContent = data.maxHops || 3;
+    // Get actual feed count
+    const feedData = await apiCall('/feed');
+    const feedCount = feedData.totalPosts || feedData.posts?.length || 0;
+
+    $('stat-posts').textContent = feedCount;
+    $('stat-trusted').textContent = data.identity?.trustCount || 0;
+    $('stat-network').textContent = data.identity?.trustCount || 0; // For now, network size = trust count
+    $('stat-hops').textContent = 3; // Max hops is hardcoded to 3
   } catch (error) {
     console.error('Error loading stats:', error);
   }
