@@ -138,19 +138,51 @@ export interface Feed {
 }
 
 /**
+ * Slide - Encrypted direct message between users
+ *
+ * Slides propagate through the gossip network but are only
+ * readable by sender and recipient (end-to-end encrypted).
+ */
+export interface SlidePackage {
+  /** Content-addressable ID (hash of encrypted content) */
+  readonly id: string;
+
+  /** Sender's public key */
+  readonly sender: string;
+
+  /** Recipient's public key */
+  readonly recipient: string;
+
+  /** Ephemeral public key for ECDH */
+  readonly ephemeralPublicKey: Uint8Array;
+
+  /** Encrypted message content */
+  readonly ciphertext: Uint8Array;
+
+  /** Sender's signature (over recipient + ephemeralPublicKey + ciphertext) */
+  readonly signature: Uint8Array;
+
+  /** Witness timestamp proof */
+  readonly proof: Attestation;
+}
+
+/**
  * ContentGossipMessage - Gossip protocol for spreading posts
  *
  * In Scarcity: GossipMessage spreads nullifiers to detect double-spends
  * In Clout: ContentGossipMessage spreads posts to propagate content
  */
 export interface ContentGossipMessage {
-  readonly type: 'post' | 'trust' | 'revoke';
+  readonly type: 'post' | 'trust' | 'revoke' | 'slide';
 
   /** For posts */
   readonly post?: PostPackage;
 
   /** For trust signals */
   readonly trustSignal?: TrustSignal;
+
+  /** For encrypted slides */
+  readonly slide?: SlidePackage;
 
   /** Message timestamp */
   readonly timestamp: number;
@@ -177,6 +209,17 @@ export interface ReputationScore {
 }
 
 /**
+ * Inbox - Collection of received slides (encrypted messages)
+ */
+export interface Inbox {
+  /** Received slides ordered by timestamp (newest first) */
+  readonly slides: SlidePackage[];
+
+  /** Last updated timestamp */
+  readonly lastUpdated: number;
+}
+
+/**
  * CloutState - State synchronized via Chronicle CRDT
  *
  * Each agent's profile and feed state that can be merged P2P.
@@ -193,6 +236,9 @@ export interface CloutState {
 
   /** Cached feed (computed from trust graph) */
   feed?: Feed;
+
+  /** Received slides (encrypted messages) */
+  inbox?: Inbox;
 
   /** Last sync timestamp */
   lastSync?: number;

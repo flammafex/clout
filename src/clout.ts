@@ -3,11 +3,12 @@ import { TicketBooth, type CloutTicket } from './ticket-booth.js';
 import { Crypto } from './crypto.js';
 import { ReputationValidator } from './reputation.js';
 import type { FreebirdClient, WitnessClient } from './types.js';
-import type { TrustSignal, ReputationScore, Feed, PostPackage } from './clout-types.js';
+import type { TrustSignal, ReputationScore, Feed, PostPackage, SlidePackage, Inbox } from './clout-types.js';
 
 // Extended Gossip Interface to include read methods (if available)
 export interface GossipNode extends ContentGossip {
   getFeed?(): PostPackage[];
+  getSlides?(): SlidePackage[];
   getStats?(): any;
 }
 
@@ -37,6 +38,7 @@ export class Clout {
   // State
   private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
+  private readonly receivedSlides: SlidePackage[] = [];
 
   constructor(config: CloutConfig) {
     this.publicKeyHex = config.publicKey;
@@ -122,6 +124,55 @@ export class Clout {
 
     // 3. Create & Gossip Post
     return await CloutPost.post(config, this.currentTicket, this.gossip);
+  }
+
+  /**
+   * Send an encrypted slide (DM) to another user
+   */
+  async slide(recipientKey: string, message: string): Promise<SlidePackage> {
+    // 1. Encrypt message for recipient
+    const recipientPublicKey = Crypto.fromHex(recipientKey);
+    const { ephemeralPublicKey, ciphertext } = Crypto.encrypt(message, recipientPublicKey);
+
+    // 2. Create signature over the slide components
+    const signaturePayload = Crypto.hash(
+      recipientPublicKey,
+      ephemeralPublicKey,
+      ciphertext
+    );
+    const signature = Crypto.hash(signaturePayload, this.privateKey);
+
+    // 3. Get Witness timestamp proof
+    const slideHash = Crypto.toHex(Crypto.hash(
+      this.publicKeyHex,
+      recipientKey,
+      ephemeralPublicKey,
+      ciphertext
+    ));
+    const proof = await this.witness.timestamp(slideHash);
+
+    // 4. Create slide package
+    const slide: SlidePackage = {
+      id: slideHash,
+      sender: this.publicKeyHex,
+      recipient: recipientKey,
+      ephemeralPublicKey,
+      ciphertext,
+      signature,
+      proof
+    };
+
+    // 5. Propagate through gossip network
+    if (this.gossip) {
+      await this.gossip.publish({
+        type: 'slide',
+        slide,
+        timestamp: Date.now()
+      });
+    }
+
+    console.log(`[Clout] 📬 Slide sent to ${recipientKey.slice(0, 8)}`);
+    return slide;
   }
 
   // =================================================================
@@ -234,12 +285,53 @@ export class Clout {
   }
 
   /**
+   * Get inbox with decrypted slides
+   */
+  getInbox(): Inbox {
+    const allSlides = (this.gossip && this.gossip.getSlides)
+      ? this.gossip.getSlides()
+      : [];
+
+    // Filter slides addressed to us
+    const mySlides = allSlides.filter(
+      slide => slide.recipient === this.publicKeyHex
+    );
+
+    // Sort by timestamp (newest first)
+    const sortedSlides = mySlides.sort((a, b) =>
+      b.proof.timestamp - a.proof.timestamp
+    );
+
+    return {
+      slides: sortedSlides,
+      lastUpdated: Date.now()
+    };
+  }
+
+  /**
+   * Decrypt a slide
+   */
+  decryptSlide(slide: SlidePackage): string {
+    if (slide.recipient !== this.publicKeyHex) {
+      throw new Error('Cannot decrypt slide not addressed to this user');
+    }
+
+    return Crypto.decrypt(
+      slide.ephemeralPublicKey,
+      slide.ciphertext,
+      this.privateKey
+    );
+  }
+
+  /**
    * Get node statistics
    */
   getStats() {
-    const gossipStats = (this.gossip && this.gossip.getStats) 
-      ? this.gossip.getStats() 
+    const gossipStats = (this.gossip && this.gossip.getStats)
+      ? this.gossip.getStats()
       : { postCount: 0 };
+
+    const inbox = this.getInbox();
 
     return {
       identity: {
@@ -247,7 +339,8 @@ export class Clout {
         publicKey: this.publicKeyHex
       },
       state: {
-        postCount: gossipStats.postCount
+        postCount: gossipStats.postCount,
+        slideCount: inbox.slides.length
       }
     };
   }

@@ -236,6 +236,70 @@ export class CloutWebServer {
       }
     });
 
+    // Send slide (encrypted DM)
+    this.app.post('/api/slide', async (req, res) => {
+      try {
+        await this.ensureInitialized();
+
+        const { recipientKey, message } = req.body;
+        if (!recipientKey || !message) {
+          return res.status(400).json({
+            success: false,
+            error: 'Recipient key and message required'
+          });
+        }
+
+        const slide = await this.clout!.slide(recipientKey, message);
+
+        res.json({
+          success: true,
+          data: {
+            id: slide.id,
+            recipient: slide.recipient,
+            sender: slide.sender,
+            timestamp: slide.proof.timestamp
+          }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get slides inbox
+    this.app.get('/api/slides', async (req, res) => {
+      try {
+        await this.ensureInitialized();
+
+        const inbox = this.clout!.getInbox();
+
+        res.json({
+          success: true,
+          data: {
+            slides: inbox.slides.map(slide => {
+              // Decrypt message
+              let decryptedMessage = '';
+              try {
+                decryptedMessage = this.clout!.decryptSlide(slide);
+              } catch (error) {
+                decryptedMessage = '[Decryption failed]';
+              }
+
+              return {
+                id: slide.id,
+                sender: slide.sender,
+                recipient: slide.recipient,
+                message: decryptedMessage,
+                timestamp: slide.proof.timestamp
+              };
+            }),
+            totalSlides: inbox.slides.length
+          }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
     // Get stats
     this.app.get('/api/stats', async (req, res) => {
       try {

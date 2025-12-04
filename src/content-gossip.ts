@@ -16,7 +16,8 @@ import type {
   ContentGossipMessage,
   PostPackage,
   TrustSignal,
-  CloutProfile
+  CloutProfile,
+  SlidePackage
 } from './clout-types.js';
 
 export interface ContentGossipConfig {
@@ -49,6 +50,11 @@ interface TrustRecord {
   firstSeen: number;
 }
 
+interface SlideRecord {
+  slide: SlidePackage;
+  firstSeen: number;
+}
+
 /**
  * ContentGossip - Trust-based content propagation
  *
@@ -59,6 +65,7 @@ interface TrustRecord {
 export class ContentGossip {
   private readonly seenPosts = new Map<string, PostRecord>();
   private readonly seenTrustSignals = new Map<string, TrustRecord>();
+  private readonly seenSlides = new Map<string, SlideRecord>();
   private readonly peerConnections: PeerConnection[] = [];
   private readonly witness: WitnessClient;
   private readonly freebird: FreebirdClient;
@@ -139,6 +146,28 @@ export class ContentGossip {
       if (this.receiveHandler) {
         await this.receiveHandler(message);
       }
+    } else if (message.type === 'slide' && message.slide) {
+      const key = message.slide.id;
+
+      // Check if already published
+      if (this.seenSlides.has(key)) {
+        console.log(`[ContentGossip] Slide ${key.slice(0, 8)} already published`);
+        return;
+      }
+
+      // Add to local slides
+      this.seenSlides.set(key, {
+        slide: message.slide,
+        firstSeen: Date.now()
+      });
+
+      // Broadcast to all peers
+      await this.broadcast(message);
+
+      // Notify local handler
+      if (this.receiveHandler) {
+        await this.receiveHandler(message);
+      }
     }
   }
 
@@ -158,6 +187,8 @@ export class ContentGossip {
       await this.handlePostMessage(data.post, peerId);
     } else if (data.type === 'trust' && data.trustSignal) {
       await this.handleTrustMessage(data.trustSignal, peerId);
+    } else if (data.type === 'slide' && data.slide) {
+      await this.handleSlideMessage(data.slide, peerId);
     }
   }
 
@@ -279,6 +310,70 @@ export class ContentGossip {
   }
 
   /**
+   * Handle incoming slide (encrypted DM)
+   */
+  private async handleSlideMessage(slide: SlidePackage, peerId?: string): Promise<void> {
+    const key = slide.id;
+
+    // Skip if already seen
+    if (this.seenSlides.has(key)) {
+      return;
+    }
+
+    // LAYER 1: TIMESTAMP VALIDATION
+    const now = Date.now();
+    const age = now - slide.proof.timestamp;
+
+    if (age > this.maxPostAge) {
+      console.log(`[ContentGossip] Rejecting old slide (${age}ms old)`);
+      return;
+    }
+
+    if (slide.proof.timestamp > now + 5000) {
+      console.log(`[ContentGossip] Rejecting future slide`);
+      return;
+    }
+
+    // LAYER 2: WITNESS PROOF VERIFICATION
+    const proofValid = await this.witness.verify(slide.proof);
+    if (!proofValid) {
+      console.warn('[ContentGossip] Invalid slide witness proof');
+      return;
+    }
+
+    // LAYER 3: HASH VERIFICATION
+    const slideHash = Crypto.toHex(Crypto.hash(
+      slide.sender,
+      slide.recipient,
+      slide.ephemeralPublicKey,
+      slide.ciphertext
+    ));
+    if (slideHash !== slide.id) {
+      console.warn('[ContentGossip] Slide hash mismatch');
+      return;
+    }
+
+    // SLIDE IS VALID - Add to slides and propagate
+    console.log(
+      `[ContentGossip] ✅ Accepted slide from ${slide.sender.slice(0, 8)} ` +
+      `to ${slide.recipient.slice(0, 8)}`
+    );
+
+    this.seenSlides.set(key, {
+      slide,
+      firstSeen: Date.now()
+    });
+
+    // Propagate to peers (epidemic broadcast)
+    await this.broadcast({ type: 'slide', slide, timestamp: Date.now() }, true);
+
+    // Notify local handler
+    if (this.receiveHandler) {
+      await this.receiveHandler({ type: 'slide', slide, timestamp: Date.now() });
+    }
+  }
+
+  /**
    * OPTIMIZATION: Incrementally update graph caches when trust signals arrive
    *
    * This updates the adjacency list and recalculates hop distances
@@ -395,6 +490,15 @@ export class ContentGossip {
   }
 
   /**
+   * Get all slides (ordered by timestamp)
+   */
+  getSlides(): SlidePackage[] {
+    return Array.from(this.seenSlides.values())
+      .sort((a, b) => b.slide.proof.timestamp - a.slide.proof.timestamp)
+      .map(record => record.slide);
+  }
+
+  /**
    * Register handler for received messages
    */
   setReceiveHandler(handler: (data: ContentGossipMessage) => Promise<void>): void {
@@ -446,6 +550,7 @@ export class ContentGossip {
     return {
       postCount: this.seenPosts.size,
       trustSignalCount: this.seenTrustSignals.size,
+      slideCount: this.seenSlides.size,
       peerCount: this.peerConnections.length,
       activePeers: this.peerConnections.filter(p => p.isConnected()).length,
       trustGraphSize: this.trustGraph.size
@@ -487,6 +592,13 @@ export class ContentGossip {
         }
       }
 
+      // Remove old slides
+      for (const [key, record] of this.seenSlides.entries()) {
+        if (record.firstSeen < cutoff) {
+          this.seenSlides.delete(key);
+        }
+      }
+
       // Safety valve: enforce hard cap
       if (this.seenPosts.size > this.maxPosts) {
         console.warn(`[ContentGossip] Post count (${this.seenPosts.size}) exceeded limit. Forcing prune.`);
@@ -497,6 +609,19 @@ export class ContentGossip {
         const toRemove = entries.slice(0, this.seenPosts.size - this.maxPosts);
         for (const [key] of toRemove) {
           this.seenPosts.delete(key);
+        }
+      }
+
+      // Safety valve for slides
+      if (this.seenSlides.size > this.maxPosts) {
+        console.warn(`[ContentGossip] Slide count (${this.seenSlides.size}) exceeded limit. Forcing prune.`);
+
+        const entries = Array.from(this.seenSlides.entries())
+          .sort((a, b) => a[1].firstSeen - b[1].firstSeen);
+
+        const toRemove = entries.slice(0, this.seenSlides.size - this.maxPosts);
+        for (const [key] of toRemove) {
+          this.seenSlides.delete(key);
         }
       }
     }, this.pruneInterval);

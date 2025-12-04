@@ -33,7 +33,7 @@ async function main() {
   const commandArgs = args.slice(1);
 
   // Map commands - Clout commands get the full args
-  const cloutCommands = ['post', 'reply', 'follow', 'trust', 'feed', 'thread', 'id', 'invite', 'ticket', 'pass'];
+  const cloutCommands = ['post', 'reply', 'follow', 'trust', 'feed', 'thread', 'slide', 'slides', 'id', 'invite', 'ticket', 'pass'];
 
   if (cloutCommands.includes(commandName)) {
     const cloutCmd = new CloutCommand();
@@ -90,6 +90,8 @@ CORE COMMANDS:
   follow         Trust/follow a user (alias: trust)
   feed           View your feed
   thread         View a thread (post + replies)
+  slide          Send encrypted DM (slide)
+  slides         View your slides inbox
   id             Show your identity (quick view)
   invite         Create an invitation
   ticket         Check day pass status (alias: pass)

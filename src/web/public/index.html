@@ -30,6 +30,7 @@
         <button class="tab-btn active" data-tab="feed">Feed</button>
         <button class="tab-btn" data-tab="post">Post</button>
         <button class="tab-btn" data-tab="trust">Trust</button>
+        <button class="tab-btn" data-tab="slides">Slides</button>
         <button class="tab-btn" data-tab="thread" style="display: none;">Thread</button>
         <button class="tab-btn" data-tab="identity">Identity</button>
         <button class="tab-btn" data-tab="stats">Stats</button>
@@ -98,6 +99,48 @@
               <li><strong>Distance 3:</strong> Extended network</li>
             </ul>
             <p>You'll only see posts from people within your trust network (up to 3 hops away).</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slides Tab -->
+      <div id="slides-tab" class="tab-content">
+        <div class="section">
+          <div class="section-header">
+            <h2>📬 Slides (Encrypted DMs)</h2>
+            <button id="refresh-slides-btn" class="btn btn-small">Refresh</button>
+          </div>
+
+          <!-- Send Slide Form -->
+          <div class="form-card">
+            <h3>Send a Slide</h3>
+            <input
+              type="text"
+              id="slide-recipient"
+              placeholder="Recipient's public key"
+              class="input"
+            >
+            <textarea
+              id="slide-message"
+              placeholder="Your encrypted message..."
+              class="textarea"
+              maxlength="500"
+            ></textarea>
+            <div class="char-count">
+              <span id="slide-char-count">0</span>/500
+            </div>
+            <button id="send-slide-btn" class="btn btn-primary">Send Encrypted Slide</button>
+          </div>
+
+          <div id="slide-result" class="result-message" style="display: none;"></div>
+
+          <!-- Inbox -->
+          <div class="section-header" style="margin-top: 2rem;">
+            <h3>📥 Inbox</h3>
+          </div>
+
+          <div id="slides-list" class="slides-list">
+            <p class="empty-state">No slides yet</p>
           </div>
         </div>
       </div>

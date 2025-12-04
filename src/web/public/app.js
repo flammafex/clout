@@ -68,6 +68,7 @@ function setupTabs() {
       if (tab === 'feed') loadFeed();
       if (tab === 'identity') loadIdentity();
       if (tab === 'stats') loadStats();
+      if (tab === 'slides') loadSlides();
     });
   });
 }
@@ -264,6 +265,69 @@ async function trustUser() {
   }
 }
 
+// Send Slide (Encrypted DM)
+async function sendSlide() {
+  const recipientKey = $('slide-recipient').value.trim();
+  const message = $('slide-message').value.trim();
+
+  if (!recipientKey || !message) {
+    showResult('slide-result', 'Please enter recipient key and message', false);
+    return;
+  }
+
+  try {
+    $('send-slide-btn').disabled = true;
+    $('send-slide-btn').textContent = 'Sending...';
+
+    await apiCall('/slide', 'POST', { recipientKey, message });
+
+    showResult('slide-result', 'Slide sent successfully! (end-to-end encrypted)', true);
+    $('slide-recipient').value = '';
+    $('slide-message').value = '';
+    $('slide-char-count').textContent = '0';
+
+    // Refresh slides
+    await loadSlides();
+  } catch (error) {
+    showResult('slide-result', `Error: ${error.message}`, false);
+  } finally {
+    $('send-slide-btn').disabled = false;
+    $('send-slide-btn').textContent = 'Send Encrypted Slide';
+  }
+}
+
+// Load Slides
+async function loadSlides() {
+  try {
+    const data = await apiCall('/slides');
+    const slidesList = $('slides-list');
+
+    if (!data.slides || data.slides.length === 0) {
+      slidesList.innerHTML = '<p class="empty-state">No slides yet</p>';
+      return;
+    }
+
+    slidesList.innerHTML = data.slides.map(slide => `
+      <div class="slide-item">
+        <div class="slide-header">
+          <div class="slide-sender">📬 From: ${slide.sender.slice(0, 16)}...</div>
+          <div class="slide-timestamp">${new Date(slide.timestamp).toLocaleString()}</div>
+        </div>
+        <div class="slide-message">${escapeHtml(slide.message)}</div>
+        <button class="btn btn-small" onclick="startSlideReply('${slide.sender}')">Reply</button>
+      </div>
+    `).join('');
+  } catch (error) {
+    $('slides-list').innerHTML = `<p class="empty-state">Error loading slides: ${error.message}</p>`;
+  }
+}
+
+// Start Slide Reply
+function startSlideReply(recipientKey) {
+  $('slide-recipient').value = recipientKey;
+  $('slide-message').focus();
+}
+
 // Load Identity
 async function loadIdentity() {
   try {
@@ -326,6 +390,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('create-post-btn').addEventListener('click', createPost);
   $('trust-btn').addEventListener('click', trustUser);
   $('refresh-feed-btn').addEventListener('click', loadFeed);
+  $('send-slide-btn').addEventListener('click', sendSlide);
+  $('refresh-slides-btn').addEventListener('click', loadSlides);
   $('back-to-feed-btn').addEventListener('click', () => {
     // Switch back to feed tab
     $$('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -334,10 +400,15 @@ document.addEventListener('DOMContentLoaded', () => {
     $('feed-tab').classList.add('active');
 
     // Hide thread tab button
-    $$('.tab-btn')[3].style.display = 'none';
+    $$('.tab-btn')[4].style.display = 'none';
 
     // Reload feed
     loadFeed();
+  });
+
+  // Character counter for slide message
+  $('slide-message').addEventListener('input', () => {
+    $('slide-char-count').textContent = $('slide-message').value.length;
   });
 
   // Check health
