@@ -9,6 +9,7 @@ import { Command } from './command.js';
 import { WalletCommand } from './commands/wallet.js';
 import { ConfigCommand } from './commands/config.js';
 import { InteractiveCommand } from './commands/interactive.js';
+import { CloutCommand } from './commands/clout.js';
 
 const VERSION = '0.1.0';
 
@@ -31,7 +32,24 @@ async function main() {
   const commandName = args[0];
   const commandArgs = args.slice(1);
 
-  // Map commands
+  // Map commands - Clout commands get the full args
+  const cloutCommands = ['post', 'follow', 'trust', 'feed', 'identity', 'id', 'invite', 'ticket', 'pass'];
+
+  if (cloutCommands.includes(commandName)) {
+    const cloutCmd = new CloutCommand();
+    try {
+      await cloutCmd.execute(args); // Pass full args including command name
+    } catch (error: any) {
+      console.error(`Error: ${error.message}`);
+      if (process.env.DEBUG) {
+        console.error(error.stack);
+      }
+      process.exit(1);
+    }
+    return;
+  }
+
+  // Other commands
   const commands: { [key: string]: Command } = {
     wallet: new WalletCommand(),
     config: new ConfigCommand(),
@@ -43,7 +61,7 @@ async function main() {
 
   if (!command) {
     console.error(`Unknown command: ${commandName}`);
-    console.error('Run "scar --help" for usage information');
+    console.error('Run "clout --help" for usage information');
     process.exit(1);
   }
 
@@ -66,7 +84,15 @@ Uncensorable reputation protocol - P2P social network with trust-based filtering
 USAGE:
   clout <command> [options]
 
-COMMANDS:
+CORE COMMANDS:
+  post           Create a new post
+  follow         Trust/follow a user (alias: trust)
+  feed           View your feed
+  identity       Show your identity (alias: id)
+  invite         Create an invitation
+  ticket         Check day pass status (alias: pass)
+
+MANAGEMENT:
   wallet         Manage wallets and keys
   config         Configuration management
   interactive    Interactive REPL mode
@@ -79,16 +105,22 @@ EXAMPLES:
   # Create a new wallet
   clout wallet create
 
-  # Start interactive mode
-  clout interactive
+  # Post a message
+  clout post "Hello, Clout!"
 
-  # Start interactive mode
-  scar interactive
+  # Follow someone
+  clout follow a1b2c3d4e5f6...
+
+  # View your feed
+  clout feed
+
+  # Create invitation
+  clout invite a1b2c3d4e5f6...
 
 For detailed command help:
-  scar <command> --help
+  clout <command> --help
 
-Documentation: https://github.com/flammafex/scarcity
+Documentation: https://github.com/flammafex/clout
 `);
 }
 
