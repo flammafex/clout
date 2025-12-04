@@ -27,6 +27,70 @@ By leveraging the same cryptographic primitives (Freebird, Witness, HyperToken) 
 - **Gossip Logic**: "I trust this author, ACCEPT and propagate it"
 - **Validator**: Checks if author is trusted (graph distance)
 
+## Features
+
+### 🔐 Encrypted DMs (Slides)
+End-to-end encrypted direct messages that propagate through the gossip network while remaining readable only by sender and recipient.
+
+- **X25519 key exchange** with **XChaCha20-Poly1305 AEAD** encryption
+- Messages called "slides" - encrypted DMs that slide through your network
+- Ephemeral keypairs for forward secrecy
+- No day pass required for sending slides
+
+```bash
+# Send an encrypted slide
+clout slide <recipientPublicKey> "Your private message here"
+
+# View your inbox
+clout slides
+```
+
+### 💬 Replies & Threading
+Flat thread model (Twitter/X style) with clickable posts and reply chains.
+
+- Reply to any post with `replyTo` field
+- View entire thread with parent post and all replies
+- Navigate thread hierarchies with "View parent" links
+- CLI: `clout reply <postId> "Your reply"` and `clout thread <postId>`
+
+### 🌐 Web UI
+Complete web interface for managing your Clout identity and interacting with the network.
+
+```bash
+# Start the web server
+npm run web
+
+# Open http://localhost:3000 in your browser
+```
+
+Features:
+- **Feed tab**: View posts from your trust network
+- **Post tab**: Create posts and replies
+- **Trust tab**: Manage your web of trust
+- **Slides tab**: Send/receive encrypted DMs
+- **Thread tab**: Navigate conversation threads
+- **Identity tab**: View your public key and identity info
+- **Stats tab**: Network statistics
+
+### 🆔 Identity Management
+Cryptographic identity system for managing keypairs.
+
+```bash
+# Create a new identity
+clout identity create
+
+# List all identities
+clout identity list
+
+# Show your identity
+clout id
+```
+
+Each identity consists of:
+- **Public Key**: Your visible address (like a username)
+- **Identity Name**: Local label for the keypair (only on your device)
+- **Secret Key**: Stored securely in `~/.clout/identities.json`
+
 ## Architecture
 
 Clout is built in 5 phases by refactoring Scarcity's core components:
@@ -65,6 +129,36 @@ npm run build
 
 ## Quick Start
 
+### CLI Usage
+
+```bash
+# Create your identity
+clout identity create
+
+# Post a message
+clout post "Hello, decentralized world!"
+
+# Reply to a post
+clout reply <postId> "Great post!"
+
+# Trust/follow someone
+clout follow <publicKey>
+
+# View your feed
+clout feed
+
+# View a conversation thread
+clout thread <postId>
+
+# Send an encrypted slide (DM)
+clout slide <publicKey> "Private message"
+
+# View your slides inbox
+clout slides
+```
+
+### Programmatic Usage
+
 ```typescript
 import { Clout, Crypto, FreebirdAdapter, WitnessAdapter } from 'clout';
 
@@ -93,9 +187,22 @@ await clout.trust('0x1234...'); // Their public key
 // Post content
 const post = await clout.post('Hello, decentralized world!');
 
+// Reply to a post
+const reply = await clout.post('Great point!', post.id);
+
+// Send encrypted slide (DM)
+const slide = await clout.slide('0x1234...', 'Private message');
+
 // Get your feed (only posts from trusted network)
 const feed = clout.getFeed();
 console.log(feed.posts);
+
+// Get your inbox (decrypted slides)
+const inbox = clout.getInbox();
+for (const slide of inbox.slides) {
+  const message = clout.decryptSlide(slide);
+  console.log(`From ${slide.sender}: ${message}`);
+}
 
 // Get reputation of a user
 const reputation = clout.getReputation('0x1234...');
@@ -144,11 +251,12 @@ Each user computes their own feed based on their unique trust graph. There is no
 
 ## Protocol Components
 
-- **CloutIdentity**: Manages your identity and trust graph
-- **CloutPost**: Creates immutable, timestamped posts
-- **ContentGossip**: Propagates content through web of trust
+- **IdentityManager**: Manages keypairs and cryptographic identities
+- **CloutPost**: Creates immutable, timestamped posts with reply support
+- **ContentGossip**: Propagates posts, slides, and trust signals through web of trust
 - **ReputationValidator**: Filters content by graph distance
-- **CloutStateManager**: CRDT-based state synchronization
+- **Crypto**: Encryption primitives (X25519 + XChaCha20-Poly1305)
+- **TicketBooth**: Day pass system for spam prevention
 
 ## Advanced Usage
 
