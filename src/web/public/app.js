@@ -9,6 +9,19 @@ let pendingMedia = null; // Track uploaded media for post { cid, mimeType, filen
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => document.querySelectorAll(selector);
 
+// Show loading spinner in a container
+function showLoading(containerId) {
+  const container = $(containerId);
+  if (container) {
+    container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><span>Loading...</span></div>';
+  }
+}
+
+// Hide loading (called automatically when content is set)
+function hideLoading(containerId) {
+  // Content replacement handles this automatically
+}
+
 async function apiCall(endpoint, method = 'GET', body = null) {
   try {
     const options = {
@@ -67,11 +80,10 @@ function setupTabs() {
 
       // Load data when switching to certain tabs
       if (tab === 'feed') loadFeed();
-      if (tab === 'identity') loadIdentity();
-      if (tab === 'stats') loadStats();
       if (tab === 'slides') loadSlides();
       if (tab === 'settings') loadSettings();
-      if (tab === 'trust') loadTrustedUsers();
+      if (tab === 'trust') { loadTrustedUsers(); loadStats(); }
+      if (tab === 'profile') { loadProfile(); loadIdentity(); }
     });
   });
 }
@@ -94,6 +106,8 @@ async function initializeClout() {
     await loadFeed();
     await loadIdentity();
     await loadProfile();
+    // Load slides count for badge (don't await to not block)
+    loadSlides().catch(() => {});
   } catch (error) {
     updateStatus(`Error: ${error.message}`, false);
     $('init-btn').disabled = false;
@@ -103,6 +117,7 @@ async function initializeClout() {
 
 // Load Feed
 async function loadFeed() {
+  showLoading('feed-list');
   try {
     const data = await apiCall('/feed');
     const feedList = $('feed-list');
@@ -173,7 +188,7 @@ async function loadFeed() {
           ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
           <div class="feed-content">${renderPostContent(post)}</div>
           <div class="feed-footer">
-            <div class="feed-timestamp">${new Date(post.timestamp).toLocaleString()}</div>
+            <div class="feed-timestamp">${formatRelativeTime(post.timestamp)}</div>
             <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${post.author.slice(0, 16)}')">Reply</button>
           </div>
         </div>
@@ -204,6 +219,7 @@ async function quickTrust(publicKey) {
 
 // Load trusted users for Trust tab
 async function loadTrustedUsers() {
+  showLoading('trusted-users-list');
   try {
     const data = await apiCall('/trusted');
     const container = $('trusted-users-list');
@@ -462,20 +478,30 @@ async function sendSlide() {
 
 // Load Slides
 async function loadSlides() {
+  showLoading('slides-list');
   try {
     const data = await apiCall('/slides');
     const slidesList = $('slides-list');
 
+    // Update badge
+    updateSlidesBadge(data.slides?.length || 0);
+
     if (!data.slides || data.slides.length === 0) {
-      slidesList.innerHTML = '<p class="empty-state">No slides yet</p>';
+      slidesList.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">📬</div>
+          <h4>No messages yet</h4>
+          <p>Send an encrypted slide to someone in your trust circle</p>
+        </div>
+      `;
       return;
     }
 
     slidesList.innerHTML = data.slides.map(slide => `
       <div class="slide-item">
         <div class="slide-header">
-          <div class="slide-sender">📬 From: ${slide.sender.slice(0, 16)}...</div>
-          <div class="slide-timestamp">${new Date(slide.timestamp).toLocaleString()}</div>
+          <div class="slide-sender">From: ${slide.sender.slice(0, 16)}...</div>
+          <div class="slide-timestamp">${formatRelativeTime(slide.timestamp)}</div>
         </div>
         <div class="slide-message">${escapeHtml(slide.message)}</div>
         <button class="btn btn-small" onclick="startSlideReply('${slide.sender}')">Reply</button>
@@ -483,6 +509,17 @@ async function loadSlides() {
     `).join('');
   } catch (error) {
     $('slides-list').innerHTML = `<p class="empty-state">Error loading slides: ${error.message}</p>`;
+  }
+}
+
+// Update slides notification badge
+function updateSlidesBadge(count) {
+  const badge = $('slides-badge');
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
   }
 }
 
@@ -498,14 +535,36 @@ async function loadIdentity() {
     const data = await apiCall('/identity');
 
     $('identity-public-key').textContent = data.publicKey;
-    $('identity-name').textContent = data.metadata?.displayName || '(Not set - set in Profile tab)';
-    $('identity-created').textContent = new Date(data.created).toLocaleString();
+    $('identity-created').textContent = formatRelativeTime(data.created);
 
     // Store public key for QR code generation
     window.userPublicKey = data.publicKey;
   } catch (error) {
     console.error('Error loading identity:', error);
   }
+}
+
+// Format relative time (e.g., "2 hours ago")
+function formatRelativeTime(timestamp) {
+  const now = Date.now();
+  const date = new Date(timestamp).getTime();
+  const diff = now - date;
+
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  const weeks = Math.floor(days / 7);
+  const months = Math.floor(days / 30);
+  const years = Math.floor(days / 365);
+
+  if (seconds < 60) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  if (weeks < 4) return `${weeks}w ago`;
+  if (months < 12) return `${months}mo ago`;
+  return `${years}y ago`;
 }
 
 // Toggle QR Code Display
@@ -552,8 +611,7 @@ async function loadStats() {
 
     $('stat-posts').textContent = feedCount;
     $('stat-trusted').textContent = data.identity?.trustCount || 0;
-    $('stat-network').textContent = data.identity?.trustCount || 0; // For now, network size = trust count
-    $('stat-hops').textContent = 3; // Max hops is hardcoded to 3
+    $('stat-network').textContent = feedCount; // Network size = posts visible to you
   } catch (error) {
     console.error('Error loading stats:', error);
   }
