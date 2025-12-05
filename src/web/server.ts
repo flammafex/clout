@@ -2,6 +2,7 @@
  * Clout Web UI Server
  *
  * Simple web interface for viewing feeds and creating posts
+ * Now with rich media support via WNFS-based storage
  */
 
 import express, { Request, Response } from 'express';
@@ -14,6 +15,7 @@ import { InfrastructureManager } from '../cli/infrastructure.js';
 import { Clout } from '../clout.js';
 import { tryLoadWasm } from '../vendor/hypertoken/WasmBridge.js';
 import { FileSystemStore } from '../store/file-store.js';
+import { StorageManager } from '../storage/wnfs-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -46,6 +48,11 @@ export class CloutWebServer {
   private setupMiddleware(): void {
     this.app.use(cors());
     this.app.use(express.json());
+    // Support raw binary uploads for media (up to 100MB)
+    this.app.use('/api/media/upload', express.raw({
+      type: ['image/*', 'video/*', 'audio/*', 'application/pdf'],
+      limit: '100mb'
+    }));
     this.app.use(express.static(join(__dirname, 'public')));
 
     // Error handler
@@ -141,20 +148,36 @@ export class CloutWebServer {
       }
     });
 
-    // Create Post
+    // Create Post (with optional media CID)
     this.app.post('/api/post', async (req, res) => {
       try {
         if (!this.initialized) throw new Error('Not initialized');
-        const { content, replyTo } = req.body;
-        
+        const { content, replyTo, mediaCid } = req.body;
+
         // Auto-mint ticket if needed
-        // Fix TS2339: use hasActiveTicket()
         if (!this.clout!.hasActiveTicket()) {
           const token = await this.clout!.obtainToken();
           await this.clout!.buyDayPass(token);
         }
 
-        const post = await this.clout!.post(content, replyTo);
+        // Build post options
+        const options: { replyTo?: string; media?: { data: Uint8Array; mimeType: string; filename?: string } } = {};
+        if (replyTo) options.replyTo = replyTo;
+
+        // If mediaCid provided, retrieve media data to attach to post
+        if (mediaCid) {
+          const mediaData = await this.clout!.resolveMedia(mediaCid);
+          const metadata = this.clout!.getMediaMetadata(mediaCid);
+          if (mediaData && metadata) {
+            options.media = {
+              data: mediaData,
+              mimeType: metadata.mimeType,
+              filename: metadata.filename
+            };
+          }
+        }
+
+        const post = await this.clout!.post(content || '', options);
         res.json({ success: true, data: post.getPackage() });
       } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
@@ -257,11 +280,139 @@ export class CloutWebServer {
       try {
         if (!this.initialized) throw new Error('Not initialized');
         const { recipient, message } = req.body;
-        
+
         const slide = await this.clout!.slide(recipient, message);
         res.json({ success: true, data: slide });
       } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // =========================================================================
+    // MEDIA ROUTES (WNFS-based content-addressed storage)
+    // =========================================================================
+
+    // Upload Media - returns CID for later use in posts
+    this.app.post('/api/media/upload', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const contentType = req.headers['content-type'] || 'application/octet-stream';
+        const filename = req.headers['x-filename'] as string | undefined;
+        const data = req.body as Buffer;
+
+        if (!data || data.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'No file data received'
+          });
+        }
+
+        // Store in WNFS blockstore
+        const metadata = await this.clout!.storage.store(
+          new Uint8Array(data),
+          contentType,
+          filename
+        );
+
+        console.log(`[WebServer] Media uploaded: ${metadata.cid.slice(0, 12)}... (${contentType}, ${data.length} bytes)`);
+
+        res.json({
+          success: true,
+          data: metadata
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get Media by CID
+    this.app.get('/api/media/:cid', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const cid = req.params.cid;
+        const data = await this.clout!.resolveMedia(cid);
+
+        if (!data) {
+          return res.status(404).json({
+            success: false,
+            error: 'Media not found'
+          });
+        }
+
+        // Get metadata for content-type
+        const metadata = this.clout!.getMediaMetadata(cid);
+        const contentType = metadata?.mimeType || 'application/octet-stream';
+
+        // Set appropriate headers
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Length', data.length);
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // CIDs are immutable
+        if (metadata?.filename) {
+          res.setHeader('Content-Disposition', `inline; filename="${metadata.filename}"`);
+        }
+
+        res.send(Buffer.from(data));
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get Media Metadata
+    this.app.get('/api/media/:cid/info', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const cid = req.params.cid;
+        const metadata = this.clout!.getMediaMetadata(cid);
+
+        if (!metadata) {
+          return res.status(404).json({
+            success: false,
+            error: 'Media metadata not found'
+          });
+        }
+
+        res.json({ success: true, data: metadata });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get Media Stats
+    this.app.get('/api/media/stats', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const stats = await this.clout!.getMediaStats();
+        res.json({ success: true, data: stats });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Check if Media Exists
+    this.app.head('/api/media/:cid', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const cid = req.params.cid;
+        const exists = await this.clout!.hasMedia(cid);
+
+        if (!exists) {
+          return res.status(404).end();
+        }
+
+        const metadata = this.clout!.getMediaMetadata(cid);
+        if (metadata) {
+          res.setHeader('Content-Type', metadata.mimeType);
+          res.setHeader('Content-Length', metadata.size);
+        }
+
+        res.status(200).end();
+      } catch (error: any) {
+        res.status(500).end();
       }
     });
   }
@@ -311,13 +462,17 @@ export class CloutWebServer {
         console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
         console.log(`Server running at http://localhost:${this.port}`);
         console.log(`\nAPI Endpoints:`);
-        console.log(`  GET  /api/health    - Health check`);
-        console.log(`  POST /api/init      - Initialize Clout`);
-        console.log(`  GET  /api/identity  - Get identity`);
-        console.log(`  GET  /api/feed      - Get feed`);
-        console.log(`  POST /api/post      - Create post`);
-        console.log(`  POST /api/trust     - Trust user`);
-        console.log(`  GET  /api/stats     - Get stats`);
+        console.log(`  GET  /api/health       - Health check`);
+        console.log(`  POST /api/init         - Initialize Clout`);
+        console.log(`  GET  /api/identity     - Get identity`);
+        console.log(`  GET  /api/feed         - Get feed`);
+        console.log(`  POST /api/post         - Create post (with media)`);
+        console.log(`  POST /api/trust        - Trust user`);
+        console.log(`  GET  /api/stats        - Get stats`);
+        console.log(`\nMedia Endpoints:`);
+        console.log(`  POST /api/media/upload - Upload media file`);
+        console.log(`  GET  /api/media/:cid   - Retrieve media by CID`);
+        console.log(`  GET  /api/media/stats  - Media storage stats`);
         console.log(`\nOpen http://localhost:${this.port} in your browser`);
         console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
         resolve();

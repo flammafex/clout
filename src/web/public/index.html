@@ -68,6 +68,35 @@
             <div class="char-count">
               <span id="char-count">0</span>/500
             </div>
+
+            <!-- Media Upload Section -->
+            <div class="media-upload-section">
+              <div id="media-drop-zone" class="media-drop-zone">
+                <input type="file" id="media-input" accept="image/*,video/*,audio/*,application/pdf" style="display: none;">
+                <div class="drop-zone-content">
+                  <span class="drop-icon">📎</span>
+                  <span class="drop-text">Drop media here or <button type="button" id="media-browse-btn" class="btn-link">browse</button></span>
+                  <span class="drop-hint">Images, videos, audio, PDFs (max 100MB)</span>
+                </div>
+              </div>
+
+              <!-- Media Preview -->
+              <div id="media-preview" class="media-preview" style="display: none;">
+                <div class="media-preview-header">
+                  <span id="media-preview-name">filename.jpg</span>
+                  <span id="media-preview-size">0 KB</span>
+                  <button type="button" id="media-remove-btn" class="btn-remove" title="Remove media">✕</button>
+                </div>
+                <div id="media-preview-content" class="media-preview-content"></div>
+                <div id="media-upload-progress" class="media-upload-progress" style="display: none;">
+                  <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                  </div>
+                  <span id="progress-text">Uploading...</span>
+                </div>
+              </div>
+            </div>
+
             <button id="create-post-btn" class="btn btn-primary">Post</button>
           </div>
 
