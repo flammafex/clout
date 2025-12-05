@@ -1426,6 +1426,54 @@ h2 {
   color: var(--text-dim);
 }
 
+/* =========================================================================
+   NICKNAME STYLES (Local Address Book)
+   ========================================================================= */
+
+/* Nickname indicator - shows that this is a custom name, not a key */
+.has-nickname {
+  color: var(--text);
+  font-weight: 500;
+  font-family: inherit; /* Override monospace for nicknames */
+}
+
+/* When nickname is set, show it prominently */
+.trusted-user-name {
+  font-size: 1rem;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+
+.trusted-user-name.has-nickname {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Show the key in smaller text below the name */
+.trusted-user-key-small {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+/* Edit nickname button */
+.btn-nickname {
+  padding: 0.35rem 0.5rem !important;
+  font-size: 0.85rem !important;
+}
+
+.btn-nickname:hover {
+  background: var(--secondary) !important;
+}
+
+/* Trusted user actions layout */
+.trusted-user-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 /* Responsive adjustments */
 @media (max-width: 600px) {
   .trust-input-row {
@@ -1443,5 +1491,16 @@ h2 {
   .network-overview {
     flex-direction: column;
     gap: 1rem;
+  }
+
+  .trusted-user-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .trusted-user-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }

@@ -143,12 +143,16 @@ export class CloutWebServer {
               return {
                 ...post,
                 authorShort: post.author.slice(0, 8),
+                // Display name: nickname if set, otherwise truncated key
+                authorDisplayName: this.clout!.getDisplayName(post.author),
+                authorNickname: this.clout!.getNickname(post.author),
                 // Include reputation for each post author
                 reputation: this.clout!.getReputation(post.author),
                 // Include author's tags
                 authorTags: this.clout!.getTagsForUser(post.author),
-                // Include trust path for "Via X → Y" display
-                trustPath: trustPath?.path.map(k => k.slice(0, 8)) || [],
+                // Include trust path for "Via X → Y" display with display names
+                trustPath: trustPath?.path.map(k => this.clout!.getDisplayName(k)) || [],
+                trustPathKeys: trustPath?.path.map(k => k.slice(0, 8)) || [],
                 // Is author directly trusted?
                 isDirectlyTrusted: this.clout!.isDirectlyTrusted(post.author)
               };
@@ -238,11 +242,15 @@ export class CloutWebServer {
           data: {
             parent: {
               ...parentPost,
-              authorShort: parentPost.author.slice(0, 8)
+              authorShort: parentPost.author.slice(0, 8),
+              authorDisplayName: this.clout!.getDisplayName(parentPost.author),
+              authorNickname: this.clout!.getNickname(parentPost.author)
             },
             replies: replies.map((post: any) => ({
               ...post,
-              authorShort: post.author.slice(0, 8)
+              authorShort: post.author.slice(0, 8),
+              authorDisplayName: this.clout!.getDisplayName(post.author),
+              authorNickname: this.clout!.getNickname(post.author)
             }))
           }
         });
@@ -279,10 +287,12 @@ export class CloutWebServer {
               try {
                 content = this.clout!.decryptSlide(slide);
               } catch (e) {}
-              
+
               return {
                 ...slide,
                 senderShort: slide.sender.slice(0, 8),
+                senderDisplayName: this.clout!.getDisplayName(slide.sender),
+                senderNickname: this.clout!.getNickname(slide.sender),
                 decryptedContent: content
               };
             }).slice(0, limit),
@@ -660,9 +670,12 @@ export class CloutWebServer {
         const trustedUsers = trustedKeys.map(publicKey => {
           const reputation = this.clout!.getReputation(publicKey);
           const tags = this.clout!.getTagsForUser(publicKey);
+          const nickname = this.clout!.getNickname(publicKey);
           return {
             publicKey,
             publicKeyShort: publicKey.slice(0, 12),
+            displayName: nickname || publicKey.slice(0, 12) + '...',
+            nickname,
             reputation,
             tags,
             distance: 1 // Direct trust = distance 1
@@ -676,6 +689,85 @@ export class CloutWebServer {
             users: trustedUsers
           }
         });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // =========================================================================
+    // NICKNAMES ROUTES (Local address book for trusted users)
+    // =========================================================================
+
+    // Get all nicknames
+    this.app.get('/api/nicknames', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const nicknames = this.clout!.getAllNicknames();
+        const nicknamesArray = Array.from(nicknames.entries()).map(([publicKey, nickname]) => ({
+          publicKey,
+          publicKeyShort: publicKey.slice(0, 12),
+          nickname
+        }));
+
+        res.json({ success: true, data: { nicknames: nicknamesArray } });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get nickname for a specific user
+    this.app.get('/api/nickname/:publicKey', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const publicKey = req.params.publicKey;
+        const nickname = this.clout!.getNickname(publicKey);
+        const displayName = this.clout!.getDisplayName(publicKey);
+
+        res.json({
+          success: true,
+          data: { publicKey, nickname, displayName }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Set nickname for a user
+    this.app.post('/api/nickname', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const { publicKey, nickname } = req.body;
+        if (!publicKey) {
+          return res.status(400).json({
+            success: false,
+            error: 'publicKey is required'
+          });
+        }
+
+        this.clout!.setNickname(publicKey, nickname || '');
+        const displayName = this.clout!.getDisplayName(publicKey);
+
+        res.json({
+          success: true,
+          data: { publicKey, nickname: nickname || null, displayName }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Delete nickname for a user
+    this.app.delete('/api/nickname/:publicKey', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const publicKey = req.params.publicKey;
+        this.clout!.setNickname(publicKey, ''); // Empty string removes nickname
+
+        res.json({ success: true });
       } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
       }
