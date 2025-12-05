@@ -871,6 +871,48 @@ export class Clout {
     return this.localData.getAllNicknames();
   }
 
+  // -----------------------------------------------------------------
+  //  MUTED USERS
+  // -----------------------------------------------------------------
+
+  /**
+   * Mute a user - their posts will be hidden from your feed
+   *
+   * Muting is local-only and doesn't affect the trust graph.
+   * You still trust them (their content propagates), you just don't see it.
+   */
+  mute(publicKey: string): void {
+    this.localData.mute(publicKey);
+  }
+
+  /**
+   * Unmute a user - their posts will appear in your feed again
+   */
+  unmute(publicKey: string): void {
+    this.localData.unmute(publicKey);
+  }
+
+  /**
+   * Check if a user is muted
+   */
+  isMuted(publicKey: string): boolean {
+    return this.localData.isMuted(publicKey);
+  }
+
+  /**
+   * Get all muted users
+   */
+  getMutedUsers(): string[] {
+    return this.localData.getMutedUsers();
+  }
+
+  /**
+   * Get count of muted users
+   */
+  getMutedCount(): number {
+    return this.localData.getMutedCount();
+  }
+
   // =================================================================
   //  SECTION 5: FEED (View Content)
   // =================================================================
@@ -912,6 +954,9 @@ export class Clout {
         return rep.score >= nsfwMinReputation;
       });
     }
+
+    // Filter out muted users
+    posts = posts.filter(post => !this.localData.isMuted(post.author));
 
     return options?.limit ? posts.slice(0, options.limit) : posts;
   }

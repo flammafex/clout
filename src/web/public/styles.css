@@ -298,6 +298,67 @@ h2 {
   border-color: var(--primary);
 }
 
+/* Feed actions container */
+.feed-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Mute button in feed */
+.btn-mute-small {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all 0.2s;
+}
+
+.btn-mute-small:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+/* Mute/unmute buttons in trust list */
+.btn-mute, .btn-unmute {
+  font-size: 0.9rem;
+}
+
+.btn-mute:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.btn-unmute:hover {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+/* Muted user styling in trust list */
+.trusted-user-card.muted {
+  opacity: 0.6;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.05), transparent);
+}
+
+.muted-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-dim);
+}
+
+.muted-badge {
+  font-size: 0.65rem;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  margin-left: 0.5rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
 /* Thread View */
 .thread-parent-post {
   border: 2px solid var(--primary) !important;

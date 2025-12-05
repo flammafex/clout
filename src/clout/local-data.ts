@@ -4,6 +4,7 @@
  * Handles features that are never synced to the network:
  * - Trust Tags: Organize contacts into groups (friends, work, family)
  * - Nicknames: Personal address book for remembering who's who
+ * - Muted Users: Hide posts from specific users without untrusting them
  *
  * This data stays on the user's device for privacy.
  */
@@ -11,12 +12,14 @@
 export class CloutLocalData {
   private readonly trustTags: Map<string, Set<string>>; // tag -> Set<publicKey>
   private readonly nicknames: Map<string, string>; // publicKey -> nickname
+  private readonly mutedUsers: Set<string>; // publicKeys of muted users
   private readonly trustGraph: Set<string>; // Reference to validate tag operations
 
   constructor(trustGraph: Set<string>) {
     this.trustGraph = trustGraph;
     this.trustTags = new Map<string, Set<string>>();
     this.nicknames = new Map<string, string>();
+    this.mutedUsers = new Set<string>();
   }
 
   // =================================================================
@@ -166,13 +169,57 @@ export class CloutLocalData {
   }
 
   // =================================================================
+  //  MUTED USERS
+  // =================================================================
+
+  /**
+   * Mute a user - their posts will be hidden from your feed
+   *
+   * Unlike untrusting, muting is local-only and doesn't affect the trust graph.
+   * You still trust them (their content propagates), you just don't see it.
+   */
+  mute(publicKey: string): void {
+    this.mutedUsers.add(publicKey);
+    console.log(`[Clout] 🔇 Muted ${publicKey.slice(0, 8)}`);
+  }
+
+  /**
+   * Unmute a user - their posts will appear in your feed again
+   */
+  unmute(publicKey: string): void {
+    this.mutedUsers.delete(publicKey);
+    console.log(`[Clout] 🔊 Unmuted ${publicKey.slice(0, 8)}`);
+  }
+
+  /**
+   * Check if a user is muted
+   */
+  isMuted(publicKey: string): boolean {
+    return this.mutedUsers.has(publicKey);
+  }
+
+  /**
+   * Get all muted users
+   */
+  getMutedUsers(): string[] {
+    return Array.from(this.mutedUsers);
+  }
+
+  /**
+   * Get count of muted users
+   */
+  getMutedCount(): number {
+    return this.mutedUsers.size;
+  }
+
+  // =================================================================
   //  PERSISTENCE (Future)
   // =================================================================
 
   /**
    * Export all local data for backup
    */
-  export(): { tags: Record<string, string[]>; nicknames: Record<string, string> } {
+  export(): { tags: Record<string, string[]>; nicknames: Record<string, string>; muted: string[] } {
     const tags: Record<string, string[]> = {};
     for (const [tag, users] of this.trustTags.entries()) {
       tags[tag] = Array.from(users);
@@ -183,13 +230,15 @@ export class CloutLocalData {
       nicknames[key] = name;
     }
 
-    return { tags, nicknames };
+    const muted = Array.from(this.mutedUsers);
+
+    return { tags, nicknames, muted };
   }
 
   /**
    * Import local data from backup
    */
-  import(data: { tags?: Record<string, string[]>; nicknames?: Record<string, string> }): void {
+  import(data: { tags?: Record<string, string[]>; nicknames?: Record<string, string>; muted?: string[] }): void {
     if (data.tags) {
       for (const [tag, users] of Object.entries(data.tags)) {
         for (const user of users) {
@@ -206,6 +255,12 @@ export class CloutLocalData {
     if (data.nicknames) {
       for (const [key, name] of Object.entries(data.nicknames)) {
         this.nicknames.set(key, name);
+      }
+    }
+
+    if (data.muted) {
+      for (const key of data.muted) {
+        this.mutedUsers.add(key);
       }
     }
   }
