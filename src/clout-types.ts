@@ -69,6 +69,12 @@ export interface TrustSettings {
 
   /** Content-type-specific filters (e.g., 'slide', 'post', 'image/png') */
   readonly contentTypeFilters?: Record<string, ContentTypeFilter>;
+
+  /** Whether to show NSFW content (default: false) */
+  readonly showNsfw?: boolean;
+
+  /** Minimum reputation score to show NSFW content (default: 0.7) */
+  readonly nsfwMinReputation?: number;
 }
 
 /**
@@ -79,7 +85,9 @@ export const DEFAULT_TRUST_SETTINGS: TrustSettings = {
   autoMutualOnInvite: true,     // Invitations create mutual trust
   requireApproval: false,       // Accept trust signals automatically
   maxHops: 3,                   // Show up to 3 degrees
-  minReputation: 0.3            // Minimum score of 0.3
+  minReputation: 0.3,           // Minimum score of 0.3
+  showNsfw: false,              // Hide NSFW by default
+  nsfwMinReputation: 0.7        // Higher reputation threshold for NSFW
 };
 
 /**
@@ -152,6 +160,13 @@ export interface PostPackage {
    * actual media data lives in the local WNFS blockstore
    */
   readonly media?: MediaMetadata;
+
+  /**
+   * NSFW flag - marks content as Not Safe For Work
+   * Users who have NSFW filtering enabled will not see this post
+   * unless they explicitly opt-in to view NSFW content
+   */
+  readonly nsfw?: boolean;
 }
 
 /**

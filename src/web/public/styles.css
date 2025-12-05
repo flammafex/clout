@@ -874,3 +874,193 @@ h2 {
     max-height: 300px;
   }
 }
+
+/* =========================================================================
+   NSFW, REPUTATION, SETTINGS & TAGS STYLES
+   ========================================================================= */
+
+/* NSFW Toggle in Post Form */
+.nsfw-toggle {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.checkbox-text {
+  font-weight: 500;
+}
+
+.help-text-small {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin: 0.5rem 0 0 0;
+}
+
+/* Feed Header with Reputation */
+.feed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.feed-author {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Reputation Badge */
+.reputation-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: white;
+  text-transform: uppercase;
+}
+
+/* Author Tags */
+.author-tags {
+  display: inline-flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.tag-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+/* NSFW Badge */
+.nsfw-badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  background: #ef4444;
+  color: white;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* NSFW Post styling */
+.feed-item.nsfw-post {
+  border-left: 3px solid #ef4444;
+}
+
+/* Settings Styles */
+.settings-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.settings-card h3 {
+  margin: 0 0 1rem 0;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.setting-item {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.setting-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.setting-item label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.select {
+  width: 100%;
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.range {
+  width: 100%;
+  margin: 0.5rem 0;
+  accent-color: var(--primary);
+}
+
+/* Tags Management */
+.tags-manager {
+  margin-top: 1rem;
+}
+
+.tags-list {
+  margin-bottom: 1rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.tag-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.tag-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tag-count {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  flex: 1;
+}
+
+.add-tag-form {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.add-tag-form .input {
+  flex: 1;
+  min-width: 150px;
+}
