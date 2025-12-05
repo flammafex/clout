@@ -48,7 +48,7 @@
           </div>
 
           <div id="feed-list" class="feed-list">
-            <p class="empty-state">No posts yet. Trust someone or create a post!</p>
+            <!-- Empty state shown by JS when no posts -->
           </div>
         </div>
       </div>
@@ -117,29 +117,65 @@
       <!-- Trust Tab -->
       <div id="trust-tab" class="tab-content">
         <div class="section">
-          <h2>🤝 Trust Network</h2>
-          <p class="help-text">Add people to your trust graph to see their posts</p>
+          <h2>🤝 Your Trust Circle</h2>
 
-          <div class="form-card">
-            <input
-              type="text"
-              id="trust-public-key"
-              placeholder="Public key to trust"
-              class="input"
-            >
-            <button id="trust-btn" class="btn btn-primary">Trust User</button>
+          <!-- Your Trusted People -->
+          <div class="trust-network-section">
+            <div class="section-header">
+              <h3>People You Trust</h3>
+              <span class="trust-count" id="trust-count-badge">0</span>
+            </div>
+            <div id="trusted-users-list" class="trusted-users-list">
+              <div class="empty-state-helpful">
+                <div class="empty-icon">🌱</div>
+                <h4>Your trust circle is empty</h4>
+                <p>Start by trusting someone you know. Their posts will appear in your feed, and you'll see posts from people they trust too.</p>
+              </div>
+            </div>
           </div>
 
-          <div id="trust-result" class="result-message" style="display: none;"></div>
+          <!-- Add Trust Form -->
+          <div class="form-card add-trust-card">
+            <h3>Add to Your Circle</h3>
+            <p class="help-text">Paste someone's public key to start seeing their posts</p>
+            <div class="trust-input-row">
+              <input
+                type="text"
+                id="trust-public-key"
+                placeholder="Paste public key here..."
+                class="input"
+              >
+              <button id="trust-btn" class="btn btn-primary">Trust</button>
+            </div>
+            <div id="trust-result" class="result-message" style="display: none;"></div>
+          </div>
 
-          <div class="info-box" style="margin-top: 2rem;">
-            <h3>How Trust Works</h3>
-            <ul>
-              <li><strong>Distance 1:</strong> People you directly trust</li>
-              <li><strong>Distance 2:</strong> Friends of friends</li>
-              <li><strong>Distance 3:</strong> Extended network</li>
-            </ul>
-            <p>You'll only see posts from people within your trust network (up to 3 hops away).</p>
+          <!-- Trust Explainer -->
+          <div class="trust-explainer">
+            <h4>How Your Feed Works</h4>
+            <div class="trust-levels">
+              <div class="trust-level level-1">
+                <span class="level-icon">👤</span>
+                <div class="level-info">
+                  <strong>Direct (1 hop)</strong>
+                  <p>People you personally trust</p>
+                </div>
+              </div>
+              <div class="trust-level level-2">
+                <span class="level-icon">👥</span>
+                <div class="level-info">
+                  <strong>Friends of Friends (2 hops)</strong>
+                  <p>Vouched for by someone you trust</p>
+                </div>
+              </div>
+              <div class="trust-level level-3">
+                <span class="level-icon">🌐</span>
+                <div class="level-info">
+                  <strong>Extended Network (3 hops)</strong>
+                  <p>Within your wider web of trust</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

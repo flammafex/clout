@@ -772,6 +772,20 @@ export class Clout {
   }
 
   /**
+   * Get trust path to a user (for "Via Alice → Bob" display)
+   */
+  getTrustPath(publicKey: string): { path: string[]; distance: number } | null {
+    return this.reputationValidator.getTrustPath(publicKey);
+  }
+
+  /**
+   * Check if user is directly trusted (1 hop)
+   */
+  isDirectlyTrusted(publicKey: string): boolean {
+    return this.reputationValidator.isDirectlyTrusted(publicKey);
+  }
+
+  /**
    * Get the current user's profile (from Chronicle state)
    */
   getProfile(): CloutProfile {
