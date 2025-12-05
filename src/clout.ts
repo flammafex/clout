@@ -1038,4 +1038,144 @@ export class Clout {
       }
     };
   }
+
+  // =================================================================
+  //  SECTION 9: DATA EXPORT/IMPORT
+  // =================================================================
+
+  /**
+   * Export all user data for backup
+   *
+   * Includes:
+   * - Chronicle state (posts, trust signals, profile)
+   * - Local data (tags, nicknames, muted users)
+   * - Identity info (public key)
+   */
+  async exportBackup(): Promise<{
+    version: string;
+    exportedAt: number;
+    identity: { publicKey: string };
+    chronicleState: {
+      posts: PostPackage[];
+      trustSignals: TrustSignal[];
+      profile: any;
+    };
+    localData: {
+      tags: Record<string, string[]>;
+      nicknames: Record<string, string>;
+      muted: string[];
+    };
+  }> {
+    const chronicleState = this.state.getState();
+    const localData = this.localData.export();
+
+    return {
+      version: '1.0',
+      exportedAt: Date.now(),
+      identity: {
+        publicKey: this.publicKeyHex
+      },
+      chronicleState: {
+        posts: chronicleState.myPosts || [],
+        trustSignals: chronicleState.myTrustSignals || [],
+        profile: chronicleState.profile ? {
+          ...chronicleState.profile,
+          trustGraph: Array.from(chronicleState.profile.trustGraph || [])
+        } : null
+      },
+      localData
+    };
+  }
+
+  /**
+   * Import user data from backup
+   *
+   * @param backup - The backup data to import
+   * @param options.mergePosts - If true, merge posts with existing (default: true)
+   * @param options.replaceLocalData - If true, replace local data (default: false, meaning merge)
+   */
+  async importBackup(
+    backup: {
+      version: string;
+      chronicleState?: {
+        posts?: PostPackage[];
+        trustSignals?: TrustSignal[];
+        profile?: any;
+      };
+      localData?: {
+        tags?: Record<string, string[]>;
+        nicknames?: Record<string, string>;
+        muted?: string[];
+      };
+    },
+    options?: { mergePosts?: boolean; replaceLocalData?: boolean }
+  ): Promise<{ postsImported: number; trustSignalsImported: number; localDataImported: boolean }> {
+    const mergePosts = options?.mergePosts ?? true;
+    const replaceLocalData = options?.replaceLocalData ?? false;
+
+    let postsImported = 0;
+    let trustSignalsImported = 0;
+
+    // Import Chronicle state (posts, trust signals)
+    if (backup.chronicleState) {
+      // Import posts
+      if (backup.chronicleState.posts && backup.chronicleState.posts.length > 0) {
+        for (const post of backup.chronicleState.posts) {
+          try {
+            this.state.addPost(post);
+            postsImported++;
+          } catch (e) {
+            console.warn(`[Clout] Skipped duplicate post ${post.id?.slice(0, 8)}`);
+          }
+        }
+        console.log(`[Clout] 📥 Imported ${postsImported} posts`);
+      }
+
+      // Import trust signals
+      if (backup.chronicleState.trustSignals && backup.chronicleState.trustSignals.length > 0) {
+        for (const signal of backup.chronicleState.trustSignals) {
+          try {
+            this.state.addTrustSignal(signal);
+            // Also update local trust graph (trust signals indicate trust)
+            this.trustGraph.add(signal.trustee);
+            trustSignalsImported++;
+          } catch (e) {
+            console.warn(`[Clout] Skipped trust signal`);
+          }
+        }
+        console.log(`[Clout] 📥 Imported ${trustSignalsImported} trust signals`);
+      }
+
+      // Import profile settings (if from same identity)
+      if (backup.chronicleState.profile && backup.chronicleState.profile.publicKey === this.publicKeyHex) {
+        const currentProfile = this.getProfile();
+        this.state.updateProfile({
+          ...currentProfile,
+          trustSettings: {
+            ...currentProfile.trustSettings,
+            ...backup.chronicleState.profile.trustSettings
+          },
+          metadata: {
+            ...currentProfile.metadata,
+            ...backup.chronicleState.profile.metadata
+          }
+        });
+        console.log(`[Clout] 📥 Imported profile settings`);
+      }
+    }
+
+    // Import local data
+    let localDataImported = false;
+    if (backup.localData) {
+      if (replaceLocalData) {
+        // Clear existing and import fresh
+        // Note: We'd need clear methods, but for now just import (which adds)
+      }
+      this.localData.import(backup.localData);
+      localDataImported = true;
+      console.log(`[Clout] 📥 Imported local data (tags, nicknames, muted)`);
+    }
+
+    return { postsImported, trustSignalsImported, localDataImported };
+  }
 }

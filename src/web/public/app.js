@@ -1110,8 +1110,9 @@ async function loadSettings() {
     $('settings-min-reputation').value = Math.round(minRep * 100);
     $('settings-min-reputation-value').textContent = minRep.toFixed(2);
 
-    // Load tags
+    // Load tags and identities
     await loadTags();
+    await loadIdentities();
   } catch (error) {
     console.error('Error loading settings:', error);
   }
@@ -1208,6 +1209,193 @@ async function addTag() {
   }
 }
 
+// =========================================================================
+// DATA MANAGEMENT (Export/Import/Identities)
+// =========================================================================
+
+// Export backup - downloads a JSON file
+async function exportBackup() {
+  try {
+    $('export-backup-btn').disabled = true;
+    $('export-backup-btn').textContent = 'Exporting...';
+
+    const response = await fetch('/api/data/export');
+    if (!response.ok) throw new Error('Export failed');
+
+    const backup = await response.json();
+
+    // Create download link
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `clout-backup-${backup.identity.publicKey.slice(0, 8)}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    alert('Backup downloaded successfully!');
+  } catch (error) {
+    alert(`Export failed: ${error.message}`);
+  } finally {
+    $('export-backup-btn').disabled = false;
+    $('export-backup-btn').textContent = 'Download Backup';
+  }
+}
+
+// Import backup from file
+async function importBackup(file) {
+  try {
+    const text = await file.text();
+    const backup = JSON.parse(text);
+
+    // Validate
+    if (!backup.version) {
+      throw new Error('Invalid backup file format');
+    }
+
+    $('import-backup-btn').disabled = true;
+    $('import-backup-btn').textContent = 'Importing...';
+
+    const result = await apiCall('/data/import', 'POST', backup);
+
+    showResult('import-result',
+      `Imported: ${result.postsImported} posts, ${result.trustSignalsImported} trust signals` +
+      (result.localDataImported ? ', local data' : ''),
+      true);
+
+    // Reload feed to show imported content
+    setTimeout(() => loadFeed(), 1000);
+  } catch (error) {
+    showResult('import-result', `Import failed: ${error.message}`, false);
+  } finally {
+    $('import-backup-btn').disabled = false;
+    $('import-backup-btn').textContent = 'Select Backup File';
+    $('import-backup-input').value = '';
+  }
+}
+
+// Load identities list
+async function loadIdentities() {
+  try {
+    const data = await apiCall('/data/identities');
+    const container = $('identities-list');
+
+    if (!data.identities || data.identities.length === 0) {
+      container.innerHTML = '<p class="empty-state">No identities found</p>';
+      return;
+    }
+
+    container.innerHTML = data.identities.map(id => `
+      <div class="identity-card ${id.isDefault ? 'active' : ''}">
+        <div class="identity-info">
+          <div class="identity-name">
+            ${escapeHtml(id.name)}
+            ${id.isDefault ? '<span class="identity-badge active">Active</span>' : ''}
+          </div>
+          <div class="identity-key">${id.publicKeyShort}...</div>
+          <div class="identity-created">Created ${formatRelativeTime(id.created)}</div>
+        </div>
+        <div class="identity-actions">
+          ${!id.isDefault ? `<button class="btn-small" onclick="switchIdentity('${escapeHtml(id.name)}')">Switch</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading identities:', error);
+    $('identities-list').innerHTML = '<p class="empty-state">Error loading identities</p>';
+  }
+}
+
+// Switch to a different identity (requires restart)
+async function switchIdentity(name) {
+  if (!confirm(`Switch to identity "${name}"?\n\nThis requires restarting the server to take effect.`)) {
+    return;
+  }
+
+  try {
+    const result = await apiCall('/data/identities/switch', 'POST', { name });
+    alert(result.message || 'Identity switched. Please restart the server.');
+    await loadIdentities();
+  } catch (error) {
+    alert(`Failed to switch identity: ${error.message}`);
+  }
+}
+
+// Create new identity
+async function createIdentity() {
+  const name = $('new-identity-name').value.trim();
+
+  if (!name) {
+    showResult('identity-result', 'Please enter an identity name', false);
+    return;
+  }
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    showResult('identity-result', 'Name can only contain letters, numbers, underscores, and hyphens', false);
+    return;
+  }
+
+  try {
+    $('create-identity-btn').disabled = true;
+    await apiCall('/data/identities', 'POST', { name, setDefault: false });
+
+    showResult('identity-result', `Identity "${name}" created!`, true);
+    $('new-identity-name').value = '';
+
+    await loadIdentities();
+  } catch (error) {
+    showResult('identity-result', `Error: ${error.message}`, false);
+  } finally {
+    $('create-identity-btn').disabled = false;
+  }
+}
+
+// Export current identity secret key
+async function exportIdentityKey() {
+  if (!confirm('WARNING: Your secret key gives full control of your identity!\n\nOnly export this if you need to backup or move your identity to another device.\n\nContinue?')) {
+    return;
+  }
+
+  try {
+    const currentIdentity = await apiCall('/data/identity/current');
+    const result = await apiCall(`/data/identities/${currentIdentity.name}/export`);
+
+    // Show in a prompt so they can copy it
+    const key = result.secretKey;
+    prompt('Your secret key (copy this and keep it safe!):', key);
+  } catch (error) {
+    alert(`Failed to export key: ${error.message}`);
+  }
+}
+
+// Import identity from secret key
+async function importIdentityKey() {
+  const name = $('import-identity-name').value.trim();
+  const secretKey = $('import-identity-key').value.trim();
+
+  if (!name || !secretKey) {
+    showResult('identity-result', 'Please enter both name and secret key', false);
+    return;
+  }
+
+  try {
+    $('import-identity-btn').disabled = true;
+    await apiCall('/data/identities/import', 'POST', { name, secretKey, setDefault: false });
+
+    showResult('identity-result', `Identity "${name}" imported!`, true);
+    $('import-identity-name').value = '';
+    $('import-identity-key').value = '';
+
+    await loadIdentities();
+  } catch (error) {
+    showResult('identity-result', `Error: ${error.message}`, false);
+  } finally {
+    $('import-identity-btn').disabled = false;
+  }
+}
+
 // Setup settings event listeners
 function setupSettings() {
   // Min reputation slider
@@ -1220,6 +1408,20 @@ function setupSettings() {
 
   // Add tag button
   $('add-tag-btn').addEventListener('click', addTag);
+
+  // Data management
+  $('export-backup-btn').addEventListener('click', exportBackup);
+  $('import-backup-btn').addEventListener('click', () => $('import-backup-input').click());
+  $('import-backup-input').addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      importBackup(e.target.files[0]);
+    }
+  });
+
+  // Identity management
+  $('create-identity-btn').addEventListener('click', createIdentity);
+  $('export-identity-btn').addEventListener('click', exportIdentityKey);
+  $('import-identity-btn').addEventListener('click', importIdentityKey);
 }
 
 // =========================================================================

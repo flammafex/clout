@@ -20,7 +20,8 @@ import {
   createTrustRoutes,
   createMediaRoutes,
   createSlidesRoutes,
-  createSettingsRoutes
+  createSettingsRoutes,
+  createDataRoutes
 } from './routes/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -135,6 +136,7 @@ export class CloutWebServer {
     this.app.use('/api/media', createMediaRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/slides', createSlidesRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/settings', createSettingsRoutes(this.getClout, this.isInitialized));
+    this.app.use('/api/data', createDataRoutes(this.getClout, this.isInitialized, this.identityManager));
 
     // Legacy slide endpoints (for backwards compatibility)
     this.app.get('/api/slides', (req, res, next) => {
