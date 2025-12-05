@@ -1,11 +1,30 @@
 // Clout Web UI - Frontend Application
+//
+// Organized into sections:
+// 1. GLOBALS & UTILITIES
+// 2. API LAYER
+// 3. UI HELPERS
+// 4. TAB MANAGEMENT
+// 5. INITIALIZATION
+// 6. FEED
+// 7. TRUST & REPUTATION
+// 8. THREAD VIEW
+// 9. POST CREATION
+// 10. SLIDES (DMs)
+// 11. IDENTITY & PROFILE
+// 12. MEDIA UPLOAD
+// 13. SETTINGS
+// 14. APP BOOTSTRAP
+
+// =========================================================================
+// 1. GLOBALS & UTILITIES
+// =========================================================================
 
 const API_BASE = '/api';
 let initialized = false;
 let replyingTo = null; // Track which post we're replying to
 let pendingMedia = null; // Track uploaded media for post { cid, mimeType, filename, size }
 
-// Utility functions
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => document.querySelectorAll(selector);
 
@@ -21,6 +40,10 @@ function showLoading(containerId) {
 function hideLoading(containerId) {
   // Content replacement handles this automatically
 }
+
+// =========================================================================
+// 2. API LAYER
+// =========================================================================
 
 async function apiCall(endpoint, method = 'GET', body = null) {
   try {
@@ -46,6 +69,10 @@ async function apiCall(endpoint, method = 'GET', body = null) {
   }
 }
 
+// =========================================================================
+// 3. UI HELPERS
+// =========================================================================
+
 function showResult(elementId, message, isSuccess) {
   const el = $(elementId);
   el.textContent = message;
@@ -64,7 +91,10 @@ function updateStatus(text, active = false) {
   }
 }
 
-// Tab Management
+// =========================================================================
+// 4. TAB MANAGEMENT
+// =========================================================================
+
 function setupTabs() {
   $$('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -88,7 +118,10 @@ function setupTabs() {
   });
 }
 
-// Initialize Clout
+// =========================================================================
+// 5. INITIALIZATION
+// =========================================================================
+
 async function initializeClout() {
   try {
     $('init-btn').disabled = true;
@@ -115,7 +148,10 @@ async function initializeClout() {
   }
 }
 
-// Load Feed
+// =========================================================================
+// 6. FEED
+// =========================================================================
+
 async function loadFeed() {
   showLoading('feed-list');
   try {
@@ -221,7 +257,10 @@ async function quickTrust(publicKey) {
   }
 }
 
-// Load trusted users for Trust tab
+// =========================================================================
+// 7. TRUST & REPUTATION
+// =========================================================================
+
 async function loadTrustedUsers() {
   showLoading('trusted-users-list');
   try {
@@ -318,7 +357,10 @@ function getReputationColor(score) {
   return '#ef4444'; // red
 }
 
-// View Thread
+// =========================================================================
+// 8. THREAD VIEW
+// =========================================================================
+
 async function viewThread(postId) {
   try {
     const data = await apiCall(`/thread/${postId}`);
@@ -377,7 +419,10 @@ async function viewThread(postId) {
   }
 }
 
-// Start Reply
+// =========================================================================
+// 9. POST CREATION
+// =========================================================================
+
 function startReply(postId, author) {
   replyingTo = postId;
 
@@ -459,7 +504,7 @@ async function createPost() {
   }
 }
 
-// Trust User
+// Trust a new user
 async function trustUser() {
   const publicKey = $('trust-public-key').value.trim();
 
@@ -487,7 +532,10 @@ async function trustUser() {
   }
 }
 
-// Send Slide (Encrypted DM)
+// =========================================================================
+// 10. SLIDES (Encrypted DMs)
+// =========================================================================
+
 async function sendSlide() {
   const recipientKey = $('slide-recipient').value.trim();
   const message = $('slide-message').value.trim();
@@ -575,7 +623,10 @@ function startSlideReply(recipientKey) {
   $('slide-message').focus();
 }
 
-// Load Identity
+// =========================================================================
+// 11. IDENTITY & PROFILE
+// =========================================================================
+
 async function loadIdentity() {
   try {
     const data = await apiCall('/identity');
@@ -679,7 +730,7 @@ function escapeHtml(text) {
 }
 
 // =========================================================================
-// MEDIA UPLOAD FUNCTIONS
+// 12. MEDIA UPLOAD
 // =========================================================================
 
 // Format file size for display
@@ -1002,7 +1053,7 @@ async function saveProfile() {
 }
 
 // =========================================================================
-// SETTINGS FUNCTIONS
+// 13. SETTINGS
 // =========================================================================
 
 // Load Settings
@@ -1130,7 +1181,10 @@ function setupSettings() {
   $('add-tag-btn').addEventListener('click', addTag);
 }
 
-// Initialize app
+// =========================================================================
+// 14. APP BOOTSTRAP
+// =========================================================================
+
 document.addEventListener('DOMContentLoaded', () => {
   setupTabs();
   setupCharCounter();
