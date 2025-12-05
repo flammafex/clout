@@ -120,20 +120,20 @@ export class CloutWebServer {
     this.app.get('/api/feed', async (req, res) => {
       try {
         if (!this.initialized) throw new Error('Not initialized');
-        
-        const feed = await this.clout!.getFeed();
-        
+
+        const allPosts = await this.clout!.getFeed();
+
         const limit = parseInt(req.query.limit as string) || 50;
-        const posts = feed.posts.slice(0, limit);
+        const posts = allPosts.slice(0, limit);
 
         res.json({
           success: true,
           data: {
-            posts: posts.map(post => ({
+            posts: posts.map((post: any) => ({
               ...post,
               authorShort: post.author.slice(0, 8)
             })),
-            totalPosts: feed.posts.length
+            totalPosts: allPosts.length
           }
         });
       } catch (error: any) {
@@ -178,18 +178,18 @@ export class CloutWebServer {
       try {
         if (!this.initialized) throw new Error('Not initialized');
         const postId = req.params.id;
-        
-        const feed = await this.clout!.getFeed();
-        
-        const parentPost = feed.posts.find(p => p.id === postId);
-        
+
+        const allPosts = await this.clout!.getFeed();
+
+        const parentPost = allPosts.find((p: any) => p.id === postId);
+
         if (!parentPost) {
           return res.status(404).json({ success: false, error: 'Post not found' });
         }
 
-        const replies = feed.posts
-          .filter(p => p.replyTo === postId)
-          .sort((a, b) => a.proof.timestamp - b.proof.timestamp);
+        const replies = allPosts
+          .filter((p: any) => p.replyTo === postId)
+          .sort((a: any, b: any) => a.proof.timestamp - b.proof.timestamp);
 
         res.json({
           success: true,
@@ -198,7 +198,7 @@ export class CloutWebServer {
               ...parentPost,
               authorShort: parentPost.author.slice(0, 8)
             },
-            replies: replies.map(post => ({
+            replies: replies.map((post: any) => ({
               ...post,
               authorShort: post.author.slice(0, 8)
             }))
