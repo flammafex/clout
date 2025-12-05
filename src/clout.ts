@@ -69,6 +69,7 @@ export class Clout {
   private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
   private readonly trustTags: Map<string, Set<string>>; // tag -> Set<publicKey>
+  private readonly nicknames: Map<string, string>; // publicKey -> nickname (local address book)
   private stateSyncTimer?: NodeJS.Timeout;
   private readonly stateSyncInterval = 30000; // Sync every 30 seconds
   private mediaStorageEnabled: boolean;
@@ -91,6 +92,9 @@ export class Clout {
 
     // 2a. Initialize Trust Tags (Local organization)
     this.trustTags = new Map<string, Set<string>>();
+
+    // 2b. Initialize Nicknames (Local address book)
+    this.nicknames = new Map<string, string>();
 
     // 3. Initialize Reputation Validator (The Filter)
     this.reputationValidator = new ReputationValidator({
@@ -1015,6 +1019,55 @@ export class Clout {
     // Get all posts and filter by tagged authors
     const allPosts = await this.store.getFeed();
     return allPosts.filter(post => taggedUsers.has(post.author));
+  }
+
+  // =================================================================
+  //  SECTION 4b: NICKNAMES (Local Address Book)
+  // =================================================================
+
+  /**
+   * Set a nickname for a user (like naming a contact in your phone)
+   *
+   * Nicknames are local only - they're never shared with the network.
+   * Use them to identify people in your feed by memorable names.
+   */
+  setNickname(publicKey: string, nickname: string): void {
+    const trimmedNickname = nickname.trim();
+
+    if (!trimmedNickname) {
+      // Empty nickname = remove it
+      this.nicknames.delete(publicKey);
+      console.log(`[Clout] 📇 Removed nickname for ${publicKey.slice(0, 8)}`);
+    } else {
+      this.nicknames.set(publicKey, trimmedNickname);
+      console.log(`[Clout] 📇 Set nickname for ${publicKey.slice(0, 8)}: "${trimmedNickname}"`);
+    }
+  }
+
+  /**
+   * Get the nickname for a user (returns undefined if not set)
+   */
+  getNickname(publicKey: string): string | undefined {
+    return this.nicknames.get(publicKey);
+  }
+
+  /**
+   * Get display name for a user - nickname if set, otherwise truncated public key
+   */
+  getDisplayName(publicKey: string): string {
+    const nickname = this.nicknames.get(publicKey);
+    if (nickname) {
+      return nickname;
+    }
+    // Fallback to truncated key
+    return publicKey.slice(0, 8) + '...';
+  }
+
+  /**
+   * Get all nicknames (for backup/export)
+   */
+  getAllNicknames(): Map<string, string> {
+    return new Map(this.nicknames);
   }
 
   // =================================================================

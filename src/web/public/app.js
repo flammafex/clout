@@ -169,11 +169,15 @@ async function loadFeed() {
         ? `<button class="btn-trust-quick" onclick="event.stopPropagation(); quickTrust('${post.author}')" title="Add to your circle">+</button>`
         : '';
 
+      // Use display name (nickname if set, otherwise truncated key)
+      const authorName = post.authorDisplayName || post.author.slice(0, 16) + '...';
+      const hasNickname = !!post.authorNickname;
+
       return `
         <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${distanceClass}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
           <div class="feed-header">
             <div class="feed-author">
-              ${post.author.slice(0, 16)}...
+              <span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span>
               <span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
                 ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
               </span>
@@ -189,7 +193,7 @@ async function loadFeed() {
           <div class="feed-content">${renderPostContent(post)}</div>
           <div class="feed-footer">
             <div class="feed-timestamp">${formatRelativeTime(post.timestamp)}</div>
-            <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${post.author.slice(0, 16)}')">Reply</button>
+            <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
           </div>
         </div>
       `;
@@ -243,17 +247,21 @@ async function loadTrustedUsers() {
       const tagsHtml = tags.length > 0
         ? `<div class="user-tags">${tags.map(t => `<span class="tag-badge-small">${escapeHtml(t)}</span>`).join('')}</div>`
         : '';
+      const hasNickname = !!user.nickname;
+      const displayName = user.displayName || user.publicKeyShort + '...';
 
       return `
         <div class="trusted-user-card">
           <div class="trusted-user-info">
-            <div class="trusted-user-key" title="${user.publicKey}">
-              ${user.publicKeyShort}...
+            <div class="trusted-user-name ${hasNickname ? 'has-nickname' : ''}" title="${user.publicKey}">
+              ${escapeHtml(displayName)}
             </div>
+            <div class="trusted-user-key-small">${user.publicKeyShort}...</div>
             ${tagsHtml}
           </div>
           <div class="trusted-user-actions">
-            <button class="btn-small" onclick="copyToClipboard2('${user.publicKey}')">Copy Key</button>
+            <button class="btn-small btn-nickname" onclick="editNickname('${user.publicKey}', '${escapeHtml(user.nickname || '')}')" title="Set nickname">✏️</button>
+            <button class="btn-small" onclick="copyToClipboard2('${user.publicKey}')">Copy</button>
           </div>
         </div>
       `;
@@ -269,6 +277,36 @@ function copyToClipboard2(text) {
   navigator.clipboard.writeText(text).then(() => {
     alert('Public key copied!');
   });
+}
+
+// Edit nickname for a user
+async function editNickname(publicKey, currentNickname) {
+  const newNickname = prompt(
+    `Set a nickname for ${publicKey.slice(0, 12)}...`,
+    currentNickname || ''
+  );
+
+  // User cancelled
+  if (newNickname === null) return;
+
+  try {
+    await apiCall('/nickname', 'POST', {
+      publicKey,
+      nickname: newNickname.trim()
+    });
+
+    // Reload trusted users list and feed to reflect changes
+    await loadTrustedUsers();
+    await loadFeed();
+
+    if (newNickname.trim()) {
+      showResult('trust-result', `Nickname set: "${newNickname.trim()}"`, true);
+    } else {
+      showResult('trust-result', 'Nickname removed', true);
+    }
+  } catch (error) {
+    showResult('trust-result', `Error: ${error.message}`, false);
+  }
 }
 
 // Get color for reputation score
@@ -298,14 +336,16 @@ async function viewThread(postId) {
     // Display parent post
     const parent = data.parent;
     const parentHasMedia = parent.media && parent.media.cid;
+    const parentAuthorName = parent.authorDisplayName || parent.author.slice(0, 16) + '...';
+    const parentHasNickname = !!parent.authorNickname;
     $('thread-parent').innerHTML = `
       <div class="feed-item thread-parent-post ${parentHasMedia ? 'has-media' : ''}">
-        <div class="feed-author">${parent.author.slice(0, 16)}...</div>
+        <div class="feed-author"><span class="${parentHasNickname ? 'has-nickname' : ''}" title="${parent.author}">${escapeHtml(parentAuthorName)}</span></div>
         ${parent.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${parent.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); viewThread('${parent.replyTo}')">View parent</a></div>` : ''}
         <div class="feed-content">${renderPostContent(parent)}</div>
         <div class="feed-footer">
           <div class="feed-timestamp">${new Date(parent.timestamp).toLocaleString()}</div>
-          <button class="btn-reply" onclick="startReply('${parent.id}', '${parent.author.slice(0, 16)}')">Reply</button>
+          <button class="btn-reply" onclick="startReply('${parent.id}', '${escapeHtml(parentAuthorName)}')">Reply</button>
         </div>
       </div>
     `;
@@ -317,13 +357,15 @@ async function viewThread(postId) {
     } else {
       repliesList.innerHTML = data.replies.map(reply => {
         const replyHasMedia = reply.media && reply.media.cid;
+        const replyAuthorName = reply.authorDisplayName || reply.author.slice(0, 16) + '...';
+        const replyHasNickname = !!reply.authorNickname;
         return `
           <div class="feed-item ${replyHasMedia ? 'has-media' : ''}" onclick="viewThread('${reply.id}')" style="cursor: pointer;">
-            <div class="feed-author">${reply.author.slice(0, 16)}...</div>
+            <div class="feed-author"><span class="${replyHasNickname ? 'has-nickname' : ''}" title="${reply.author}">${escapeHtml(replyAuthorName)}</span></div>
             <div class="feed-content">${renderPostContent(reply)}</div>
             <div class="feed-footer">
               <div class="feed-timestamp">${new Date(reply.timestamp).toLocaleString()}</div>
-              <button class="btn-reply" onclick="event.stopPropagation(); startReply('${reply.id}', '${reply.author.slice(0, 16)}')">Reply</button>
+              <button class="btn-reply" onclick="event.stopPropagation(); startReply('${reply.id}', '${escapeHtml(replyAuthorName)}')">Reply</button>
             </div>
           </div>
         `;
@@ -497,16 +539,20 @@ async function loadSlides() {
       return;
     }
 
-    slidesList.innerHTML = data.slides.map(slide => `
-      <div class="slide-item">
-        <div class="slide-header">
-          <div class="slide-sender">From: ${slide.sender.slice(0, 16)}...</div>
-          <div class="slide-timestamp">${formatRelativeTime(slide.timestamp)}</div>
+    slidesList.innerHTML = data.slides.map(slide => {
+      const senderName = slide.senderDisplayName || slide.sender.slice(0, 16) + '...';
+      const hasNickname = !!slide.senderNickname;
+      return `
+        <div class="slide-item">
+          <div class="slide-header">
+            <div class="slide-sender">From: <span class="${hasNickname ? 'has-nickname' : ''}" title="${slide.sender}">${escapeHtml(senderName)}</span></div>
+            <div class="slide-timestamp">${formatRelativeTime(slide.timestamp)}</div>
+          </div>
+          <div class="slide-message">${escapeHtml(slide.decryptedContent || slide.message)}</div>
+          <button class="btn btn-small" onclick="startSlideReply('${slide.sender}')">Reply</button>
         </div>
-        <div class="slide-message">${escapeHtml(slide.message)}</div>
-        <button class="btn btn-small" onclick="startSlideReply('${slide.sender}')">Reply</button>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (error) {
     $('slides-list').innerHTML = `<p class="empty-state">Error loading slides: ${error.message}</p>`;
   }
