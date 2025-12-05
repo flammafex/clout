@@ -4,13 +4,15 @@ import type { PostPackage, ContentGossipMessage } from './clout-types.js';
 import type { CloutTicket } from './ticket-booth.js';
 
 export interface PostConfig {
-  readonly author: string; 
+  readonly author: string;
   readonly content: string;
   readonly signature: Uint8Array;
   readonly freebird: FreebirdClient;
   readonly witness: WitnessClient;
   readonly replyTo?: string;
   readonly contentType?: string;
+  readonly ephemeralPublicKey?: Uint8Array;
+  readonly ephemeralKeyProof?: Uint8Array;
 }
 
 export interface ContentGossip {
@@ -64,9 +66,11 @@ export class CloutPost {
       content: config.content,
       author: config.author,
       signature: config.signature,
-      authorshipProof, 
+      authorshipProof,
       replyTo: config.replyTo,
-      contentType: config.contentType || 'text/plain'
+      contentType: config.contentType || 'text/plain',
+      ephemeralPublicKey: config.ephemeralPublicKey,
+      ephemeralKeyProof: config.ephemeralKeyProof
     };
 
     // 7. Hash package for timestamping

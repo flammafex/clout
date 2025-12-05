@@ -232,4 +232,75 @@ export class Crypto {
 
     return new TextDecoder().decode(plaintext);
   }
+
+  /**
+   * Derive an ephemeral keypair from master key for a specific time window
+   *
+   * Uses deterministic key derivation so the same ephemeral key is generated
+   * for a given master key and time window. This enables key rotation without
+   * storing ephemeral keys.
+   *
+   * @param masterKey - Master secret key (32 bytes)
+   * @param rotationPeriodMs - Key rotation period in milliseconds (default: 24 hours)
+   * @param timestamp - Current timestamp (default: now)
+   * @returns Object with ephemeral secret and public keys
+   */
+  static deriveEphemeralKey(
+    masterKey: Uint8Array,
+    rotationPeriodMs: number = 24 * 60 * 60 * 1000, // 24 hours
+    timestamp: number = Date.now()
+  ): { ephemeralSecret: Uint8Array; ephemeralPublic: Uint8Array } {
+    // Calculate key epoch (which rotation period this timestamp falls into)
+    const epoch = Math.floor(timestamp / rotationPeriodMs);
+
+    // Derive ephemeral secret from master key and epoch
+    // Using HKDF-like construction: secret = H(masterKey || "EPHEMERAL_KEY" || epoch)
+    const ephemeralSecret = this.hash(masterKey, 'EPHEMERAL_KEY', epoch);
+
+    // Derive public key from secret
+    const ephemeralPublic = x25519.getPublicKey(ephemeralSecret);
+
+    return { ephemeralSecret, ephemeralPublic };
+  }
+
+  /**
+   * Create a proof linking an ephemeral key to a master key
+   *
+   * The proof is a signature of the ephemeral public key by the master key.
+   * This allows verifiers to confirm that the ephemeral key was derived from
+   * the claimed master key.
+   *
+   * @param ephemeralPublicKey - Ephemeral public key to sign
+   * @param masterPrivateKey - Master private key for signing
+   * @returns Signature proving ephemeral key ownership
+   */
+  static createEphemeralKeyProof(
+    ephemeralPublicKey: Uint8Array,
+    masterPrivateKey: Uint8Array
+  ): Uint8Array {
+    // Sign ephemeral public key with master key
+    // In production, use Ed25519 signature
+    // For MVP, use hash-based signature
+    return this.hash(masterPrivateKey, ephemeralPublicKey, 'EPHEMERAL_KEY_PROOF');
+  }
+
+  /**
+   * Verify that an ephemeral key proof is valid
+   *
+   * @param ephemeralPublicKey - Ephemeral public key
+   * @param proof - Signature linking ephemeral key to master key
+   * @param masterPublicKey - Master public key (hex string)
+   * @returns true if proof is valid
+   */
+  static verifyEphemeralKeyProof(
+    ephemeralPublicKey: Uint8Array,
+    proof: Uint8Array,
+    masterPublicKey: string
+  ): boolean {
+    // For MVP, we just verify the proof format is correct
+    // In production, verify Ed25519 signature
+    // Since we don't have the master private key, we can't re-derive the proof
+    // This is a placeholder - in production you'd verify the signature
+    return proof.length === 32; // Basic sanity check
+  }
 }
