@@ -161,7 +161,8 @@ async function viewThread(postId) {
     const data = await apiCall(`/thread/${postId}`);
 
     // Show thread tab button and switch to it
-    const threadTabBtn = $$('.tab-btn')[3]; // Thread tab is 4th
+    // Tab order: Feed(0), Post(1), Trust(2), Slides(3), Profile(4), Thread(5), Settings(6), Identity(7), Stats(8)
+    const threadTabBtn = document.querySelector('.tab-btn[data-tab="thread"]');
     threadTabBtn.style.display = 'block';
 
     $$('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -930,12 +931,12 @@ document.addEventListener('DOMContentLoaded', () => {
   $('back-to-feed-btn').addEventListener('click', () => {
     // Switch back to feed tab
     $$('.tab-btn').forEach(b => b.classList.remove('active'));
-    $$('.tab-btn')[0].classList.add('active'); // Feed is first
+    document.querySelector('.tab-btn[data-tab="feed"]').classList.add('active');
     $$('.tab-content').forEach(content => content.classList.remove('active'));
     $('feed-tab').classList.add('active');
 
     // Hide thread tab button
-    $$('.tab-btn')[4].style.display = 'none';
+    document.querySelector('.tab-btn[data-tab="thread"]').style.display = 'none';
 
     // Reload feed
     loadFeed();
@@ -951,13 +952,23 @@ document.addEventListener('DOMContentLoaded', () => {
   $('save-profile-btn').addEventListener('click', saveProfile);
   $('cancel-edit-btn').addEventListener('click', cancelProfileEdit);
 
-  // Check health
-  apiCall('/health').then(data => {
-    if (data.initialized) {
-      // Auto-init if already initialized
-      initializeClout();
-    }
-  }).catch(() => {
-    updateStatus('Server not responding', false);
-  });
+  // Auto-initialize on page load
+  autoInitialize();
 });
+
+// Auto-initialize Clout connection
+async function autoInitialize() {
+  try {
+    // Check if server is available
+    const health = await apiCall('/health');
+
+    // Auto-initialize whether or not already initialized
+    // This gives users a seamless experience without needing to click "Initialize"
+    updateStatus('Connecting...', false);
+    await initializeClout();
+  } catch (error) {
+    // Server not responding - show init section for manual retry
+    updateStatus('Server not responding. Click Initialize to retry.', false);
+    console.error('Auto-init failed:', error);
+  }
+}
