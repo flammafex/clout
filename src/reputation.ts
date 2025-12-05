@@ -17,6 +17,8 @@ export interface ReputationConfig {
   readonly witness: WitnessClient;
   readonly maxHops?: number; // Maximum graph distance to accept (default: 3)
   readonly minReputation?: number; // Minimum reputation score (0-1, default: 0.3)
+  readonly trustDecayDays?: number; // Days until trust weight decays to 50% (default: 365, 0 = no decay)
+  readonly contentTypeFilters?: Record<string, { maxHops: number; minReputation: number }>; // Per-content-type filters
 }
 
 interface TrustPath {
@@ -35,6 +37,8 @@ export class ReputationValidator {
   private readonly witness: WitnessClient;
   private readonly maxHops: number;
   private readonly minReputation: number;
+  private readonly trustDecayDays: number;
+  private readonly contentTypeFilters: Record<string, { maxHops: number; minReputation: number }>;
   private readonly trustSignals = new Map<string, TrustSignal>(); // Observed trust signals
 
   constructor(config: ReputationConfig) {
@@ -42,6 +46,8 @@ export class ReputationValidator {
     this.witness = config.witness;
     this.maxHops = config.maxHops ?? 3;
     this.minReputation = config.minReputation ?? 0.3;
+    this.trustDecayDays = config.trustDecayDays ?? 365; // Default: 1 year half-life
+    this.contentTypeFilters = config.contentTypeFilters ?? {};
   }
 
   /**
@@ -51,6 +57,7 @@ export class ReputationValidator {
    * In Clout: validatePost() checks for trust/reputation
    *
    * Returns whether the post should be shown to the user.
+   * Supports content-type-specific filtering rules.
    */
   async validatePost(post: PostPackage): Promise<{
     valid: boolean;
@@ -78,24 +85,30 @@ export class ReputationValidator {
       };
     }
 
-    // Step 3: Compute reputation score
+    // Step 3: Get content-type-specific thresholds
+    const contentType = post.contentType || 'text/plain';
+    const filter = this.contentTypeFilters[contentType];
+    const maxHops = filter?.maxHops ?? this.maxHops;
+    const minReputation = filter?.minReputation ?? this.minReputation;
+
+    // Step 4: Compute reputation score
     const reputation = this.computeReputation(post.author);
 
-    // Step 4: Check if reputation meets threshold
-    if (reputation.score < this.minReputation) {
+    // Step 5: Check if reputation meets threshold
+    if (reputation.score < minReputation) {
       return {
         valid: false,
         reputation,
-        reason: `Reputation ${reputation.score.toFixed(2)} below threshold ${this.minReputation}`
+        reason: `Reputation ${reputation.score.toFixed(2)} below threshold ${minReputation} for ${contentType}`
       };
     }
 
-    // Step 5: Check if within hop distance
-    if (reputation.distance > this.maxHops) {
+    // Step 6: Check if within hop distance
+    if (reputation.distance > maxHops) {
       return {
         valid: false,
         reputation,
-        reason: `Author is ${reputation.distance} hops away (max ${this.maxHops})`
+        reason: `Author is ${reputation.distance} hops away (max ${maxHops} for ${contentType})`
       };
     }
 
@@ -114,10 +127,14 @@ export class ReputationValidator {
    *
    * Scoring:
    * - Distance 0 (self): score = 1.0
-   * - Distance 1 (direct follow): score = 0.9
-   * - Distance 2 (friend of friend): score = 0.6
-   * - Distance 3 (3 hops): score = 0.3
+   * - Distance 1 (direct follow): base = 0.9 * trust_weight
+   * - Distance 2 (friend of friend): base = 0.6 * path_weight
+   * - Distance 3 (3 hops): base = 0.3 * path_weight
    * - Distance 4+ (too far): score = 0.0
+   *
+   * Enhanced with:
+   * - Custom trust weights (0.1-1.0) multiply the base scores
+   * - Path diversity bonus (multiple paths increase trust)
    */
   computeReputation(publicKey: string): ReputationScore {
     // Find all paths to this user
@@ -133,32 +150,17 @@ export class ReputationValidator {
       };
     }
 
-    // Find shortest path
-    const shortestPath = paths.reduce((min, path) =>
-      path.hops.length < min.hops.length ? path : min
-    );
+    // Find best path (highest weight, shortest distance as tiebreaker)
+    const bestPath = paths.reduce((best, path) => {
+      if (path.weight > best.weight) return path;
+      if (path.weight === best.weight && path.hops.length < best.hops.length) return path;
+      return best;
+    });
 
-    const distance = shortestPath.hops.length;
+    const distance = bestPath.hops.length;
 
-    // Compute score based on distance and path diversity
-    let score = 0.0;
-
-    switch (distance) {
-      case 0: // Self
-        score = 1.0;
-        break;
-      case 1: // Direct follow
-        score = 0.9;
-        break;
-      case 2: // Friend of friend
-        score = 0.6;
-        break;
-      case 3: // 3 hops
-        score = 0.3;
-        break;
-      default: // Too far
-        score = 0.0;
-    }
+    // Use the weighted score from the best path
+    let score = bestPath.weight;
 
     // Boost score based on path diversity (multiple paths = more trustworthy)
     const diversityBonus = Math.min(paths.length * 0.05, 0.2);
@@ -240,20 +242,74 @@ export class ReputationValidator {
   }
 
   /**
+   * Calculate temporal decay multiplier for a trust signal
+   *
+   * Uses exponential decay with configurable half-life (trustDecayDays).
+   * Formula: decay = 0.5^(age_days / half_life_days)
+   *
+   * Example: If trustDecayDays = 365:
+   * - Fresh trust (0 days): 1.0x
+   * - 1 year old: 0.5x
+   * - 2 years old: 0.25x
+   * - 3 years old: 0.125x
+   */
+  private calculateDecayMultiplier(timestamp: number): number {
+    if (this.trustDecayDays === 0) {
+      return 1.0; // No decay
+    }
+
+    const ageMs = Date.now() - timestamp;
+    const ageDays = ageMs / (24 * 60 * 60 * 1000);
+    const halfLives = ageDays / this.trustDecayDays;
+
+    return Math.pow(0.5, halfLives);
+  }
+
+  /**
    * Calculate weight of a trust path
    *
-   * Weight decays with distance: 1.0 -> 0.9 -> 0.6 -> 0.3
+   * Weight factors in:
+   * 1. Distance-based decay: 1.0 -> 0.9 -> 0.6 -> 0.3
+   * 2. Custom trust weights (0.1-1.0)
+   * 3. Temporal decay (exponential decay over time)
    */
   private calculatePathWeight(path: string[]): number {
     const distance = path.length;
 
+    // Base score by distance
+    let baseScore = 0.0;
     switch (distance) {
-      case 0: return 1.0;
-      case 1: return 0.9;
-      case 2: return 0.6;
-      case 3: return 0.3;
-      default: return 0.0;
+      case 0: baseScore = 1.0; break;
+      case 1: baseScore = 0.9; break;
+      case 2: baseScore = 0.6; break;
+      case 3: baseScore = 0.3; break;
+      default: baseScore = 0.0;
     }
+
+    // Factor in custom trust weights and temporal decay along the path
+    let weightMultiplier = 1.0;
+    let previousKey = 'self';
+
+    for (const currentKey of path) {
+      const signalKey = `${previousKey}:${currentKey}`;
+      const signal = this.trustSignals.get(signalKey);
+
+      if (signal) {
+        // Apply custom trust weight
+        if (signal.weight !== undefined) {
+          weightMultiplier *= signal.weight;
+        }
+
+        // Apply temporal decay
+        const decayMultiplier = this.calculateDecayMultiplier(signal.proof.timestamp);
+        weightMultiplier *= decayMultiplier;
+      }
+      // If no signal, assume 1.0 (direct trust from local graph with no decay)
+
+      previousKey = currentKey;
+    }
+
+    return baseScore * weightMultiplier;
   }
 
   /**
@@ -340,6 +396,7 @@ export class ReputationValidator {
     return {
       maxHops: this.maxHops,
       minReputation: this.minReputation,
+      trustDecayDays: this.trustDecayDays,
       trustGraphSize: this.trustGraph.size,
       trustSignalCount: this.trustSignals.size
     };

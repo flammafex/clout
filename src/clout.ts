@@ -57,6 +57,7 @@ export class Clout {
   // State
   private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
+  private readonly trustTags: Map<string, Set<string>>; // tag -> Set<publicKey>
   private stateSyncTimer?: NodeJS.Timeout;
   private readonly stateSyncInterval = 30000; // Sync every 30 seconds
 
@@ -75,6 +76,9 @@ export class Clout {
 
     // 2. Initialize Trust Graph (Bootstrap with self)
     this.trustGraph = new Set<string>([this.publicKeyHex]);
+
+    // 2a. Initialize Trust Tags (Local organization)
+    this.trustTags = new Map<string, Set<string>>();
 
     // 3. Initialize Reputation Validator (The Filter)
     this.reputationValidator = new ReputationValidator({
@@ -271,20 +275,34 @@ export class Clout {
   // =================================================================
 
   /**
-   * Exchange a Freebird token for a 24-hour Day Pass
+   * Exchange a Freebird token for a Day Pass
+   *
+   * Pass duration is reputation-based:
+   * - High reputation (≥0.9): 7 days
+   * - Medium reputation (≥0.7): 3 days
+   * - Low reputation (≥0.5): 2 days
+   * - New/untrusted (<0.5): 1 day
    */
   async buyDayPass(freebirdToken: Uint8Array): Promise<void> {
-    const userKeyPair = { 
-      publicKey: { bytes: Crypto.fromHex(this.publicKeyHex) }, 
-      privateKey: { bytes: this.privateKey } 
+    const userKeyPair = {
+      publicKey: { bytes: Crypto.fromHex(this.publicKeyHex) },
+      privateKey: { bytes: this.privateKey }
     };
 
+    // Get our own reputation score to determine pass duration
+    const reputation = this.reputationValidator.computeReputation(this.publicKeyHex);
+
     this.currentTicket = await this.ticketBooth.mintTicket(
-      userKeyPair, 
-      freebirdToken
+      userKeyPair,
+      freebirdToken,
+      reputation.score
     );
-    
-    console.log(`[Clout] 🎟️ Day pass acquired for ${this.publicKeyHex.slice(0,8)}`);
+
+    const durationDays = Math.round(this.currentTicket.durationHours / 24);
+    console.log(
+      `[Clout] 🎟️ ${durationDays}-day pass acquired for ${this.publicKeyHex.slice(0, 8)} ` +
+      `(reputation: ${reputation.score.toFixed(2)})`
+    );
   }
 
   /**
@@ -302,14 +320,79 @@ export class Clout {
     return !!this.currentTicket && Date.now() <= this.currentTicket.expiry;
   }
 
+  /**
+   * Delegate a day pass to another user (requires high reputation ≥0.7)
+   *
+   * Allows trusted users to vouch for newcomers.
+   * The recipient can use the delegation to mint a ticket without a Freebird token.
+   *
+   * @param recipientKey - Public key of the user to delegate to
+   * @param durationHours - Duration in hours (default: 24)
+   */
+  async delegatePass(recipientKey: string, durationHours: number = 24): Promise<void> {
+    // Get our reputation score
+    const reputation = this.reputationValidator.computeReputation(this.publicKeyHex);
+
+    // Check if we're eligible to delegate
+    const maxDelegations = this.ticketBooth.getMaxDelegations(reputation.score);
+    if (maxDelegations === 0) {
+      throw new Error(
+        `Insufficient reputation to delegate passes (need ≥0.7, have ${reputation.score.toFixed(2)})`
+      );
+    }
+
+    const userKeyPair = {
+      publicKey: { bytes: Crypto.fromHex(this.publicKeyHex) },
+      privateKey: { bytes: this.privateKey }
+    };
+
+    await this.ticketBooth.delegatePass(
+      userKeyPair,
+      recipientKey,
+      reputation.score,
+      durationHours
+    );
+
+    console.log(
+      `[Clout] 🎁 Delegated ${durationHours}h pass to ${recipientKey.slice(0, 8)} ` +
+      `(${maxDelegations} max per week)`
+    );
+  }
+
+  /**
+   * Accept a delegated pass and mint a ticket (no Freebird token required)
+   */
+  async acceptDelegatedPass(): Promise<void> {
+    const userKeyPair = {
+      publicKey: { bytes: Crypto.fromHex(this.publicKeyHex) },
+      privateKey: { bytes: this.privateKey }
+    };
+
+    this.currentTicket = await this.ticketBooth.mintDelegatedTicket(userKeyPair);
+
+    console.log(
+      `[Clout] 🎫 Accepted delegated pass from ${this.currentTicket.delegatedFrom?.slice(0, 8) ?? 'unknown'}`
+    );
+  }
+
+  /**
+   * Check if we have a pending delegation
+   */
+  hasPendingDelegation(): boolean {
+    return this.ticketBooth.hasDelegation(this.publicKeyHex);
+  }
+
   // =================================================================
   //  SECTION 2: CONTENT (Posting)
   // =================================================================
 
   /**
    * Publish a new post
+   * @param content - Post content
+   * @param replyTo - Optional parent post ID for threading
+   * @param useEphemeralKey - Use rotating ephemeral keys for forward secrecy (default: true)
    */
-  async post(content: string, replyTo?: string): Promise<CloutPost> {
+  async post(content: string, replyTo?: string, useEphemeralKey: boolean = true): Promise<CloutPost> {
     // 1. Check for Day Pass
     if (!this.currentTicket) {
       throw new Error("No active Day Pass. Call buyDayPass() first.");
@@ -320,9 +403,26 @@ export class Clout {
       throw new Error("Day Pass expired. Please buy a new one.");
     }
 
-    // 2. Sign Content (Placeholder using Hash + PrivKey for MVP)
+    // 2. Derive ephemeral key for forward secrecy (optional)
+    let ephemeralPublicKey: Uint8Array | undefined;
+    let ephemeralKeyProof: Uint8Array | undefined;
+    let signingKey = this.privateKey;
+
+    if (useEphemeralKey) {
+      // Derive ephemeral key from master key (rotates daily)
+      const { ephemeralSecret, ephemeralPublic } = Crypto.deriveEphemeralKey(this.privateKey);
+      ephemeralPublicKey = ephemeralPublic;
+
+      // Create proof linking ephemeral key to master key
+      ephemeralKeyProof = Crypto.createEphemeralKeyProof(ephemeralPublic, this.privateKey);
+
+      // Sign with ephemeral key instead of master key
+      signingKey = ephemeralSecret;
+    }
+
+    // 3. Sign Content (Placeholder using Hash + Key for MVP)
     // In prod, use Ed25519 signature
-    const signature = Crypto.hash(content, this.privateKey);
+    const signature = Crypto.hash(content, signingKey);
 
     const config: PostConfig = {
       author: this.publicKeyHex,
@@ -330,16 +430,18 @@ export class Clout {
       signature,
       freebird: this.freebird,
       witness: this.witness,
-      replyTo
+      replyTo,
+      ephemeralPublicKey,
+      ephemeralKeyProof
     };
 
-    // 3. Create & Gossip Post
+    // 4. Create & Gossip Post
     const post = await CloutPost.post(config, this.currentTicket, this.gossip);
 
-    // 4. Persist to CRDT State (for sync) and Local Store (for own feed)
+    // 5. Persist to CRDT State (for sync) and Local Store (for own feed)
     const pkg = post.getPackage();
     this.state.addPost(pkg);
-    
+
     if (this.store) {
       await this.store.addPost(pkg);
     }
@@ -408,19 +510,27 @@ export class Clout {
 
   /**
    * Trust another agent (Follow)
+   * @param trusteeKey - Public key of the user to trust
+   * @param weight - Trust weight between 0.1 and 1.0 (default: 1.0)
    */
-  async trust(trusteeKey: string): Promise<void> {
+  async trust(trusteeKey: string, weight: number = 1.0): Promise<void> {
+    // Validate weight
+    if (weight < 0.1 || weight > 1.0) {
+      throw new Error('Trust weight must be between 0.1 and 1.0');
+    }
+
     // 1. Update local graph immediately
     this.trustGraph.add(trusteeKey);
-    
+
     // 2. Propagate Trust Signal
     if (this.gossip) {
       const signalPayload = {
         truster: this.publicKeyHex,
         trustee: trusteeKey,
+        weight,
         timestamp: Date.now()
       };
-      
+
       const payloadHash = Crypto.hashString(JSON.stringify(signalPayload));
       const signature = Crypto.hash(payloadHash, this.privateKey); // Placeholder signature
       const proof = await this.witness.timestamp(payloadHash);
@@ -430,7 +540,7 @@ export class Clout {
         trustee: trusteeKey,
         signature,
         proof,
-        weight: 1.0
+        weight
       };
 
       await this.gossip.publish({
@@ -522,13 +632,131 @@ export class Clout {
       trustSettings: currentProfile.trustSettings,
       metadata: updatedMetadata
     });
+  }
 
-    console.log(`[Clout] ✅ Profile updated:`, updatedMetadata);
+  // =================================================================
+  //  SECTION 4: TRUST TAGS (Local Organization)
+  // =================================================================
 
-    // Immediately broadcast updated state to peers
-    if (this.gossip) {
-      await this.broadcastState();
+  /**
+   * Add a tag to a trusted user (e.g., "friends", "work", "family")
+   *
+   * Tags are local only and not synced to the network for privacy.
+   * Use tags to filter your feed and organize your trust network.
+   */
+  addTrustTag(publicKey: string, tag: string): void {
+    if (!this.trustGraph.has(publicKey)) {
+      throw new Error(`Cannot tag ${publicKey}: not in trust graph`);
     }
+
+    // Normalize tag (lowercase, trim)
+    const normalizedTag = tag.toLowerCase().trim();
+
+    if (!this.trustTags.has(normalizedTag)) {
+      this.trustTags.set(normalizedTag, new Set<string>());
+    }
+
+    this.trustTags.get(normalizedTag)!.add(publicKey);
+    console.log(`[Clout] 🏷️ Tagged ${publicKey.slice(0, 8)} as '${normalizedTag}'`);
+  }
+
+  /**
+   * Remove a tag from a user
+   */
+  removeTrustTag(publicKey: string, tag: string): void {
+    const normalizedTag = tag.toLowerCase().trim();
+    const taggedUsers = this.trustTags.get(normalizedTag);
+
+    if (taggedUsers) {
+      taggedUsers.delete(publicKey);
+
+      // Clean up empty tags
+      if (taggedUsers.size === 0) {
+        this.trustTags.delete(normalizedTag);
+      }
+
+      console.log(`[Clout] 🏷️ Removed tag '${normalizedTag}' from ${publicKey.slice(0, 8)}`);
+    }
+  }
+
+  /**
+   * Get all users with a specific tag
+   */
+  getUsersByTag(tag: string): string[] {
+    const normalizedTag = tag.toLowerCase().trim();
+    const users = this.trustTags.get(normalizedTag);
+    return users ? Array.from(users) : [];
+  }
+
+  /**
+   * Get all tags for a specific user
+   */
+  getTagsForUser(publicKey: string): string[] {
+    const tags: string[] = [];
+
+    for (const [tag, users] of this.trustTags.entries()) {
+      if (users.has(publicKey)) {
+        tags.push(tag);
+      }
+    }
+
+    return tags;
+  }
+
+  /**
+   * Get all tags and their member counts
+   */
+  getAllTags(): Map<string, number> {
+    const tagCounts = new Map<string, number>();
+
+    for (const [tag, users] of this.trustTags.entries()) {
+      tagCounts.set(tag, users.size);
+    }
+
+    return tagCounts;
+  }
+
+  /**
+   * Filter feed by tag (get posts only from users with a specific tag)
+   */
+  async getFeedByTag(tag: string): Promise<PostPackage[]> {
+    if (!this.store) {
+      throw new Error('No store configured');
+    }
+
+    const normalizedTag = tag.toLowerCase().trim();
+    const taggedUsers = this.trustTags.get(normalizedTag);
+
+    if (!taggedUsers || taggedUsers.size === 0) {
+      return [];
+    }
+
+    // Get all posts and filter by tagged authors
+    const allPosts = await this.store.getFeed();
+    return allPosts.filter(post => taggedUsers.has(post.author));
+  }
+
+  // =================================================================
+  //  SECTION 5: FEED (View Content)
+  // =================================================================
+
+  /**
+   * Get posts from the local feed cache
+   */
+  async getFeed(options?: { tag?: string; limit?: number }): Promise<PostPackage[]> {
+    if (!this.store) {
+      throw new Error('No store configured');
+    }
+
+    // Filter by tag if specified
+    if (options?.tag) {
+      const posts = await this.getFeedByTag(options.tag);
+      return options.limit ? posts.slice(0, options.limit) : posts;
+    }
+
+    // Get all posts
+    const posts = await this.store.getFeed();
+    return options?.limit ? posts.slice(0, options.limit) : posts;
   }
 
   /**
@@ -546,22 +774,6 @@ export class Clout {
       publicKey,
       trustGraph: new Set(),
       trustSettings: DEFAULT_TRUST_SETTINGS
-    };
-  }
-
-  /**
-   * Get the computed feed
-   */
-  async getFeed(): Promise<Feed> {
-    // Read from local store instead of gossip memory
-    const posts = this.store 
-      ? await this.store.getFeed()
-      : (this.gossip && this.gossip.getFeed) ? this.gossip.getFeed() : [];
-
-    return {
-      posts,
-      maxHops: 3,
-      lastUpdated: Date.now()
     };
   }
 

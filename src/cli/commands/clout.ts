@@ -170,20 +170,20 @@ export class CloutCommand extends Command {
 
   private async handleFeed(args: string[]): Promise<void> {
     const limit = args.length > 0 ? parseInt(args[0], 10) : 20;
-    
+
     try {
       const clout = await this.getClout();
-      
-      const feed = await clout.getFeed();
-      const posts = feed.posts.slice(0, limit);
 
-      console.log(`\nYOUR FEED (${feed.posts.length} posts)\n`);
+      const allPosts = await clout.getFeed();
+      const posts = allPosts.slice(0, limit);
+
+      console.log(`\nYOUR FEED (${allPosts.length} posts)\n`);
       console.log(`──────────────────────────────────────────────────────`);
 
       for (const post of posts) {
         const author = post.author.slice(0, 8);
         const date = new Date(post.proof.timestamp).toLocaleString();
-        
+
         console.log(`\n[${author}] ${date} (ID: ${post.id.slice(0, 8)})`);
         if (post.replyTo) {
           console.log(`↪ Replying to: ${post.replyTo.slice(0, 8)}`);
@@ -192,8 +192,8 @@ export class CloutCommand extends Command {
         console.log(`\n──────────────────────────────────────────────────────`);
       }
 
-      if (feed.posts.length > limit) {
-        console.log(`\nShowing ${limit} of ${feed.posts.length} posts. Use 'clout feed ${feed.posts.length}' to see all.`);
+      if (allPosts.length > limit) {
+        console.log(`\nShowing ${limit} of ${allPosts.length} posts. Use 'clout feed ${allPosts.length}' to see all.`);
       }
     } catch (error: any) {
       console.error('Failed to load feed:', error.message);
@@ -207,20 +207,20 @@ export class CloutCommand extends Command {
     }
 
     const postId = args[0];
-    
+
     try {
       const clout = await this.getClout();
-      const feed = await clout.getFeed();
-      
-      const parentPost = feed.posts.find(p => p.id === postId);
+      const allPosts = await clout.getFeed();
+
+      const parentPost = allPosts.find((p: any) => p.id === postId);
       if (!parentPost) {
         console.error('Post not found in your feed');
         return;
       }
 
-      const replies = feed.posts
-        .filter(p => p.replyTo === postId)
-        .sort((a, b) => a.proof.timestamp - b.proof.timestamp);
+      const replies = allPosts
+        .filter((p: any) => p.replyTo === postId)
+        .sort((a: any, b: any) => a.proof.timestamp - b.proof.timestamp);
 
       console.log(`\nTHREAD (${1 + replies.length} posts)\n`);
       

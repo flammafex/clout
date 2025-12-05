@@ -9,6 +9,17 @@
 import type { PublicKey, Attestation } from './types.js';
 
 /**
+ * Content-type-specific filter rules
+ */
+export interface ContentTypeFilter {
+  /** Maximum trust distance for this content type */
+  readonly maxHops: number;
+
+  /** Minimum reputation score for this content type */
+  readonly minReputation: number;
+}
+
+/**
  * Trust settings - Configurable trust behavior
  */
 export interface TrustSettings {
@@ -21,11 +32,14 @@ export interface TrustSettings {
   /** Require approval before accepting trust from others */
   readonly requireApproval: boolean;
 
-  /** Maximum trust distance to display in feed (1-3) */
+  /** Maximum trust distance to display in feed (1-3) - default for all content */
   readonly maxHops: number;
 
-  /** Minimum reputation score to show posts (0-1) */
+  /** Minimum reputation score to show posts (0-1) - default for all content */
   readonly minReputation: number;
+
+  /** Content-type-specific filters (e.g., 'slide', 'post', 'image/png') */
+  readonly contentTypeFilters?: Record<string, ContentTypeFilter>;
 }
 
 /**
@@ -61,6 +75,9 @@ export interface CloutProfile {
     readonly bio?: string;
     readonly avatar?: string;
   };
+
+  /** Local trust tags for organizing connections (private, not synced) */
+  readonly trustTags?: Map<string, Set<string>>; // tag -> Set<publicKey>
 }
 
 /**
@@ -76,7 +93,7 @@ export interface PostPackage {
   /** The actual content */
   readonly content: string;
 
-  /** Author's public key */
+  /** Author's public key (master identity key) */
   readonly author: string;
 
   /** Author's signature over content */
@@ -93,6 +110,12 @@ export interface PostPackage {
 
   /** Optional: Content type (text, image, etc.) */
   readonly contentType?: string;
+
+  /** Optional: Ephemeral public key for forward secrecy */
+  readonly ephemeralPublicKey?: Uint8Array;
+
+  /** Optional: Proof linking ephemeral key to master key (signature of ephemeral key by master key) */
+  readonly ephemeralKeyProof?: Uint8Array;
 }
 
 /**
