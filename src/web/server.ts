@@ -129,7 +129,8 @@ export class CloutWebServer {
         if (!this.initialized) throw new Error('Not initialized');
 
         const limit = parseInt(req.query.limit as string) || 50;
-        const includeNsfw = req.query.nsfw === 'true';
+        // Only pass includeNsfw if explicitly set via query param, otherwise let user settings decide
+        const includeNsfw = req.query.nsfw === 'true' ? true : undefined;
 
         const allPosts = await this.clout!.getFeed({ includeNsfw });
         const posts = allPosts.slice(0, limit);
