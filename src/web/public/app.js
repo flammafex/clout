@@ -3,6 +3,7 @@
 const API_BASE = '/api';
 let initialized = false;
 let replyingTo = null; // Track which post we're replying to
+let pendingMedia = null; // Track uploaded media for post { cid, mimeType, filename, size }
 
 // Utility functions
 const $ = (id) => document.getElementById(id);
@@ -109,17 +110,20 @@ async function loadFeed() {
       return;
     }
 
-    feedList.innerHTML = data.posts.map(post => `
-      <div class="feed-item" onclick="viewThread('${post.id}')" style="cursor: pointer;">
-        <div class="feed-author">${post.author.slice(0, 16)}...</div>
-        ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
-        <div class="feed-content">${escapeHtml(post.content)}</div>
-        <div class="feed-footer">
-          <div class="feed-timestamp">${new Date(post.timestamp).toLocaleString()}</div>
-          <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${post.author.slice(0, 16)}')">Reply</button>
+    feedList.innerHTML = data.posts.map(post => {
+      const hasMedia = post.media && post.media.cid;
+      return `
+        <div class="feed-item ${hasMedia ? 'has-media' : ''}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
+          <div class="feed-author">${post.author.slice(0, 16)}...</div>
+          ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
+          <div class="feed-content">${renderPostContent(post)}</div>
+          <div class="feed-footer">
+            <div class="feed-timestamp">${new Date(post.timestamp).toLocaleString()}</div>
+            <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${post.author.slice(0, 16)}')">Reply</button>
+          </div>
         </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
   }
@@ -141,11 +145,12 @@ async function viewThread(postId) {
 
     // Display parent post
     const parent = data.parent;
+    const parentHasMedia = parent.media && parent.media.cid;
     $('thread-parent').innerHTML = `
-      <div class="feed-item thread-parent-post">
+      <div class="feed-item thread-parent-post ${parentHasMedia ? 'has-media' : ''}">
         <div class="feed-author">${parent.author.slice(0, 16)}...</div>
         ${parent.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${parent.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); viewThread('${parent.replyTo}')">View parent</a></div>` : ''}
-        <div class="feed-content">${escapeHtml(parent.content)}</div>
+        <div class="feed-content">${renderPostContent(parent)}</div>
         <div class="feed-footer">
           <div class="feed-timestamp">${new Date(parent.timestamp).toLocaleString()}</div>
           <button class="btn-reply" onclick="startReply('${parent.id}', '${parent.author.slice(0, 16)}')">Reply</button>
@@ -158,16 +163,19 @@ async function viewThread(postId) {
     if (data.replies.length === 0) {
       repliesList.innerHTML = '<p class="empty-state">No replies yet. Be the first to reply!</p>';
     } else {
-      repliesList.innerHTML = data.replies.map(reply => `
-        <div class="feed-item" onclick="viewThread('${reply.id}')" style="cursor: pointer;">
-          <div class="feed-author">${reply.author.slice(0, 16)}...</div>
-          <div class="feed-content">${escapeHtml(reply.content)}</div>
-          <div class="feed-footer">
-            <div class="feed-timestamp">${new Date(reply.timestamp).toLocaleString()}</div>
-            <button class="btn-reply" onclick="event.stopPropagation(); startReply('${reply.id}', '${reply.author.slice(0, 16)}')">Reply</button>
+      repliesList.innerHTML = data.replies.map(reply => {
+        const replyHasMedia = reply.media && reply.media.cid;
+        return `
+          <div class="feed-item ${replyHasMedia ? 'has-media' : ''}" onclick="viewThread('${reply.id}')" style="cursor: pointer;">
+            <div class="feed-author">${reply.author.slice(0, 16)}...</div>
+            <div class="feed-content">${renderPostContent(reply)}</div>
+            <div class="feed-footer">
+              <div class="feed-timestamp">${new Date(reply.timestamp).toLocaleString()}</div>
+              <button class="btn-reply" onclick="event.stopPropagation(); startReply('${reply.id}', '${reply.author.slice(0, 16)}')">Reply</button>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
   } catch (error) {
     console.error('Error loading thread:', error);
@@ -206,8 +214,9 @@ function cancelReply() {
 async function createPost() {
   const content = $('post-content').value.trim();
 
-  if (!content) {
-    showResult('post-result', 'Please enter some content', false);
+  // Allow posts with just media (no text required)
+  if (!content && !pendingMedia) {
+    showResult('post-result', 'Please enter some content or attach media', false);
     return;
   }
 
@@ -219,12 +228,25 @@ async function createPost() {
     if (replyingTo) {
       body.replyTo = replyingTo;
     }
+    // Include media CID if we have pending media
+    if (pendingMedia && pendingMedia.cid) {
+      body.mediaCid = pendingMedia.cid;
+    }
 
     await apiCall('/post', 'POST', body);
 
-    showResult('post-result', replyingTo ? 'Reply posted!' : 'Post created successfully!', true);
+    const hasMedia = pendingMedia !== null;
+    showResult('post-result',
+      replyingTo
+        ? (hasMedia ? 'Reply with media posted!' : 'Reply posted!')
+        : (hasMedia ? 'Post with media created!' : 'Post created successfully!'),
+      true
+    );
     $('post-content').value = '';
     $('char-count').textContent = '0';
+
+    // Clear media preview
+    clearMediaPreview();
 
     // Reset reply state
     if (replyingTo) {
@@ -411,6 +433,239 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// =========================================================================
+// MEDIA UPLOAD FUNCTIONS
+// =========================================================================
+
+// Format file size for display
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// Setup media upload handlers
+function setupMediaUpload() {
+  const dropZone = $('media-drop-zone');
+  const fileInput = $('media-input');
+  const browseBtn = $('media-browse-btn');
+  const removeBtn = $('media-remove-btn');
+
+  // Browse button click
+  browseBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    fileInput.click();
+  });
+
+  // File input change
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      handleMediaFile(e.target.files[0]);
+    }
+  });
+
+  // Remove media button
+  removeBtn.addEventListener('click', () => {
+    clearMediaPreview();
+  });
+
+  // Drag and drop handlers
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+
+  dropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length > 0) {
+      handleMediaFile(e.dataTransfer.files[0]);
+    }
+  });
+}
+
+// Handle selected media file
+async function handleMediaFile(file) {
+  // Validate file type
+  const allowedTypes = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+    'video/mp4', 'video/webm', 'video/ogg',
+    'audio/mpeg', 'audio/ogg', 'audio/wav',
+    'application/pdf'
+  ];
+
+  if (!allowedTypes.includes(file.type)) {
+    showResult('post-result', `Unsupported file type: ${file.type}`, false);
+    return;
+  }
+
+  // Validate file size (100MB max)
+  if (file.size > 100 * 1024 * 1024) {
+    showResult('post-result', 'File too large. Maximum size is 100MB.', false);
+    return;
+  }
+
+  // Show preview
+  showMediaPreview(file);
+
+  // Upload to server
+  await uploadMedia(file);
+}
+
+// Show media preview
+function showMediaPreview(file) {
+  const preview = $('media-preview');
+  const dropZone = $('media-drop-zone');
+  const previewContent = $('media-preview-content');
+
+  $('media-preview-name').textContent = file.name;
+  $('media-preview-size').textContent = formatFileSize(file.size);
+
+  // Clear previous preview
+  previewContent.innerHTML = '';
+
+  // Create preview based on file type
+  if (file.type.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.onload = () => URL.revokeObjectURL(img.src);
+    previewContent.appendChild(img);
+  } else if (file.type.startsWith('video/')) {
+    const video = document.createElement('video');
+    video.src = URL.createObjectURL(file);
+    video.controls = true;
+    video.muted = true;
+    previewContent.appendChild(video);
+  } else if (file.type.startsWith('audio/')) {
+    const audio = document.createElement('audio');
+    audio.src = URL.createObjectURL(file);
+    audio.controls = true;
+    previewContent.appendChild(audio);
+  } else {
+    // PDF or other - show icon
+    const icon = document.createElement('div');
+    icon.className = 'file-icon';
+    icon.innerHTML = file.type === 'application/pdf' ? '📄 PDF' : '📁 File';
+    previewContent.appendChild(icon);
+  }
+
+  dropZone.style.display = 'none';
+  preview.style.display = 'block';
+}
+
+// Upload media to server
+async function uploadMedia(file) {
+  const progressContainer = $('media-upload-progress');
+  const progressFill = $('progress-fill');
+  const progressText = $('progress-text');
+
+  progressContainer.style.display = 'block';
+  progressFill.style.width = '0%';
+  progressText.textContent = 'Uploading...';
+
+  try {
+    // Read file as ArrayBuffer
+    const buffer = await file.arrayBuffer();
+
+    // Upload using raw binary
+    const response = await fetch(`${API_BASE}/media/upload`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type,
+        'X-Filename': file.name
+      },
+      body: buffer
+    });
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || 'Upload failed');
+    }
+
+    // Store uploaded media info
+    pendingMedia = data.data;
+
+    progressFill.style.width = '100%';
+    progressText.textContent = 'Uploaded!';
+
+    setTimeout(() => {
+      progressContainer.style.display = 'none';
+    }, 1000);
+
+    console.log('Media uploaded:', pendingMedia);
+  } catch (error) {
+    console.error('Upload error:', error);
+    progressText.textContent = `Error: ${error.message}`;
+    progressFill.style.backgroundColor = '#ef4444';
+
+    // Clear pending media on error
+    pendingMedia = null;
+  }
+}
+
+// Clear media preview
+function clearMediaPreview() {
+  const preview = $('media-preview');
+  const dropZone = $('media-drop-zone');
+  const previewContent = $('media-preview-content');
+  const progressContainer = $('media-upload-progress');
+  const fileInput = $('media-input');
+
+  preview.style.display = 'none';
+  dropZone.style.display = 'block';
+  previewContent.innerHTML = '';
+  progressContainer.style.display = 'none';
+  fileInput.value = '';
+  pendingMedia = null;
+}
+
+// Render media in post content
+function renderPostContent(post) {
+  let content = escapeHtml(post.content);
+
+  // Check if post has media
+  if (post.media && post.media.cid) {
+    const mediaUrl = `${API_BASE}/media/${post.media.cid}`;
+    const mimeType = post.media.mimeType;
+
+    // Remove media link from content display
+    content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
+
+    // Add media element
+    let mediaHtml = '';
+    if (mimeType.startsWith('image/')) {
+      mediaHtml = `<div class="post-media"><img src="${mediaUrl}" alt="Post media" loading="lazy"></div>`;
+    } else if (mimeType.startsWith('video/')) {
+      mediaHtml = `<div class="post-media"><video src="${mediaUrl}" controls preload="metadata"></video></div>`;
+    } else if (mimeType.startsWith('audio/')) {
+      mediaHtml = `<div class="post-media"><audio src="${mediaUrl}" controls></audio></div>`;
+    } else if (mimeType === 'application/pdf') {
+      mediaHtml = `<div class="post-media post-media-file"><a href="${mediaUrl}" target="_blank" class="media-link">📄 View PDF</a></div>`;
+    }
+
+    return content.trim() + mediaHtml;
+  }
+
+  // Check for [clout-media: CID] pattern in content (fallback)
+  const mediaMatch = post.content.match(/\[clout-media:\s*([^\]]+)\]/);
+  if (mediaMatch) {
+    const cid = mediaMatch[1].trim();
+    const mediaUrl = `${API_BASE}/media/${cid}`;
+    content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
+
+    // Default to image for unknown media
+    return content.trim() + `<div class="post-media"><img src="${mediaUrl}" alt="Post media" loading="lazy" onerror="this.parentElement.innerHTML='<span class=\\'media-error\\'>Media unavailable</span>'"></div>`;
+  }
+
+  return content;
+}
+
 // Character counter for post
 function setupCharCounter() {
   const textarea = $('post-content');
@@ -505,6 +760,7 @@ async function saveProfile() {
 document.addEventListener('DOMContentLoaded', () => {
   setupTabs();
   setupCharCounter();
+  setupMediaUpload();
 
   // Event listeners
   $('init-btn').addEventListener('click', initializeClout);
