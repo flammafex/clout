@@ -337,10 +337,46 @@ async function loadIdentity() {
     $('identity-public-key').textContent = data.publicKey;
     $('identity-name').textContent = data.metadata?.displayName || '(Not set - set in Profile tab)';
     $('identity-created').textContent = new Date(data.created).toLocaleString();
+
+    // Store public key for QR code generation
+    window.userPublicKey = data.publicKey;
   } catch (error) {
     console.error('Error loading identity:', error);
   }
 }
+
+// Toggle QR Code Display
+let qrCodeGenerated = false;
+window.toggleQRCode = function() {
+  const container = $('qr-code-container');
+  const isHidden = container.style.display === 'none';
+
+  if (isHidden) {
+    // Show QR code
+    container.style.display = 'block';
+
+    // Generate QR code only once
+    if (!qrCodeGenerated && window.userPublicKey) {
+      const qrContainer = $('qr-code');
+      qrContainer.innerHTML = ''; // Clear any previous QR code
+
+      // Generate QR code using QRCode.js
+      new QRCode(qrContainer, {
+        text: window.userPublicKey,
+        width: 256,
+        height: 256,
+        colorDark: '#f1f5f9',
+        colorLight: '#0f172a',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+
+      qrCodeGenerated = true;
+    }
+  } else {
+    // Hide QR code
+    container.style.display = 'none';
+  }
+};
 
 // Load Stats
 async function loadStats() {

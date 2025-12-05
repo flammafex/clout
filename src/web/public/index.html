@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Clout - Uncensorable Social Network</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -249,7 +250,20 @@
             <div class="identity-field">
               <label>Public Key</label>
               <div class="identity-value" id="identity-public-key">Loading...</div>
-              <button class="btn-copy" onclick="copyToClipboard('identity-public-key')">Copy</button>
+              <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                <button class="btn-copy" onclick="copyToClipboard('identity-public-key')">Copy</button>
+                <button class="btn-copy" onclick="toggleQRCode()">Show QR Code</button>
+              </div>
+            </div>
+
+            <!-- QR Code Display -->
+            <div id="qr-code-container" class="qr-code-container" style="display: none;">
+              <div class="qr-code-header">
+                <h4>Scan to Trust Me</h4>
+                <button class="btn-small" onclick="toggleQRCode()">Hide</button>
+              </div>
+              <div id="qr-code" class="qr-code"></div>
+              <p class="qr-code-help">Share this QR code so others can easily add your public key</p>
             </div>
 
             <div class="identity-field">
