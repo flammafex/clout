@@ -37,6 +37,14 @@ export { CloutStateManager } from './chronicle/clout-state.js';
 export { InvitationManager } from './invitation.js';
 export type { Invitation } from './invitation.js';
 
+// Storage (WNFS-based media storage)
+export { StorageManager, FileBlockStore } from './storage/wnfs-manager.js';
+export type {
+  MediaMetadata as StorageMediaMetadata,
+  BlockStore,
+  StorageManagerConfig
+} from './storage/wnfs-manager.js';
+
 // Types
 export type {
   CloutProfile,
@@ -46,7 +54,9 @@ export type {
   Feed,
   ContentGossipMessage,
   ReputationScore,
-  CloutState
+  CloutState,
+  MediaMetadata,
+  MediaInput
 } from './clout-types.js';
 
 export { DEFAULT_TRUST_SETTINGS } from './clout-types.js';

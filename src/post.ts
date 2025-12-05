@@ -1,6 +1,6 @@
 import { Crypto } from './crypto.js';
 import type { FreebirdClient, WitnessClient, Attestation } from './types.js';
-import type { PostPackage, ContentGossipMessage } from './clout-types.js';
+import type { PostPackage, ContentGossipMessage, MediaMetadata } from './clout-types.js';
 import type { CloutTicket } from './ticket-booth.js';
 
 export interface PostConfig {
@@ -13,6 +13,8 @@ export interface PostConfig {
   readonly contentType?: string;
   readonly ephemeralPublicKey?: Uint8Array;
   readonly ephemeralKeyProof?: Uint8Array;
+  /** Optional: Media metadata for posts with attached media */
+  readonly media?: MediaMetadata;
 }
 
 export interface ContentGossip {
@@ -70,7 +72,8 @@ export class CloutPost {
       replyTo: config.replyTo,
       contentType: config.contentType || 'text/plain',
       ephemeralPublicKey: config.ephemeralPublicKey,
-      ephemeralKeyProof: config.ephemeralKeyProof
+      ephemeralKeyProof: config.ephemeralKeyProof,
+      media: config.media
     };
 
     // 7. Hash package for timestamping
