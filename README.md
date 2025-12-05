@@ -29,6 +29,140 @@ By leveraging the same cryptographic primitives (Freebird, Witness, HyperToken) 
 
 ## Features
 
+### ⭐ Enhanced Trust & Privacy (New!)
+
+Clout now includes advanced features that strengthen its mission of trust-based, privacy-preserving social networking at village scale:
+
+#### 🎯 Weighted Trust Scores
+Assign custom trust weights when following users, enabling nuanced relationships:
+
+```typescript
+// Full trust (default)
+await clout.trust(publicKey, 1.0);
+
+// Partial trust (e.g., acquaintances)
+await clout.trust(publicKey, 0.5);
+
+// Minimal trust
+await clout.trust(publicKey, 0.1);
+```
+
+Trust weights multiply through paths: if you trust Alice (0.8) and Alice trusts Bob (0.7), your effective trust in Bob is 0.8 × 0.7 = 0.56.
+
+#### ⏳ Temporal Decay
+Trust relationships naturally decay over time (default: 1-year half-life), keeping your network agile and reflecting active relationships:
+
+- Fresh trust (0 days): 1.0× multiplier
+- 1 year old: 0.5× multiplier
+- 2 years old: 0.25× multiplier
+
+Configure decay rate:
+```typescript
+const clout = new Clout({
+  // ...
+  trustDecayDays: 365  // Half-life in days (0 = no decay)
+});
+```
+
+#### 📋 Fine-Grained Content Filtering
+Set different trust thresholds per content type:
+
+```typescript
+const clout = new Clout({
+  // ...
+  maxHops: 3,           // Default: 3 hops for all content
+  minReputation: 0.3,   // Default: 0.3 score minimum
+  contentTypeFilters: {
+    'slide': { maxHops: 5, minReputation: 0.2 },  // More permissive for DMs
+    'image/png': { maxHops: 2, minReputation: 0.5 }  // Stricter for images
+  }
+});
+```
+
+#### 🔒 Enhanced Tor Integration
+Full privacy with circuit isolation:
+
+- Separate Tor circuits per destination (prevents correlation)
+- Full WebSocket over SOCKS5 support
+- Methods: `clearCircuit(destination)`, `getStats()`
+
+```typescript
+import { TorProxy } from 'clout';
+
+const torProxy = new TorProxy({
+  proxyHost: 'localhost',
+  proxyPort: 9050,
+  circuitIsolation: true  // Enabled by default
+});
+
+// Check status
+const stats = torProxy.getStats();
+console.log(`Active circuits: ${stats.isolatedCircuits}`);
+```
+
+#### 🔑 Ephemeral Public Keys for Posts
+Posts now use rotating ephemeral keys (24-hour rotation) for forward secrecy:
+
+```typescript
+// Enable ephemeral keys (default: true)
+await clout.post('Hello world', undefined, true);
+
+// Disable for permanent signature
+await clout.post('Permanent record', undefined, false);
+```
+
+Ephemeral keys provide forward secrecy similar to DMs, making it harder to track long-term posting activity if a key is compromised.
+
+#### 🏷️ Local Trust Tags
+Organize your trust network with private tags:
+
+```typescript
+// Tag users (tags are local-only, never synced)
+clout.addTrustTag(publicKey, 'friends');
+clout.addTrustTag(publicKey, 'work');
+
+// Filter feed by tag
+const workPosts = await clout.getFeed({ tag: 'work', limit: 20 });
+
+// View all tags
+const tags = clout.getAllTags();  // Map<string, number>
+console.log(`Friends: ${tags.get('friends')} members`);
+
+// Get tags for a user
+const userTags = clout.getTagsForUser(publicKey);
+```
+
+#### 🎟️ Reputation-Linked Day Pass Duration
+Pass duration adapts to your reputation:
+
+- **High reputation (≥0.9)**: 7 days
+- **Medium reputation (≥0.7)**: 3 days
+- **Low reputation (≥0.5)**: 2 days
+- **New users (<0.5)**: 1 day
+
+This adaptive friction eases the burden on trusted members while maintaining high cost for unvetted actors.
+
+#### 🎁 Delegated Pass System
+High-reputation users can vouch for newcomers:
+
+```typescript
+// Delegate a pass (requires reputation ≥0.7)
+await clout.delegatePass(newUserPublicKey, 24);  // 24-hour pass
+
+// Accept a delegated pass (no Freebird token needed)
+await clout.acceptDelegatedPass();
+
+// Check delegation limits
+const reputation = clout.getReputation(myPublicKey);
+console.log(`Can delegate ${clout.ticketBooth.getMaxDelegations(reputation.score)} passes/week`);
+```
+
+Delegation limits by reputation:
+- Reputation ≥0.9: 10 delegations per week
+- Reputation ≥0.7: 5 delegations per week
+
+---
+
 ### 🔐 Encrypted DMs (Slides)
 End-to-end encrypted direct messages that propagate through the gossip network while remaining readable only by sender and recipient.
 
@@ -113,7 +247,11 @@ Clout is built in 5 phases by refactoring Scarcity's core components:
 ### Phase 4: Reputation (Validation)
 - **Scarcity**: `TransferValidator` (prevents double-spends)
 - **Clout**: `ReputationValidator` (filters by graph distance)
-- Scores based on trust paths: self=1.0, 1-hop=0.9, 2-hop=0.6, 3-hop=0.3
+- Scores based on trust paths with enhancements:
+  - **Base scores**: self=1.0, 1-hop=0.9, 2-hop=0.6, 3-hop=0.3
+  - **Custom weights**: Multiply by trust weights (0.1-1.0)
+  - **Temporal decay**: Exponential decay over time (configurable half-life)
+  - **Path diversity bonus**: Multiple paths increase trust (+0.05 per path, max +0.2)
 
 ### Phase 5: State Sync (CRDT)
 - Uses Chronicle (from HyperToken) for conflict-free state merging
@@ -182,9 +320,14 @@ const clout = new Clout({
 });
 
 // Trust someone (like "following")
-await clout.trust('0x1234...'); // Their public key
+await clout.trust('0x1234...');        // Full trust (1.0)
+await clout.trust('0xabcd...', 0.5);   // Partial trust (0.5)
 
-// Post content
+// Organize your network with tags
+clout.addTrustTag('0x1234...', 'friends');
+clout.addTrustTag('0xabcd...', 'work');
+
+// Post content (uses ephemeral keys by default)
 const post = await clout.post('Hello, decentralized world!');
 
 // Reply to a post
@@ -193,15 +336,18 @@ const reply = await clout.post('Great point!', post.id);
 // Send encrypted slide (DM)
 const slide = await clout.slide('0x1234...', 'Private message');
 
-// Get your feed (only posts from trusted network)
-const feed = clout.getFeed();
-console.log(feed.posts);
+// Get your feed (returns PostPackage[])
+const allPosts = await clout.getFeed();
+console.log(`Feed: ${allPosts.length} posts`);
+
+// Filter feed by tag
+const workPosts = await clout.getFeed({ tag: 'work', limit: 20 });
 
 // Get your inbox (decrypted slides)
-const inbox = clout.getInbox();
-for (const slide of inbox.slides) {
-  const message = clout.decryptSlide(slide);
-  console.log(`From ${slide.sender}: ${message}`);
+const inbox = await clout.store?.getInbox();
+for (const slide of inbox || []) {
+  // Slides are automatically decrypted if you're the recipient
+  console.log(`Received slide from ${slide.sender.slice(0, 8)}`);
 }
 
 // Get reputation of a user
@@ -309,14 +455,41 @@ Clout's design acknowledges that **human social cognition doesn't scale infinite
 
 ## Advanced Usage
 
-### Custom Reputation Thresholds
+### Custom Reputation & Privacy Configuration
 
 ```typescript
 const clout = new Clout({
-  // ...config
-  maxHops: 2,           // Only show up to 2 degrees
-  minReputation: 0.5    // Minimum score of 0.5 required
+  publicKey: keypair.publicKey,
+  privateKey: keypair.privateKey.bytes,
+  freebird,
+  witness,
+  gossip,
+
+  // Trust filtering
+  maxHops: 2,           // Only show up to 2 degrees (default: 3)
+  minReputation: 0.5,   // Minimum score of 0.5 required (default: 0.3)
+  trustDecayDays: 365,  // 1-year half-life for trust decay (default: 365, 0 = no decay)
+
+  // Content-type-specific filtering
+  contentTypeFilters: {
+    'slide': { maxHops: 5, minReputation: 0.2 },      // More permissive for DMs
+    'image/png': { maxHops: 2, minReputation: 0.7 },  // Stricter for images
+    'text/plain': { maxHops: 3, minReputation: 0.4 }  // Custom for text posts
+  }
 });
+
+// Use weighted trust
+await clout.trust(publicKey, 0.8);  // 80% trust weight
+
+// Use trust tags for organization
+clout.addTrustTag(publicKey, 'close-friends');
+clout.addTrustTag(publicKey, 'family');
+
+// Filter feed by tag
+const familyPosts = await clout.getFeed({ tag: 'family', limit: 10 });
+
+// Delegate pass to newcomer (if you have reputation ≥0.7)
+await clout.delegatePass(newcomerKey, 48);  // 48-hour pass
 ```
 
 ### State Export/Import
