@@ -3,6 +3,7 @@ import { TicketBooth, type CloutTicket } from './ticket-booth.js';
 import { Crypto } from './crypto.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
+import { StorageManager, type MediaMetadata } from './storage/wnfs-manager.js';
 import type { FreebirdClient, WitnessClient } from './types.js';
 import {
   type TrustSignal,
@@ -14,6 +15,7 @@ import {
   type CloutStore,
   type ContentGossipMessage,
   type CloutProfile,
+  type MediaInput,
   DEFAULT_TRUST_SETTINGS
 } from './clout-types.js';
 
@@ -35,10 +37,18 @@ export interface CloutConfig {
   witness: WitnessClient;
   gossip?: GossipNode; // Use extended interface
   store?: CloutStore;  // Local persistence for feed/inbox
-  
+
   // Trust Settings
   maxHops?: number;
   minReputation?: number;
+
+  // Media Storage Settings
+  /** Enable WNFS-based media storage (default: true) */
+  enableMediaStorage?: boolean;
+  /** Custom path for media storage (default: ~/.clout/wnfs) */
+  mediaStoragePath?: string;
+  /** Maximum media file size in bytes (default: 100MB) */
+  maxMediaSize?: number;
 }
 
 export class Clout {
@@ -48,18 +58,20 @@ export class Clout {
   private readonly witness: WitnessClient;
   private readonly gossip?: GossipNode;
   private readonly store?: CloutStore;
-  
+
   // Sub-modules
   public readonly ticketBooth: TicketBooth;
   private readonly reputationValidator: ReputationValidator;
   public readonly state: CloutStateManager;
-  
+  public readonly storage: StorageManager;
+
   // State
   private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
   private readonly trustTags: Map<string, Set<string>>; // tag -> Set<publicKey>
   private stateSyncTimer?: NodeJS.Timeout;
   private readonly stateSyncInterval = 30000; // Sync every 30 seconds
+  private mediaStorageEnabled: boolean;
 
   // Note: receivedSlides removed in favor of local store
 
@@ -70,7 +82,7 @@ export class Clout {
     this.witness = config.witness;
     this.gossip = config.gossip;
     this.store = config.store;
-    
+
     // 1. Initialize TicketBooth (Anti-Sybil)
     this.ticketBooth = new TicketBooth(config.freebird, config.witness);
 
@@ -102,7 +114,14 @@ export class Clout {
       }
     });
 
-    // 5. Initialize Storage & Gossip Subscription
+    // 5. Initialize WNFS Media Storage (Offload-and-Link pattern)
+    this.mediaStorageEnabled = config.enableMediaStorage !== false;
+    this.storage = new StorageManager({
+      storagePath: config.mediaStoragePath,
+      maxFileSize: config.maxMediaSize
+    });
+
+    // 6. Initialize Storage & Gossip Subscription
     // This handles local-only data (Feed, Inbox) to prevent privacy leaks in CRDT
     this.initializeDataLayer();
   }
@@ -114,6 +133,11 @@ export class Clout {
     // Initialize store if provided
     if (this.store) {
       await this.store.init();
+    }
+
+    // Initialize media storage if enabled
+    if (this.mediaStorageEnabled) {
+      await this.storage.init();
     }
 
     // Subscribe to gossip to populate local store
@@ -387,12 +411,28 @@ export class Clout {
   // =================================================================
 
   /**
-   * Publish a new post
+   * Publish a new post with optional media attachment
+   *
+   * Uses the "Offload-and-Link" pattern for media:
+   * 1. Offload: Store media file in WNFS blockstore
+   * 2. Address: Get content-addressed CID
+   * 3. Link: Embed CID reference in post content
+   *
    * @param content - Post content
-   * @param replyTo - Optional parent post ID for threading
-   * @param useEphemeralKey - Use rotating ephemeral keys for forward secrecy (default: true)
+   * @param options - Post options including replyTo, media, and ephemeral key settings
    */
-  async post(content: string, replyTo?: string, useEphemeralKey: boolean = true): Promise<CloutPost> {
+  async post(
+    content: string,
+    options?: {
+      replyTo?: string;
+      media?: MediaInput;
+      useEphemeralKey?: boolean;
+    }
+  ): Promise<CloutPost> {
+    const replyTo = options?.replyTo;
+    const media = options?.media;
+    const useEphemeralKey = options?.useEphemeralKey !== false; // default: true
+
     // 1. Check for Day Pass
     if (!this.currentTicket) {
       throw new Error("No active Day Pass. Call buyDayPass() first.");
@@ -403,7 +443,26 @@ export class Clout {
       throw new Error("Day Pass expired. Please buy a new one.");
     }
 
-    // 2. Derive ephemeral key for forward secrecy (optional)
+    // 2. Handle media upload if present (Offload step)
+    let mediaMetadata: MediaMetadata | undefined;
+    let finalContent = content;
+
+    if (media) {
+      if (!this.mediaStorageEnabled) {
+        throw new Error("Media storage is not enabled. Set enableMediaStorage: true in config.");
+      }
+
+      // Store media in WNFS blockstore
+      mediaMetadata = await this.storage.store(media.data, media.mimeType, media.filename);
+
+      // Append media link to content (Link step)
+      const mediaLink = StorageManager.formatMediaLink(mediaMetadata.cid);
+      finalContent = content ? `${content}\n\n${mediaLink}` : mediaLink;
+
+      console.log(`[Clout] 📎 Attached media: ${mediaMetadata.cid.slice(0, 12)}... (${media.mimeType})`);
+    }
+
+    // 3. Derive ephemeral key for forward secrecy (optional)
     let ephemeralPublicKey: Uint8Array | undefined;
     let ephemeralKeyProof: Uint8Array | undefined;
     let signingKey = this.privateKey;
@@ -420,25 +479,27 @@ export class Clout {
       signingKey = ephemeralSecret;
     }
 
-    // 3. Sign Content (Placeholder using Hash + Key for MVP)
+    // 4. Sign Content (Placeholder using Hash + Key for MVP)
     // In prod, use Ed25519 signature
-    const signature = Crypto.hash(content, signingKey);
+    const signature = Crypto.hash(finalContent, signingKey);
 
     const config: PostConfig = {
       author: this.publicKeyHex,
-      content,
+      content: finalContent,
       signature,
       freebird: this.freebird,
       witness: this.witness,
       replyTo,
+      contentType: media ? media.mimeType : 'text/plain',
       ephemeralPublicKey,
-      ephemeralKeyProof
+      ephemeralKeyProof,
+      media: mediaMetadata
     };
 
-    // 4. Create & Gossip Post
+    // 5. Create & Gossip Post
     const post = await CloutPost.post(config, this.currentTicket, this.gossip);
 
-    // 5. Persist to CRDT State (for sync) and Local Store (for own feed)
+    // 6. Persist to CRDT State (for sync) and Local Store (for own feed)
     const pkg = post.getPackage();
     this.state.addPost(pkg);
 
@@ -502,6 +563,117 @@ export class Clout {
 
     console.log(`[Clout] 📬 Slide sent to ${recipientKey.slice(0, 8)}`);
     return slide;
+  }
+
+  // =================================================================
+  //  SECTION 2.5: MEDIA (Retrieval)
+  // =================================================================
+
+  /**
+   * Resolve and retrieve media content by CID
+   *
+   * This is the "Retrieve" step of the Offload-and-Link pattern.
+   * Queries the local WNFS blockstore for the file content.
+   *
+   * @param cid - Content Identifier of the media
+   * @returns Media data as Uint8Array or null if not found
+   */
+  async resolveMedia(cid: string): Promise<Uint8Array | null> {
+    if (!this.mediaStorageEnabled) {
+      throw new Error("Media storage is not enabled.");
+    }
+
+    return this.storage.retrieve(cid);
+  }
+
+  /**
+   * Resolve media from a post
+   *
+   * Extracts the CID from post content and retrieves the media.
+   *
+   * @param post - Post package potentially containing media
+   * @returns Media data as Uint8Array or null if no media/not found
+   */
+  async resolvePostMedia(post: PostPackage): Promise<Uint8Array | null> {
+    // First check if post has media metadata
+    if (post.media?.cid) {
+      return this.resolveMedia(post.media.cid);
+    }
+
+    // Fallback: Extract CID from content
+    const cid = StorageManager.extractMediaCid(post.content);
+    if (!cid) {
+      return null;
+    }
+
+    return this.resolveMedia(cid);
+  }
+
+  /**
+   * Get metadata for a stored media file
+   *
+   * @param cid - Content Identifier
+   * @returns MediaMetadata or null if not found
+   */
+  getMediaMetadata(cid: string): MediaMetadata | null {
+    if (!this.mediaStorageEnabled) {
+      throw new Error("Media storage is not enabled.");
+    }
+
+    return this.storage.getMetadata(cid);
+  }
+
+  /**
+   * Check if media exists locally by CID
+   *
+   * @param cid - Content Identifier
+   * @returns true if media exists in local blockstore
+   */
+  async hasMedia(cid: string): Promise<boolean> {
+    if (!this.mediaStorageEnabled) {
+      return false;
+    }
+
+    return this.storage.has(cid);
+  }
+
+  /**
+   * Check if a post has media attachment
+   *
+   * @param post - Post package to check
+   * @returns true if post contains media reference
+   */
+  static postHasMedia(post: PostPackage): boolean {
+    return !!post.media?.cid || StorageManager.hasMediaLink(post.content);
+  }
+
+  /**
+   * Extract media CID from a post
+   *
+   * @param post - Post package
+   * @returns CID string or null if no media
+   */
+  static extractMediaCid(post: PostPackage): string | null {
+    // Prefer metadata over content parsing
+    if (post.media?.cid) {
+      return post.media.cid;
+    }
+    return StorageManager.extractMediaCid(post.content);
+  }
+
+  /**
+   * Get media storage statistics
+   */
+  async getMediaStats(): Promise<{
+    mediaCount: number;
+    totalSize: number;
+    byMimeType: Record<string, { count: number; size: number }>;
+  }> {
+    if (!this.mediaStorageEnabled) {
+      return { mediaCount: 0, totalSize: 0, byMimeType: {} };
+    }
+
+    return this.storage.getStats();
   }
 
   // =================================================================

@@ -9,6 +9,35 @@
 import type { PublicKey, Attestation } from './types.js';
 
 /**
+ * Media metadata for content-addressed media storage
+ * Used with the "Offload-and-Link" pattern for rich media posts
+ */
+export interface MediaMetadata {
+  /** Content Identifier - content-addressed hash of the media file */
+  readonly cid: string;
+  /** MIME type (e.g., 'image/png', 'video/mp4') */
+  readonly mimeType: string;
+  /** Original filename (optional) */
+  readonly filename?: string;
+  /** File size in bytes */
+  readonly size: number;
+  /** Timestamp when media was stored */
+  readonly storedAt: number;
+}
+
+/**
+ * Media input for creating posts with attached media
+ */
+export interface MediaInput {
+  /** File data as Uint8Array or Buffer */
+  readonly data: Uint8Array | Buffer;
+  /** MIME type of the file */
+  readonly mimeType: string;
+  /** Optional original filename */
+  readonly filename?: string;
+}
+
+/**
  * Content-type-specific filter rules
  */
 export interface ContentTypeFilter {
@@ -116,6 +145,13 @@ export interface PostPackage {
 
   /** Optional: Proof linking ephemeral key to master key (signature of ephemeral key by master key) */
   readonly ephemeralKeyProof?: Uint8Array;
+
+  /**
+   * Optional: Media metadata for posts with attached media
+   * Uses "Offload-and-Link" pattern - only CID is stored in the post,
+   * actual media data lives in the local WNFS blockstore
+   */
+  readonly media?: MediaMetadata;
 }
 
 /**

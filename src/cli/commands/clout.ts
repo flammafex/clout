@@ -144,7 +144,7 @@ export class CloutCommand extends Command {
         await clout.buyDayPass(token);
       }
 
-      const post = await clout.post(message, postId);
+      const post = await clout.post(message, { replyTo: postId });
       console.log(`\n✅ Reply created: ${post.getPackage().id.slice(0, 8)}`);
     } catch (error: any) {
       console.error('Failed to reply:', error.message);
