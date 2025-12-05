@@ -205,6 +205,11 @@ async function loadFeed() {
         ? `<button class="btn-trust-quick" onclick="event.stopPropagation(); quickTrust('${post.author}')" title="Add to your circle">+</button>`
         : '';
 
+      // Mute button (not for your own posts)
+      const muteBtn = !isYou
+        ? `<button class="btn-mute-small" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Mute this user">🔇</button>`
+        : '';
+
       // Use display name (nickname if set, otherwise truncated key)
       const authorName = post.authorDisplayName || post.author.slice(0, 16) + '...';
       const hasNickname = !!post.authorNickname;
@@ -229,7 +234,10 @@ async function loadFeed() {
           <div class="feed-content">${renderPostContent(post)}</div>
           <div class="feed-footer">
             <div class="feed-timestamp">${formatRelativeTime(post.timestamp)}</div>
-            <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+            <div class="feed-actions">
+              <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+              ${muteBtn}
+            </div>
           </div>
         </div>
       `;
@@ -254,6 +262,33 @@ async function quickTrust(publicKey) {
     setTimeout(() => loadFeed(), 1000);
   } catch (error) {
     alert(`Could not trust user: ${error.message}`);
+  }
+}
+
+// Mute a user (hide their posts from your feed)
+async function muteUser(publicKey, displayName) {
+  if (!confirm(`Mute ${displayName || publicKey.slice(0, 8)}...?\n\nTheir posts will be hidden from your feed. You can unmute them anytime from the Trust tab.`)) {
+    return;
+  }
+  try {
+    await apiCall('/mute', 'POST', { publicKey });
+    showResult('feed-list', `Muted ${displayName || publicKey.slice(0, 8)}...`, true);
+    // Reload feed to remove their posts
+    setTimeout(() => loadFeed(), 500);
+  } catch (error) {
+    alert(`Could not mute user: ${error.message}`);
+  }
+}
+
+// Unmute a user
+async function unmuteUser(publicKey) {
+  try {
+    await apiCall('/unmute', 'POST', { publicKey });
+    // Reload trusted users list
+    await loadTrustedUsers();
+    showResult('trust-result', `Unmuted ${publicKey.slice(0, 8)}...`, true);
+  } catch (error) {
+    alert(`Could not unmute user: ${error.message}`);
   }
 }
 
@@ -288,17 +323,23 @@ async function loadTrustedUsers() {
         : '';
       const hasNickname = !!user.nickname;
       const displayName = user.displayName || user.publicKeyShort + '...';
+      const isMuted = user.isMuted || false;
+      const muteBtn = isMuted
+        ? `<button class="btn-small btn-unmute" onclick="unmuteUser('${user.publicKey}')" title="Unmute">🔊</button>`
+        : `<button class="btn-small btn-mute" onclick="muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Mute">🔇</button>`;
 
       return `
-        <div class="trusted-user-card">
+        <div class="trusted-user-card ${isMuted ? 'muted' : ''}">
           <div class="trusted-user-info">
-            <div class="trusted-user-name ${hasNickname ? 'has-nickname' : ''}" title="${user.publicKey}">
+            <div class="trusted-user-name ${hasNickname ? 'has-nickname' : ''} ${isMuted ? 'muted-name' : ''}" title="${user.publicKey}">
               ${escapeHtml(displayName)}
+              ${isMuted ? '<span class="muted-badge">muted</span>' : ''}
             </div>
             <div class="trusted-user-key-small">${user.publicKeyShort}...</div>
             ${tagsHtml}
           </div>
           <div class="trusted-user-actions">
+            ${muteBtn}
             <button class="btn-small btn-nickname" onclick="editNickname('${user.publicKey}', '${escapeHtml(user.nickname || '')}')" title="Set nickname">✏️</button>
             <button class="btn-small" onclick="copyToClipboard2('${user.publicKey}')">Copy</button>
           </div>

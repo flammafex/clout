@@ -34,6 +34,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         const reputation = clout.getReputation(publicKey);
         const tags = clout.getTagsForUser(publicKey);
         const nickname = clout.getNickname(publicKey);
+        const isMuted = clout.isMuted(publicKey);
         return {
           publicKey,
           publicKeyShort: publicKey.slice(0, 12),
@@ -41,6 +42,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           nickname,
           reputation,
           tags,
+          isMuted,
           distance: 1
         };
       });
@@ -250,6 +252,102 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       getClout()!.setNickname(publicKey, '');
 
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // =========================================================================
+  // MUTED USERS
+  // =========================================================================
+
+  // Get all muted users
+  router.get('/muted', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const mutedKeys = clout.getMutedUsers();
+      const mutedUsers = mutedKeys.map(publicKey => ({
+        publicKey,
+        publicKeyShort: publicKey.slice(0, 12),
+        displayName: clout.getDisplayName(publicKey),
+        nickname: clout.getNickname(publicKey)
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          count: mutedUsers.length,
+          users: mutedUsers
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Check if a user is muted
+  router.get('/muted/:publicKey', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const publicKey = req.params.publicKey;
+      const isMuted = clout.isMuted(publicKey);
+
+      res.json({
+        success: true,
+        data: { publicKey, isMuted }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Mute a user
+  router.post('/mute', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const { publicKey } = req.body;
+      if (!publicKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'publicKey is required'
+        });
+      }
+
+      clout.mute(publicKey);
+      res.json({
+        success: true,
+        data: { publicKey, isMuted: true }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Unmute a user
+  router.post('/unmute', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const { publicKey } = req.body;
+      if (!publicKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'publicKey is required'
+        });
+      }
+
+      clout.unmute(publicKey);
+      res.json({
+        success: true,
+        data: { publicKey, isMuted: false }
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
