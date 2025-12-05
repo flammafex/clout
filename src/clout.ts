@@ -4,6 +4,9 @@ import { Crypto } from './crypto.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
 import { StorageManager, type MediaMetadata } from './storage/wnfs-manager.js';
+import { CloutLocalData } from './clout/local-data.js';
+import { CloutMessaging } from './clout/messaging.js';
+import { CloutStateSync } from './clout/state-sync.js';
 import type { FreebirdClient, WitnessClient } from './types.js';
 import {
   type TrustSignal,
@@ -64,17 +67,14 @@ export class Clout {
   private readonly reputationValidator: ReputationValidator;
   public readonly state: CloutStateManager;
   public readonly storage: StorageManager;
+  private readonly localData: CloutLocalData;
+  private readonly messaging: CloutMessaging;
+  private readonly stateSync: CloutStateSync;
 
   // State
   private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
-  private readonly trustTags: Map<string, Set<string>>; // tag -> Set<publicKey>
-  private readonly nicknames: Map<string, string>; // publicKey -> nickname (local address book)
-  private stateSyncTimer?: NodeJS.Timeout;
-  private readonly stateSyncInterval = 30000; // Sync every 30 seconds
   private mediaStorageEnabled: boolean;
-
-  // Note: receivedSlides removed in favor of local store
 
   constructor(config: CloutConfig) {
     this.publicKeyHex = config.publicKey;
@@ -90,13 +90,10 @@ export class Clout {
     // 2. Initialize Trust Graph (Bootstrap with self)
     this.trustGraph = new Set<string>([this.publicKeyHex]);
 
-    // 2a. Initialize Trust Tags (Local organization)
-    this.trustTags = new Map<string, Set<string>>();
+    // 3. Initialize Local Data (Tags + Nicknames)
+    this.localData = new CloutLocalData(this.trustGraph);
 
-    // 2b. Initialize Nicknames (Local address book)
-    this.nicknames = new Map<string, string>();
-
-    // 3. Initialize Reputation Validator (The Filter)
+    // 4. Initialize Reputation Validator (The Filter)
     this.reputationValidator = new ReputationValidator({
       trustGraph: this.trustGraph,
       witness: this.witness,
@@ -104,8 +101,7 @@ export class Clout {
       minReputation: config.minReputation ?? 0.3
     });
 
-    // 4. Initialize State Manager (CRDT / Phase 5)
-    // This manages the syncable state (Profile, My Posts, My Trust Signals)
+    // 5. Initialize State Manager (CRDT / Phase 5)
     this.state = new CloutStateManager({
       profile: {
         publicKey: this.publicKeyHex,
@@ -118,15 +114,30 @@ export class Clout {
       }
     });
 
-    // 5. Initialize WNFS Media Storage (Offload-and-Link pattern)
+    // 6. Initialize WNFS Media Storage (Offload-and-Link pattern)
     this.mediaStorageEnabled = config.enableMediaStorage !== false;
     this.storage = new StorageManager({
       storagePath: config.mediaStoragePath,
       maxFileSize: config.maxMediaSize
     });
 
-    // 6. Initialize Storage & Gossip Subscription
-    // This handles local-only data (Feed, Inbox) to prevent privacy leaks in CRDT
+    // 7. Initialize Messaging (Slides/DMs)
+    this.messaging = new CloutMessaging({
+      publicKey: this.publicKeyHex,
+      privateKey: this.privateKey,
+      witness: this.witness,
+      gossip: this.gossip,
+      store: this.store
+    });
+
+    // 8. Initialize State Sync (CRDT synchronization)
+    this.stateSync = new CloutStateSync({
+      publicKey: this.publicKeyHex,
+      stateManager: this.state,
+      gossip: this.gossip
+    });
+
+    // 9. Initialize Storage & Gossip Subscription
     this.initializeDataLayer();
   }
 
@@ -150,22 +161,8 @@ export class Clout {
         await this.handleGossipMessage(msg);
       });
 
-      // Set up CRDT state synchronization handlers
-      this.gossip.setStateSyncHandler(async (publicKey: string, stateBinary: Uint8Array) => {
-        await this.handleStateSync(publicKey, stateBinary);
-      });
-
-      this.gossip.setStateRequestHandler(async (publicKey: string) => {
-        return this.handleStateRequest(publicKey);
-      });
-
-      // Start periodic state sync
-      this.startStateSyncTimer();
-
-      // Request initial state from peers
-      setTimeout(() => {
-        this.requestPeerStates();
-      }, 2000); // Wait 2s for peer connections to establish
+      // Initialize CRDT state synchronization
+      this.stateSync.initialize();
     }
   }
 
@@ -192,11 +189,8 @@ export class Clout {
 
         case 'slide':
           if (msg.slide) {
-            // Check Relevance: Is this slide for me?
-            if (msg.slide.recipient === this.publicKeyHex) {
-              await this.store.addSlide(msg.slide);
-              console.log(`[Clout] 📬 Received new slide from ${msg.slide.sender.slice(0,8)}`);
-            }
+            // Delegate to messaging module
+            await this.messaging.handleIncomingSlide(msg.slide);
           }
           break;
           
@@ -211,93 +205,10 @@ export class Clout {
   }
 
   /**
-   * Handle incoming CRDT state sync from peer
-   */
-  private async handleStateSync(publicKey: string, stateBinary: Uint8Array): Promise<void> {
-    try {
-      console.log(`[Clout] 📦 Merging state from ${publicKey.slice(0, 8)}`);
-
-      // Merge the remote state into our Chronicle
-      this.state.merge(stateBinary);
-
-      // The CRDT will automatically reconcile conflicts
-      // Our local changes are preserved, remote changes are incorporated
-      const mergedState = this.state.getState();
-      console.log(`[Clout] ✅ State merged. Posts: ${mergedState.myPosts.length}, Trust signals: ${mergedState.myTrustSignals.length}`);
-    } catch (error: any) {
-      console.error(`[Clout] ❌ Failed to merge state:`, error.message);
-    }
-  }
-
-  /**
-   * Handle state request from peer
-   */
-  private async handleStateRequest(publicKey: string): Promise<Uint8Array | null> {
-    try {
-      console.log(`[Clout] 📤 Sending state to ${publicKey.slice(0, 8)}`);
-
-      // Export our Chronicle state as binary
-      const stateBinary = this.state.exportSync();
-      return stateBinary;
-    } catch (error: any) {
-      console.error(`[Clout] ❌ Failed to export state:`, error.message);
-      return null;
-    }
-  }
-
-  /**
-   * Start periodic state synchronization timer
-   */
-  private startStateSyncTimer(): void {
-    // Clear any existing timer
-    if (this.stateSyncTimer) {
-      clearInterval(this.stateSyncTimer);
-    }
-
-    // Broadcast state periodically
-    this.stateSyncTimer = setInterval(() => {
-      this.broadcastState();
-    }, this.stateSyncInterval);
-
-    console.log(`[Clout] 🔄 State sync enabled (every ${this.stateSyncInterval / 1000}s)`);
-  }
-
-  /**
-   * Broadcast our current state to all peers
-   */
-  private async broadcastState(): Promise<void> {
-    if (!this.gossip) return;
-
-    try {
-      const stateBinary = this.state.exportSync();
-      await this.gossip.broadcastState(this.publicKeyHex, stateBinary);
-    } catch (error: any) {
-      console.error(`[Clout] ❌ Failed to broadcast state:`, error.message);
-    }
-  }
-
-  /**
-   * Request state from all trusted peers
-   */
-  private async requestPeerStates(): Promise<void> {
-    if (!this.gossip) return;
-
-    try {
-      console.log(`[Clout] 📥 Requesting state from peers`);
-      await this.gossip.requestState(this.publicKeyHex);
-    } catch (error: any) {
-      console.error(`[Clout] ❌ Failed to request state:`, error.message);
-    }
-  }
-
-  /**
-   * Stop state synchronization and clean up
+   * Stop synchronization and clean up resources
    */
   destroy(): void {
-    if (this.stateSyncTimer) {
-      clearInterval(this.stateSyncTimer);
-      this.stateSyncTimer = undefined;
-    }
+    this.stateSync.destroy();
   }
 
   // =================================================================
@@ -524,55 +435,7 @@ export class Clout {
    * Send an encrypted slide (DM) to another user
    */
   async slide(recipientKey: string, message: string): Promise<SlidePackage> {
-    // 1. Encrypt message for recipient
-    const recipientPublicKey = Crypto.fromHex(recipientKey);
-    const { ephemeralPublicKey, ciphertext } = Crypto.encrypt(message, recipientPublicKey);
-
-    // 2. Create signature over the slide components
-    const signaturePayload = Crypto.hash(
-      recipientPublicKey,
-      ephemeralPublicKey,
-      ciphertext
-    );
-    const signature = Crypto.hash(signaturePayload, this.privateKey);
-
-    // 3. Get Witness timestamp proof
-    const slideHash = Crypto.toHex(Crypto.hash(
-      this.publicKeyHex,
-      recipientKey,
-      ephemeralPublicKey,
-      ciphertext
-    ));
-    const proof = await this.witness.timestamp(slideHash);
-
-    // 4. Create slide package
-    const slide: SlidePackage = {
-      id: slideHash,
-      sender: this.publicKeyHex,
-      recipient: recipientKey,
-      ephemeralPublicKey,
-      ciphertext,
-      signature,
-      proof
-    };
-
-    // 5. Propagate through gossip network
-    if (this.gossip) {
-      await this.gossip.publish({
-        type: 'slide',
-        slide,
-        timestamp: Date.now()
-      });
-    }
-
-    // 6. Save to local store (Outbox/Sent items)
-    if (this.store) {
-      // We might want to store sent slides too, though getInbox() typically returns received
-      // For now, we only log it
-    }
-
-    console.log(`[Clout] 📬 Slide sent to ${recipientKey.slice(0, 8)}`);
-    return slide;
+    return this.messaging.send(recipientKey, message);
   }
 
   // =================================================================
@@ -925,80 +788,37 @@ export class Clout {
 
   /**
    * Add a tag to a trusted user (e.g., "friends", "work", "family")
-   *
-   * Tags are local only and not synced to the network for privacy.
-   * Use tags to filter your feed and organize your trust network.
    */
   addTrustTag(publicKey: string, tag: string): void {
-    if (!this.trustGraph.has(publicKey)) {
-      throw new Error(`Cannot tag ${publicKey}: not in trust graph`);
-    }
-
-    // Normalize tag (lowercase, trim)
-    const normalizedTag = tag.toLowerCase().trim();
-
-    if (!this.trustTags.has(normalizedTag)) {
-      this.trustTags.set(normalizedTag, new Set<string>());
-    }
-
-    this.trustTags.get(normalizedTag)!.add(publicKey);
-    console.log(`[Clout] 🏷️ Tagged ${publicKey.slice(0, 8)} as '${normalizedTag}'`);
+    this.localData.addTag(publicKey, tag);
   }
 
   /**
    * Remove a tag from a user
    */
   removeTrustTag(publicKey: string, tag: string): void {
-    const normalizedTag = tag.toLowerCase().trim();
-    const taggedUsers = this.trustTags.get(normalizedTag);
-
-    if (taggedUsers) {
-      taggedUsers.delete(publicKey);
-
-      // Clean up empty tags
-      if (taggedUsers.size === 0) {
-        this.trustTags.delete(normalizedTag);
-      }
-
-      console.log(`[Clout] 🏷️ Removed tag '${normalizedTag}' from ${publicKey.slice(0, 8)}`);
-    }
+    this.localData.removeTag(publicKey, tag);
   }
 
   /**
    * Get all users with a specific tag
    */
   getUsersByTag(tag: string): string[] {
-    const normalizedTag = tag.toLowerCase().trim();
-    const users = this.trustTags.get(normalizedTag);
-    return users ? Array.from(users) : [];
+    return this.localData.getUsersByTag(tag);
   }
 
   /**
    * Get all tags for a specific user
    */
   getTagsForUser(publicKey: string): string[] {
-    const tags: string[] = [];
-
-    for (const [tag, users] of this.trustTags.entries()) {
-      if (users.has(publicKey)) {
-        tags.push(tag);
-      }
-    }
-
-    return tags;
+    return this.localData.getTagsForUser(publicKey);
   }
 
   /**
    * Get all tags and their member counts
    */
   getAllTags(): Map<string, number> {
-    const tagCounts = new Map<string, number>();
-
-    for (const [tag, users] of this.trustTags.entries()) {
-      tagCounts.set(tag, users.size);
-    }
-
-    return tagCounts;
+    return this.localData.getAllTags();
   }
 
   /**
@@ -1009,16 +829,14 @@ export class Clout {
       throw new Error('No store configured');
     }
 
-    const normalizedTag = tag.toLowerCase().trim();
-    const taggedUsers = this.trustTags.get(normalizedTag);
-
-    if (!taggedUsers || taggedUsers.size === 0) {
+    const taggedUsers = this.localData.getUsersByTag(tag);
+    if (taggedUsers.length === 0) {
       return [];
     }
 
-    // Get all posts and filter by tagged authors
+    const taggedSet = new Set(taggedUsers);
     const allPosts = await this.store.getFeed();
-    return allPosts.filter(post => taggedUsers.has(post.author));
+    return allPosts.filter(post => taggedSet.has(post.author));
   }
 
   // =================================================================
@@ -1027,47 +845,30 @@ export class Clout {
 
   /**
    * Set a nickname for a user (like naming a contact in your phone)
-   *
-   * Nicknames are local only - they're never shared with the network.
-   * Use them to identify people in your feed by memorable names.
    */
   setNickname(publicKey: string, nickname: string): void {
-    const trimmedNickname = nickname.trim();
-
-    if (!trimmedNickname) {
-      // Empty nickname = remove it
-      this.nicknames.delete(publicKey);
-      console.log(`[Clout] 📇 Removed nickname for ${publicKey.slice(0, 8)}`);
-    } else {
-      this.nicknames.set(publicKey, trimmedNickname);
-      console.log(`[Clout] 📇 Set nickname for ${publicKey.slice(0, 8)}: "${trimmedNickname}"`);
-    }
+    this.localData.setNickname(publicKey, nickname);
   }
 
   /**
    * Get the nickname for a user (returns undefined if not set)
    */
   getNickname(publicKey: string): string | undefined {
-    return this.nicknames.get(publicKey);
+    return this.localData.getNickname(publicKey);
   }
 
   /**
    * Get display name for a user - nickname if set, otherwise truncated public key
    */
   getDisplayName(publicKey: string): string {
-    const nickname = this.nicknames.get(publicKey);
-    if (nickname) {
-      return nickname;
-    }
-    // Fallback to truncated key
-    return publicKey.slice(0, 8) + '...';
+    return this.localData.getDisplayName(publicKey);
   }
 
   /**
    * Get all nicknames (for backup/export)
    */
   getAllNicknames(): Map<string, string> {
-    return new Map(this.nicknames);
+    return this.localData.getAllNicknames();
   }
 
   // =================================================================
@@ -1147,26 +948,12 @@ export class Clout {
   }
 
   /**
-   * Get inbox with decrypted slides
+   * Get inbox with received slides
    */
   async getInbox(): Promise<Inbox> {
-    // Read from local store instead of gossip memory
-    const slides = this.store
-      ? await this.store.getInbox()
-      : (this.gossip && this.gossip.getSlides) ? this.gossip.getSlides() : [];
-
-    // Filter slides addressed to us (store should already be filtered, but double check)
-    const mySlides = slides.filter(
-      slide => slide.recipient === this.publicKeyHex
-    );
-
-    // Sort by timestamp (newest first)
-    const sortedSlides = mySlides.sort((a, b) =>
-      b.proof.timestamp - a.proof.timestamp
-    );
-
+    const slides = await this.messaging.getInbox();
     return {
-      slides: sortedSlides,
+      slides,
       lastUpdated: Date.now()
     };
   }
@@ -1175,15 +962,7 @@ export class Clout {
    * Decrypt a slide
    */
   decryptSlide(slide: SlidePackage): string {
-    if (slide.recipient !== this.publicKeyHex) {
-      throw new Error('Cannot decrypt slide not addressed to this user');
-    }
-
-    return Crypto.decrypt(
-      slide.ephemeralPublicKey,
-      slide.ciphertext,
-      this.privateKey
-    );
+    return this.messaging.decrypt(slide);
   }
 
   /**
