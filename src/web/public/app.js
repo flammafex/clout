@@ -113,7 +113,7 @@ function setupTabs() {
       if (tab === 'slides') loadSlides();
       if (tab === 'settings') loadSettings();
       if (tab === 'trust') { loadTrustedUsers(); loadStats(); }
-      if (tab === 'profile') { loadProfile(); loadIdentity(); }
+      if (tab === 'profile') { loadProfile(); loadIdentity(); loadIdentities(); }
     });
   });
 }
@@ -1110,9 +1110,8 @@ async function loadSettings() {
     $('settings-min-reputation').value = Math.round(minRep * 100);
     $('settings-min-reputation-value').textContent = minRep.toFixed(2);
 
-    // Load tags and identities
+    // Load tags
     await loadTags();
-    await loadIdentities();
   } catch (error) {
     console.error('Error loading settings:', error);
   }

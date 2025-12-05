@@ -348,6 +348,46 @@
           </div>
 
           <div id="profile-result" class="result-message" style="display: none;"></div>
+
+          <!-- Identity Management -->
+          <div class="settings-card">
+            <h3>Your Identities</h3>
+            <p class="help-text">Manage multiple identities (personas) - switch requires server restart</p>
+
+            <div class="identity-management">
+              <div class="identities-list" id="identities-list">
+                <p class="empty-state">Loading identities...</p>
+              </div>
+
+              <div class="identity-actions">
+                <h4>Create New Identity</h4>
+                <div class="create-identity-form">
+                  <input type="text" id="new-identity-name" class="input" placeholder="Identity name (e.g., personal, work)">
+                  <button id="create-identity-btn" class="btn btn-primary">Create</button>
+                </div>
+                <div id="identity-result" class="result-message" style="display: none;"></div>
+              </div>
+
+              <div class="identity-advanced">
+                <details>
+                  <summary>Advanced: Import/Export Identity</summary>
+                  <div class="identity-import-export">
+                    <div class="data-section">
+                      <h4>Export Secret Key</h4>
+                      <p class="help-text-small warning">Warning: Anyone with this key can control your identity!</p>
+                      <button id="export-identity-btn" class="btn btn-danger">Export Secret Key</button>
+                    </div>
+                    <div class="data-section">
+                      <h4>Import Identity from Secret Key</h4>
+                      <input type="text" id="import-identity-name" class="input" placeholder="Name for imported identity">
+                      <input type="text" id="import-identity-key" class="input" placeholder="64-character hex secret key">
+                      <button id="import-identity-btn" class="btn">Import Identity</button>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -426,46 +466,6 @@
                 <input type="file" id="import-backup-input" accept=".json" style="display: none;">
                 <button id="import-backup-btn" class="btn">Select Backup File</button>
                 <div id="import-result" class="result-message" style="display: none;"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Identity Management -->
-          <div class="settings-card">
-            <h3>Identity Management</h3>
-            <p class="help-text">Manage multiple identities (personas) - switch requires server restart</p>
-
-            <div class="identity-management">
-              <div class="identities-list" id="identities-list">
-                <p class="empty-state">Loading identities...</p>
-              </div>
-
-              <div class="identity-actions">
-                <h4>Create New Identity</h4>
-                <div class="create-identity-form">
-                  <input type="text" id="new-identity-name" class="input" placeholder="Identity name (e.g., personal, work)">
-                  <button id="create-identity-btn" class="btn btn-primary">Create</button>
-                </div>
-                <div id="identity-result" class="result-message" style="display: none;"></div>
-              </div>
-
-              <div class="identity-advanced">
-                <details>
-                  <summary>Advanced: Import/Export Identity</summary>
-                  <div class="identity-import-export">
-                    <div class="data-section">
-                      <h4>Export Secret Key</h4>
-                      <p class="help-text-small warning">Warning: Anyone with this key can control your identity!</p>
-                      <button id="export-identity-btn" class="btn btn-danger">Export Secret Key</button>
-                    </div>
-                    <div class="data-section">
-                      <h4>Import Identity from Secret Key</h4>
-                      <input type="text" id="import-identity-name" class="input" placeholder="Name for imported identity">
-                      <input type="text" id="import-identity-key" class="input" placeholder="64-character hex secret key">
-                      <button id="import-identity-btn" class="btn">Import Identity</button>
-                    </div>
-                  </div>
-                </details>
               </div>
             </div>
           </div>
