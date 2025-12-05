@@ -1825,3 +1825,128 @@ h2 {
 .mention:hover {
   background: rgba(99, 102, 241, 0.2);
 }
+
+/* =========================================================================
+   SEARCH BAR
+   ========================================================================= */
+
+.search-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.search-bar .input {
+  flex: 1;
+}
+
+.search-results-header {
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border-radius: 0.5rem;
+  margin-bottom: 1rem;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* =========================================================================
+   FEED FILTERS
+   ========================================================================= */
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.feed-filters {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--bg-card);
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+}
+
+.filter-btn {
+  padding: 0.35rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 0.35rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.filter-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* =========================================================================
+   NEW POSTS BANNER
+   ========================================================================= */
+
+.new-posts-banner {
+  margin-bottom: 1rem;
+}
+
+.new-posts-banner button {
+  width: 100%;
+  padding: 0.75rem;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid var(--primary);
+  border-radius: 0.5rem;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.new-posts-banner button:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+/* =========================================================================
+   BOOKMARKS
+   ========================================================================= */
+
+.btn-bookmark {
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all 0.2s;
+  padding: 0.25rem;
+}
+
+.btn-bookmark:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.btn-bookmark.active {
+  opacity: 1;
+}
+
+/* =========================================================================
+   NOTIFICATION BADGES
+   ========================================================================= */
+
+.tab-badge {
+  background: var(--error);
+  color: white;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 1rem;
+  margin-left: 0.25rem;
+  font-weight: bold;
+  min-width: 1.2rem;
+  text-align: center;
+}

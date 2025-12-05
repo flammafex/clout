@@ -28,7 +28,7 @@
     <!-- Main Application -->
     <div id="main-app" style="display: none;">
       <nav class="tabs">
-        <button class="tab-btn active" data-tab="feed">Feed</button>
+        <button class="tab-btn active" data-tab="feed">Feed <span id="feed-badge" class="tab-badge" style="display: none;">0</span></button>
         <button class="tab-btn" data-tab="post">Post</button>
         <button class="tab-btn" data-tab="trust">Trust</button>
         <button class="tab-btn" data-tab="slides">Slides <span id="slides-badge" class="tab-badge" style="display: none;">0</span></button>
@@ -42,7 +42,27 @@
         <div class="section">
           <div class="section-header">
             <h2>📰 Your Feed</h2>
-            <button id="refresh-feed-btn" class="btn btn-small">Refresh</button>
+            <div class="header-actions">
+              <div class="feed-filters">
+                <button class="filter-btn active" data-filter="all" title="All Posts">All</button>
+                <button class="filter-btn" data-filter="bookmarks" title="Bookmarked Posts">🔖</button>
+                <button class="filter-btn" data-filter="replies" title="Replies to Your Posts">💬</button>
+                <button class="filter-btn" data-filter="mentions" title="Mentions">@</button>
+              </div>
+              <button id="refresh-feed-btn" class="btn btn-small">Refresh</button>
+            </div>
+          </div>
+
+          <!-- Search Bar -->
+          <div class="search-bar">
+            <input type="text" id="feed-search" class="input" placeholder="Search posts, authors...">
+            <button id="search-btn" class="btn btn-small">Search</button>
+            <button id="clear-search-btn" class="btn btn-small" style="display: none;">Clear</button>
+          </div>
+
+          <!-- New Posts Banner (for live updates) -->
+          <div id="new-posts-banner" class="new-posts-banner" style="display: none;">
+            <button onclick="loadNewPosts()">⬆️ <span id="new-posts-count">0</span> new posts - Click to load</button>
           </div>
 
           <div id="feed-list" class="feed-list">

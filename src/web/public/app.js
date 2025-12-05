@@ -141,6 +141,15 @@ async function initializeClout() {
     await loadProfile();
     // Load slides count for badge (don't await to not block)
     loadSlides().catch(() => {});
+
+    // Start live updates
+    connectLiveUpdates();
+
+    // Initial notification count
+    updateNotificationCounts();
+
+    // Poll notifications every 30 seconds
+    setInterval(updateNotificationCounts, 30000);
   } catch (error) {
     updateStatus(`Error: ${error.message}`, false);
     $('init-btn').disabled = false;
@@ -261,6 +270,9 @@ async function loadFeed() {
             <div class="feed-timestamp">${formatRelativeTime(post.timestamp)}</div>
             <div class="feed-actions">
               ${reactionsHtml}
+              <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+                ${post.isBookmarked ? '🔖' : '📑'}
+              </button>
               <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
               ${muteBtn}
             </div>
@@ -376,6 +388,329 @@ function toggleCW(cwId) {
   } else {
     content.style.display = 'none';
     revealBtn.style.display = 'block';
+  }
+}
+
+// =========================================================================
+// 6d. BOOKMARKS
+// =========================================================================
+
+async function toggleBookmark(postId) {
+  try {
+    // Check current state (we'll toggle it)
+    const response = await fetch(`/api/bookmarks`);
+    const data = await response.json();
+    const isCurrentlyBookmarked = data.data.posts.some(p => p.id === postId);
+
+    if (isCurrentlyBookmarked) {
+      await apiCall('/unbookmark', 'POST', { postId });
+    } else {
+      await apiCall('/bookmark', 'POST', { postId });
+    }
+
+    // Refresh feed to update bookmark icons
+    await loadFeedWithCurrentFilter();
+  } catch (error) {
+    console.error('Error toggling bookmark:', error);
+  }
+}
+
+// =========================================================================
+// 6e. SEARCH
+// =========================================================================
+
+let currentSearchQuery = '';
+
+async function searchPosts() {
+  const query = $('feed-search').value.trim();
+  if (!query) {
+    clearSearch();
+    return;
+  }
+
+  currentSearchQuery = query;
+  showLoading('feed-list');
+
+  try {
+    const data = await apiCall(`/search?q=${encodeURIComponent(query)}`);
+    $('clear-search-btn').style.display = 'inline-block';
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state">
+          <p>No posts found for "${escapeHtml(query)}"</p>
+          <button class="btn btn-small" onclick="clearSearch()">Clear Search</button>
+        </div>
+      `;
+      return;
+    }
+
+    renderSearchResults(data.posts, query);
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Search error: ${error.message}</p>`;
+  }
+}
+
+function renderSearchResults(posts, query) {
+  $('feed-list').innerHTML = `
+    <div class="search-results-header">
+      <span>Found ${posts.length} result${posts.length !== 1 ? 's' : ''} for "${escapeHtml(query)}"</span>
+    </div>
+  ` + posts.map(post => renderFeedItem(post)).join('');
+}
+
+function clearSearch() {
+  currentSearchQuery = '';
+  $('feed-search').value = '';
+  $('clear-search-btn').style.display = 'none';
+  loadFeed();
+}
+
+// =========================================================================
+// 6f. FEED FILTERS
+// =========================================================================
+
+let currentFilter = 'all';
+
+async function loadFeedWithCurrentFilter() {
+  switch (currentFilter) {
+    case 'bookmarks':
+      await loadBookmarks();
+      break;
+    case 'replies':
+      await loadReplies();
+      break;
+    case 'mentions':
+      await loadMentionsView();
+      break;
+    default:
+      await loadFeed();
+  }
+}
+
+async function setFeedFilter(filter) {
+  currentFilter = filter;
+
+  // Update active button
+  $$('.filter-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelector(`.filter-btn[data-filter="${filter}"]`).classList.add('active');
+
+  await loadFeedWithCurrentFilter();
+}
+
+async function loadBookmarks() {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall('/bookmarks');
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">🔖</div>
+          <h4>No bookmarks yet</h4>
+          <p>Bookmark posts to save them for later.</p>
+        </div>
+      `;
+      return;
+    }
+
+    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading bookmarks: ${error.message}</p>`;
+  }
+}
+
+async function loadReplies() {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall('/notifications/replies');
+    // Mark replies as seen when viewing
+    await apiCall('/notifications/mark-seen', 'POST', { type: 'replies' });
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">💬</div>
+          <h4>No replies yet</h4>
+          <p>When someone replies to your posts, they'll appear here.</p>
+        </div>
+      `;
+      return;
+    }
+
+    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading replies: ${error.message}</p>`;
+  }
+}
+
+async function loadMentionsView() {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall('/mentions');
+    // Mark mentions as seen when viewing
+    await apiCall('/notifications/mark-seen', 'POST', { type: 'mentions' });
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">@</div>
+          <h4>No mentions yet</h4>
+          <p>When someone mentions you (@yourKey), it'll appear here.</p>
+        </div>
+      `;
+      return;
+    }
+
+    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading mentions: ${error.message}</p>`;
+  }
+}
+
+// Helper to render a single feed item (used by search and filters)
+function renderFeedItem(post) {
+  const hasMedia = post.media && post.media.cid;
+  const rep = post.reputation || { score: 0, distance: 0 };
+  const repColor = getReputationColor(rep.score);
+  const authorName = post.authorDisplayName || post.author.slice(0, 16) + '...';
+  const hasCW = !!post.contentWarning;
+  const cwId = `cw-${post.id}`;
+  const reactions = post.reactions || {};
+  const myReaction = post.myReaction;
+  const reactionEmojis = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
+  const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, reactionEmojis);
+  const isYou = rep.distance === 0;
+
+  return `
+    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasCW ? 'has-cw' : ''}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
+      <div class="feed-header">
+        <div class="feed-author">
+          <span title="${post.author}">${escapeHtml(authorName)}</span>
+          <span class="reputation-badge" style="background-color: ${repColor}">
+            ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
+          </span>
+        </div>
+        <div class="feed-meta">
+          ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
+        </div>
+      </div>
+      ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
+      ${hasCW ? `
+        <div class="cw-wrapper" id="${cwId}">
+          <button class="cw-reveal-btn" onclick="event.stopPropagation(); toggleCW('${cwId}')">
+            ⚠️ ${escapeHtml(post.contentWarning)} - Click to reveal
+          </button>
+          <div class="cw-content" style="display: none;">
+            <div class="feed-content">${renderPostContent(post)}</div>
+          </div>
+        </div>
+      ` : `
+        <div class="feed-content">${renderPostContent(post)}</div>
+      `}
+      <div class="feed-footer">
+        <div class="feed-timestamp">${formatRelativeTime(post.timestamp || post.proof?.timestamp)}</div>
+        <div class="feed-actions">
+          ${reactionsHtml}
+          <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')">
+            ${post.isBookmarked ? '🔖' : '📑'}
+          </button>
+          <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+          ${!isYou ? `<button class="btn-mute-small" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Mute">🔇</button>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// =========================================================================
+// 6g. LIVE UPDATES (Server-Sent Events)
+// =========================================================================
+
+let eventSource = null;
+let newPostsCount = 0;
+
+function connectLiveUpdates() {
+  if (eventSource) {
+    eventSource.close();
+  }
+
+  eventSource = new EventSource('/api/live');
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      switch (data.type) {
+        case 'new_post':
+          newPostsCount++;
+          showNewPostsBanner();
+          break;
+        case 'notifications':
+          updateNotificationBadges(data.data);
+          break;
+        case 'connected':
+          console.log('[SSE] Connected to live updates');
+          break;
+        case 'heartbeat':
+          // Connection is alive
+          break;
+      }
+    } catch (e) {
+      console.error('[SSE] Parse error:', e);
+    }
+  };
+
+  eventSource.onerror = () => {
+    console.log('[SSE] Connection lost, reconnecting in 5s...');
+    setTimeout(connectLiveUpdates, 5000);
+  };
+}
+
+function showNewPostsBanner() {
+  const banner = $('new-posts-banner');
+  const countSpan = $('new-posts-count');
+  countSpan.textContent = newPostsCount;
+  banner.style.display = 'block';
+}
+
+async function loadNewPosts() {
+  newPostsCount = 0;
+  $('new-posts-banner').style.display = 'none';
+  await loadFeed();
+}
+
+// =========================================================================
+// 6h. NOTIFICATIONS
+// =========================================================================
+
+async function updateNotificationCounts() {
+  try {
+    const data = await apiCall('/notifications/counts');
+    updateNotificationBadges(data);
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+  }
+}
+
+function updateNotificationBadges(counts) {
+  // Feed badge (replies + mentions)
+  const feedBadge = $('feed-badge');
+  const feedCount = (counts.replies || 0) + (counts.mentions || 0);
+  if (feedCount > 0) {
+    feedBadge.textContent = feedCount;
+    feedBadge.style.display = 'inline';
+  } else {
+    feedBadge.style.display = 'none';
+  }
+
+  // Slides badge
+  const slidesBadge = $('slides-badge');
+  if (counts.slides > 0) {
+    slidesBadge.textContent = counts.slides;
+    slidesBadge.style.display = 'inline';
+  } else {
+    slidesBadge.style.display = 'none';
   }
 }
 
@@ -1573,6 +1908,18 @@ document.addEventListener('DOMContentLoaded', () => {
   $('edit-profile-btn').addEventListener('click', showProfileEdit);
   $('save-profile-btn').addEventListener('click', saveProfile);
   $('cancel-edit-btn').addEventListener('click', cancelProfileEdit);
+
+  // Search
+  $('search-btn').addEventListener('click', searchPosts);
+  $('clear-search-btn').addEventListener('click', clearSearch);
+  $('feed-search').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') searchPosts();
+  });
+
+  // Feed filters
+  $$('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => setFeedFilter(btn.dataset.filter));
+  });
 
   // Auto-initialize on page load
   autoInitialize();

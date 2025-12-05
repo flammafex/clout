@@ -922,6 +922,167 @@ export class Clout {
     return this.localData.getMutedCount();
   }
 
+  // -----------------------------------------------------------------
+  //  BOOKMARKS
+  // -----------------------------------------------------------------
+
+  /**
+   * Bookmark a post for later reference
+   *
+   * Bookmarks are local-only and never synced to the network.
+   */
+  bookmark(postId: string): void {
+    this.localData.bookmark(postId);
+  }
+
+  /**
+   * Remove a bookmark from a post
+   */
+  unbookmark(postId: string): void {
+    this.localData.unbookmark(postId);
+  }
+
+  /**
+   * Check if a post is bookmarked
+   */
+  isBookmarked(postId: string): boolean {
+    return this.localData.isBookmarked(postId);
+  }
+
+  /**
+   * Get all bookmarked post IDs
+   */
+  getBookmarkIds(): string[] {
+    return this.localData.getBookmarks();
+  }
+
+  /**
+   * Get bookmarked posts (full data)
+   */
+  async getBookmarks(): Promise<PostPackage[]> {
+    if (!this.store) {
+      throw new Error('No store configured');
+    }
+
+    const bookmarkIds = new Set(this.localData.getBookmarks());
+    if (bookmarkIds.size === 0) return [];
+
+    const allPosts = await this.store.getFeed();
+    return allPosts.filter(post => bookmarkIds.has(post.id));
+  }
+
+  /**
+   * Get count of bookmarks
+   */
+  getBookmarkCount(): number {
+    return this.localData.getBookmarks().length;
+  }
+
+  // -----------------------------------------------------------------
+  //  NOTIFICATIONS
+  // -----------------------------------------------------------------
+
+  /**
+   * Get notification counts (unread slides, replies, mentions)
+   */
+  async getNotificationCounts(): Promise<{
+    slides: number;
+    replies: number;
+    mentions: number;
+    total: number;
+  }> {
+    const state = this.localData.getNotificationState();
+
+    // Count unread slides
+    const inbox = await this.getInbox();
+    const unreadSlides = inbox.slides.filter(
+      (s: any) => (s.timestamp || 0) > state.lastSeenSlides
+    ).length;
+
+    // Count unread replies to my posts
+    const allPosts = this.store ? await this.store.getFeed() : [];
+    const myPostIds = new Set(
+      allPosts.filter((p: any) => p.author === this.publicKeyHex).map((p: any) => p.id)
+    );
+    const unreadReplies = allPosts.filter((p: any) => {
+      if (!p.replyTo || !myPostIds.has(p.replyTo)) return false;
+      if (p.author === this.publicKeyHex) return false; // Ignore own replies
+      const timestamp = p.proof?.timestamp || 0;
+      return timestamp > state.lastSeenReplies;
+    }).length;
+
+    // Count unread mentions
+    const mentions = await this.getMentions();
+    const unreadMentions = mentions.filter((p: any) => {
+      if (p.author === this.publicKeyHex) return false; // Ignore own posts
+      const timestamp = p.proof?.timestamp || 0;
+      return timestamp > state.lastSeenMentions;
+    }).length;
+
+    return {
+      slides: unreadSlides,
+      replies: unreadReplies,
+      mentions: unreadMentions,
+      total: unreadSlides + unreadReplies + unreadMentions
+    };
+  }
+
+  /**
+   * Get replies to my posts
+   */
+  async getReplies(options?: { limit?: number; unreadOnly?: boolean }): Promise<PostPackage[]> {
+    if (!this.store) {
+      throw new Error('No store configured');
+    }
+
+    const allPosts = await this.store.getFeed();
+    const myPostIds = new Set(
+      allPosts.filter((p: any) => p.author === this.publicKeyHex).map((p: any) => p.id)
+    );
+
+    let replies = allPosts.filter((p: any) => {
+      if (!p.replyTo || !myPostIds.has(p.replyTo)) return false;
+      if (p.author === this.publicKeyHex) return false;
+      return true;
+    });
+
+    // Filter to unread only if requested
+    if (options?.unreadOnly) {
+      const lastSeen = this.localData.getLastSeen('replies');
+      replies = replies.filter((p: any) => (p.proof?.timestamp || 0) > lastSeen);
+    }
+
+    // Sort by newest first
+    replies.sort((a: any, b: any) => {
+      const timeA = a.proof?.timestamp || 0;
+      const timeB = b.proof?.timestamp || 0;
+      return timeB - timeA;
+    });
+
+    return options?.limit ? replies.slice(0, options.limit) : replies;
+  }
+
+  /**
+   * Mark slides as seen
+   */
+  markSlidesSeen(): void {
+    this.localData.markSlidesSeen();
+  }
+
+  /**
+   * Mark replies as seen
+   */
+  markRepliesSeen(): void {
+    this.localData.markRepliesSeen();
+  }
+
+  /**
+   * Mark mentions as seen
+   */
+  markMentionsSeen(): void {
+    this.localData.markMentionsSeen();
+  }
+
   // =================================================================
   //  SECTION 4c: REACTIONS (Trust-weighted endorsements)
   // =================================================================

@@ -5,21 +5,37 @@
  * - Trust Tags: Organize contacts into groups (friends, work, family)
  * - Nicknames: Personal address book for remembering who's who
  * - Muted Users: Hide posts from specific users without untrusting them
+ * - Bookmarks: Save posts locally for later reference
  *
  * This data stays on the user's device for privacy.
  */
+
+// Notification types
+export interface NotificationState {
+  lastSeenSlides: number;
+  lastSeenReplies: number;
+  lastSeenMentions: number;
+}
 
 export class CloutLocalData {
   private readonly trustTags: Map<string, Set<string>>; // tag -> Set<publicKey>
   private readonly nicknames: Map<string, string>; // publicKey -> nickname
   private readonly mutedUsers: Set<string>; // publicKeys of muted users
+  private readonly bookmarks: Set<string>; // postIds of bookmarked posts
   private readonly trustGraph: Set<string>; // Reference to validate tag operations
+  private notifications: NotificationState; // Track last seen timestamps
 
   constructor(trustGraph: Set<string>) {
     this.trustGraph = trustGraph;
     this.trustTags = new Map<string, Set<string>>();
     this.nicknames = new Map<string, string>();
     this.mutedUsers = new Set<string>();
+    this.bookmarks = new Set<string>();
+    this.notifications = {
+      lastSeenSlides: Date.now(),
+      lastSeenReplies: Date.now(),
+      lastSeenMentions: Date.now()
+    };
   }
 
   // =================================================================
@@ -213,13 +229,103 @@ export class CloutLocalData {
   }
 
   // =================================================================
+  //  BOOKMARKS
+  // =================================================================
+
+  /**
+   * Bookmark a post for later reference
+   *
+   * Bookmarks are local-only and never synced to the network.
+   * Use them to save posts you want to revisit.
+   */
+  bookmark(postId: string): void {
+    this.bookmarks.add(postId);
+    console.log(`[Clout] 🔖 Bookmarked post ${postId.slice(0, 8)}`);
+  }
+
+  /**
+   * Remove a bookmark from a post
+   */
+  unbookmark(postId: string): void {
+    this.bookmarks.delete(postId);
+    console.log(`[Clout] 🔖 Removed bookmark from ${postId.slice(0, 8)}`);
+  }
+
+  /**
+   * Check if a post is bookmarked
+   */
+  isBookmarked(postId: string): boolean {
+    return this.bookmarks.has(postId);
+  }
+
+  /**
+   * Get all bookmarked post IDs
+   */
+  getBookmarks(): string[] {
+    return Array.from(this.bookmarks);
+  }
+
+  /**
+   * Get count of bookmarks
+   */
+  getBookmarkCount(): number {
+    return this.bookmarks.size;
+  }
+
+  // =================================================================
+  //  NOTIFICATIONS
+  // =================================================================
+
+  /**
+   * Get the notification state
+   */
+  getNotificationState(): NotificationState {
+    return { ...this.notifications };
+  }
+
+  /**
+   * Mark slides as seen (updates lastSeenSlides timestamp)
+   */
+  markSlidesSeen(): void {
+    this.notifications.lastSeenSlides = Date.now();
+    console.log(`[Clout] 📬 Marked slides as seen`);
+  }
+
+  /**
+   * Mark replies as seen
+   */
+  markRepliesSeen(): void {
+    this.notifications.lastSeenReplies = Date.now();
+    console.log(`[Clout] 💬 Marked replies as seen`);
+  }
+
+  /**
+   * Mark mentions as seen
+   */
+  markMentionsSeen(): void {
+    this.notifications.lastSeenMentions = Date.now();
+    console.log(`[Clout] 📢 Marked mentions as seen`);
+  }
+
+  /**
+   * Get last seen timestamp for a notification type
+   */
+  getLastSeen(type: 'slides' | 'replies' | 'mentions'): number {
+    switch (type) {
+      case 'slides': return this.notifications.lastSeenSlides;
+      case 'replies': return this.notifications.lastSeenReplies;
+      case 'mentions': return this.notifications.lastSeenMentions;
+    }
+  }
+
+  // =================================================================
   //  PERSISTENCE (Future)
   // =================================================================
 
   /**
    * Export all local data for backup
    */
-  export(): { tags: Record<string, string[]>; nicknames: Record<string, string>; muted: string[] } {
+  export(): { tags: Record<string, string[]>; nicknames: Record<string, string>; muted: string[]; bookmarks: string[] } {
     const tags: Record<string, string[]> = {};
     for (const [tag, users] of this.trustTags.entries()) {
       tags[tag] = Array.from(users);
@@ -231,14 +337,15 @@ export class CloutLocalData {
     }
 
     const muted = Array.from(this.mutedUsers);
+    const bookmarks = Array.from(this.bookmarks);
 
-    return { tags, nicknames, muted };
+    return { tags, nicknames, muted, bookmarks };
   }
 
   /**
    * Import local data from backup
    */
-  import(data: { tags?: Record<string, string[]>; nicknames?: Record<string, string>; muted?: string[] }): void {
+  import(data: { tags?: Record<string, string[]>; nicknames?: Record<string, string>; muted?: string[]; bookmarks?: string[] }): void {
     if (data.tags) {
       for (const [tag, users] of Object.entries(data.tags)) {
         for (const user of users) {
@@ -261,6 +368,12 @@ export class CloutLocalData {
     if (data.muted) {
       for (const key of data.muted) {
         this.mutedUsers.add(key);
+      }
+    }
+
+    if (data.bookmarks) {
+      for (const postId of data.bookmarks) {
+        this.bookmarks.add(postId);
       }
     }
   }
