@@ -214,8 +214,21 @@ async function loadFeed() {
       const authorName = post.authorDisplayName || post.author.slice(0, 16) + '...';
       const hasNickname = !!post.authorNickname;
 
+      // Content warning - collapses content by default
+      const hasCW = !!post.contentWarning;
+      const cwId = `cw-${post.id}`;
+
+      // Reactions display
+      const reactions = post.reactions || {};
+      const myReaction = post.myReaction;
+      const reactionEmojis = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
+      const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, reactionEmojis);
+
+      // Mentions highlight
+      const hasMentions = post.mentions && post.mentions.length > 0;
+
       return `
-        <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${distanceClass}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
+        <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
           <div class="feed-header">
             <div class="feed-author">
               <span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span>
@@ -228,13 +241,26 @@ async function loadFeed() {
             <div class="feed-meta">
               ${trustContext}
               ${post.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
+              ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
             </div>
           </div>
           ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
-          <div class="feed-content">${renderPostContent(post)}</div>
+          ${hasCW ? `
+            <div class="cw-wrapper" id="${cwId}">
+              <button class="cw-reveal-btn" onclick="event.stopPropagation(); toggleCW('${cwId}')">
+                ⚠️ ${escapeHtml(post.contentWarning)} - Click to reveal
+              </button>
+              <div class="cw-content" style="display: none;">
+                <div class="feed-content">${renderPostContent(post)}</div>
+              </div>
+            </div>
+          ` : `
+            <div class="feed-content">${renderPostContent(post)}</div>
+          `}
           <div class="feed-footer">
             <div class="feed-timestamp">${formatRelativeTime(post.timestamp)}</div>
             <div class="feed-actions">
+              ${reactionsHtml}
               <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
               ${muteBtn}
             </div>
@@ -289,6 +315,67 @@ async function unmuteUser(publicKey) {
     showResult('trust-result', `Unmuted ${publicKey.slice(0, 8)}...`, true);
   } catch (error) {
     alert(`Could not unmute user: ${error.message}`);
+  }
+}
+
+// =========================================================================
+// 6b. REACTIONS
+// =========================================================================
+
+// Render reactions bar for a post
+function renderReactionsBar(postId, reactions, myReaction, availableEmojis) {
+  // Show emojis that have reactions or are available for clicking
+  const reactionButtons = availableEmojis.map(emoji => {
+    const count = reactions[emoji] || 0;
+    const isMyReaction = myReaction === emoji;
+    const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
+
+    return `<button class="${btnClass}" onclick="event.stopPropagation(); toggleReaction('${postId}', '${emoji}')" title="${emoji}">
+      ${emoji}${count > 0 ? `<span class="reaction-count">${count}</span>` : ''}
+    </button>`;
+  }).join('');
+
+  return `<div class="reactions-bar">${reactionButtons}</div>`;
+}
+
+// Toggle a reaction on a post
+async function toggleReaction(postId, emoji) {
+  try {
+    // Check if we already have this reaction (need to get current state)
+    const data = await apiCall(`/reactions/${postId}`);
+    const isCurrentlyReacted = data.myReaction === emoji;
+
+    if (isCurrentlyReacted) {
+      await apiCall('/unreact', 'POST', { postId, emoji });
+    } else {
+      await apiCall('/react', 'POST', { postId, emoji });
+    }
+
+    // Reload feed to update reactions
+    await loadFeed();
+  } catch (error) {
+    console.error('Error toggling reaction:', error);
+  }
+}
+
+// =========================================================================
+// 6c. CONTENT WARNINGS
+// =========================================================================
+
+// Toggle content warning visibility
+function toggleCW(cwId) {
+  const wrapper = document.getElementById(cwId);
+  if (!wrapper) return;
+
+  const revealBtn = wrapper.querySelector('.cw-reveal-btn');
+  const content = wrapper.querySelector('.cw-content');
+
+  if (content.style.display === 'none') {
+    content.style.display = 'block';
+    revealBtn.style.display = 'none';
+  } else {
+    content.style.display = 'none';
+    revealBtn.style.display = 'block';
   }
 }
 
@@ -494,10 +581,18 @@ function cancelReply() {
 async function createPost() {
   const content = $('post-content').value.trim();
   const nsfw = $('post-nsfw').checked;
+  const cwEnabled = $('post-cw-enabled').checked;
+  const contentWarning = cwEnabled ? $('post-cw-text').value.trim() : null;
 
   // Allow posts with just media (no text required)
   if (!content && !pendingMedia) {
     showResult('post-result', 'Please enter some content or attach media', false);
+    return;
+  }
+
+  // Validate content warning if enabled
+  if (cwEnabled && !contentWarning) {
+    showResult('post-result', 'Please enter a content warning description', false);
     return;
   }
 
@@ -513,6 +608,10 @@ async function createPost() {
     if (pendingMedia && pendingMedia.cid) {
       body.mediaCid = pendingMedia.cid;
     }
+    // Include content warning if set
+    if (contentWarning) {
+      body.contentWarning = contentWarning;
+    }
 
     await apiCall('/post', 'POST', body);
 
@@ -526,6 +625,9 @@ async function createPost() {
     $('post-content').value = '';
     $('char-count').textContent = '0';
     $('post-nsfw').checked = false; // Reset NSFW checkbox
+    $('post-cw-enabled').checked = false; // Reset CW checkbox
+    $('post-cw-text').value = ''; // Clear CW text
+    $('cw-input-wrapper').style.display = 'none'; // Hide CW input
 
     // Clear media preview
     clearMediaPreview();
@@ -1457,6 +1559,14 @@ document.addEventListener('DOMContentLoaded', () => {
   // Character counter for slide message
   $('slide-message').addEventListener('input', () => {
     $('slide-char-count').textContent = $('slide-message').value.length;
+  });
+
+  // Content warning toggle
+  $('post-cw-enabled').addEventListener('change', (e) => {
+    $('cw-input-wrapper').style.display = e.target.checked ? 'block' : 'none';
+    if (e.target.checked) {
+      $('post-cw-text').focus();
+    }
   });
 
   // Profile event listeners

@@ -1703,3 +1703,125 @@ h2 {
 .warning {
   color: #f59e0b !important;
 }
+
+/* =========================================================================
+   REACTIONS
+   ========================================================================= */
+
+.reactions-bar {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.reaction-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.6;
+}
+
+.reaction-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+}
+
+.reaction-btn.active {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--primary);
+}
+
+.reaction-count {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  min-width: 0.75rem;
+  text-align: center;
+}
+
+.reaction-btn.active .reaction-count {
+  color: var(--primary);
+}
+
+/* =========================================================================
+   CONTENT WARNINGS
+   ========================================================================= */
+
+.content-warning-section {
+  margin-bottom: 1rem;
+}
+
+.cw-input-wrapper {
+  margin-top: 0.5rem;
+  padding-left: 1.5rem;
+}
+
+.cw-input-wrapper .input {
+  width: 100%;
+}
+
+.cw-badge {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.feed-item.has-cw {
+  border-left: 3px solid #f59e0b;
+}
+
+.cw-wrapper {
+  margin: 0.5rem 0;
+}
+
+.cw-reveal-btn {
+  width: 100%;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px dashed #f59e0b;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  color: #f59e0b;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.cw-reveal-btn:hover {
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.cw-content {
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* =========================================================================
+   MENTIONS
+   ========================================================================= */
+
+.mention {
+  color: var(--primary);
+  background: rgba(99, 102, 241, 0.1);
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+
+.mention:hover {
+  background: rgba(99, 102, 241, 0.2);
+}

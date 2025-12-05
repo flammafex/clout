@@ -14,6 +14,7 @@ import {
   type Feed,
   type PostPackage,
   type SlidePackage,
+  type ReactionPackage,
   type Inbox,
   type CloutStore,
   type ContentGossipMessage,
@@ -336,7 +337,7 @@ export class Clout {
    * 3. Link: Embed CID reference in post content
    *
    * @param content - Post content
-   * @param options - Post options including replyTo, media, nsfw flag, and ephemeral key settings
+   * @param options - Post options including replyTo, media, nsfw flag, content warning, and ephemeral key settings
    */
   async post(
     content: string,
@@ -346,12 +347,18 @@ export class Clout {
       useEphemeralKey?: boolean;
       /** Mark post as Not Safe For Work - requires user to willingly label content */
       nsfw?: boolean;
+      /** Custom content warning text (e.g., "spoilers", "politics") */
+      contentWarning?: string;
     }
   ): Promise<CloutPost> {
     const replyTo = options?.replyTo;
     const media = options?.media;
     const useEphemeralKey = options?.useEphemeralKey !== false; // default: true
     const nsfw = options?.nsfw ?? false;
+    const contentWarning = options?.contentWarning;
+
+    // Extract @mentions from content
+    const mentions = this.extractMentions(content);
 
     // 1. Check for Day Pass
     if (!this.currentTicket) {
@@ -414,7 +421,9 @@ export class Clout {
       ephemeralPublicKey,
       ephemeralKeyProof,
       media: mediaMetadata,
-      nsfw
+      nsfw,
+      contentWarning,
+      mentions: mentions.length > 0 ? mentions : undefined
     };
 
     // 5. Create & Gossip Post
@@ -911,6 +920,220 @@ export class Clout {
    */
   getMutedCount(): number {
     return this.localData.getMutedCount();
+  }
+
+  // =================================================================
+  //  SECTION 4c: REACTIONS (Trust-weighted endorsements)
+  // =================================================================
+
+  /**
+   * Available reaction emojis
+   */
+  static readonly REACTION_EMOJIS = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
+
+  /**
+   * React to a post
+   *
+   * @param postId - The post to react to
+   * @param emoji - The reaction emoji (default: 👍)
+   */
+  async react(postId: string, emoji: string = '👍'): Promise<ReactionPackage> {
+    // Validate emoji
+    if (!Clout.REACTION_EMOJIS.includes(emoji)) {
+      throw new Error(`Invalid reaction. Allowed: ${Clout.REACTION_EMOJIS.join(' ')}`);
+    }
+
+    // Create reaction ID
+    const reactionId = Crypto.hashString(`${postId}:${this.publicKeyHex}:${emoji}`);
+
+    // Sign the reaction
+    const reactionPayload = {
+      postId,
+      reactor: this.publicKeyHex,
+      emoji,
+      timestamp: Date.now()
+    };
+    const payloadHash = Crypto.hashString(JSON.stringify(reactionPayload));
+    const signature = Crypto.hash(payloadHash, this.privateKey);
+    const proof = await this.witness.timestamp(payloadHash);
+
+    const reaction: ReactionPackage = {
+      id: reactionId,
+      postId,
+      reactor: this.publicKeyHex,
+      emoji,
+      signature,
+      proof
+    };
+
+    // Store in Chronicle state
+    this.state.addReaction(reaction);
+
+    // Broadcast via gossip
+    if (this.gossip) {
+      await this.gossip.publish({
+        type: 'reaction',
+        reaction,
+        timestamp: Date.now()
+      });
+    }
+
+    console.log(`[Clout] ${emoji} Reacted to ${postId.slice(0, 8)}`);
+    return reaction;
+  }
+
+  /**
+   * Remove a reaction from a post
+   */
+  async unreact(postId: string, emoji: string = '👍'): Promise<void> {
+    const reactionId = Crypto.hashString(`${postId}:${this.publicKeyHex}:${emoji}`);
+
+    // Create removal signal
+    const payloadHash = Crypto.hashString(JSON.stringify({ id: reactionId, removed: true }));
+    const signature = Crypto.hash(payloadHash, this.privateKey);
+    const proof = await this.witness.timestamp(payloadHash);
+
+    const removal: ReactionPackage = {
+      id: reactionId,
+      postId,
+      reactor: this.publicKeyHex,
+      emoji,
+      signature,
+      proof,
+      removed: true
+    };
+
+    // Update state (addReaction handles removal)
+    this.state.addReaction(removal);
+
+    // Broadcast removal
+    if (this.gossip) {
+      await this.gossip.publish({
+        type: 'reaction',
+        reaction: removal,
+        timestamp: Date.now()
+      });
+    }
+
+    console.log(`[Clout] Removed ${emoji} from ${postId.slice(0, 8)}`);
+  }
+
+  /**
+   * Get reactions for a post (trust-weighted)
+   *
+   * Returns aggregated reactions with counts, weighted by trust distance.
+   * Reactions from closer users (lower distance) count more.
+   */
+  getReactionsForPost(postId: string): {
+    reactions: Map<string, { count: number; weightedCount: number; reactors: string[] }>;
+    myReaction?: string;
+  } {
+    const state = this.state.getState();
+    const allReactions = state.myReactions || [];
+
+    // Filter reactions for this post
+    const postReactions = allReactions.filter(r => r.postId === postId && !r.removed);
+
+    // Aggregate by emoji
+    const reactions = new Map<string, { count: number; weightedCount: number; reactors: string[] }>();
+    let myReaction: string | undefined;
+
+    for (const r of postReactions) {
+      // Check if it's my reaction
+      if (r.reactor === this.publicKeyHex) {
+        myReaction = r.emoji;
+      }
+
+      // Calculate trust weight (closer = higher weight)
+      const rep = this.reputationValidator.computeReputation(r.reactor);
+      const weight = rep.visible ? Math.max(0.1, 1 - (rep.distance * 0.2)) : 0.1;
+
+      const existing = reactions.get(r.emoji) || { count: 0, weightedCount: 0, reactors: [] };
+      existing.count++;
+      existing.weightedCount += weight;
+      existing.reactors.push(r.reactor);
+      reactions.set(r.emoji, existing);
+    }
+
+    return { reactions, myReaction };
+  }
+
+  /**
+   * Get my reaction to a specific post
+   */
+  getMyReaction(postId: string): string | undefined {
+    const state = this.state.getState();
+    const myReactions = (state.myReactions || []).filter(
+      r => r.reactor === this.publicKeyHex && r.postId === postId && !r.removed
+    );
+    return myReactions[0]?.emoji;
+  }
+
+  // =================================================================
+  //  SECTION 4d: MENTIONS (User references)
+  // =================================================================
+
+  /**
+   * Extract @mentions from post content
+   *
+   * Supports:
+   * - @publicKey (full or partial hex key)
+   * - Matches keys that are at least 8 characters of hex
+   */
+  extractMentions(content: string): string[] {
+    // Match @followed by hex characters (at least 8 chars for partial keys)
+    const mentionPattern = /@([a-fA-F0-9]{8,})/g;
+    const mentions: string[] = [];
+    let match;
+
+    while ((match = mentionPattern.exec(content)) !== null) {
+      const mentioned = match[1];
+      // Validate it looks like a public key (could be full or partial)
+      if (mentioned.length >= 8) {
+        mentions.push(mentioned);
+      }
+    }
+
+    return [...new Set(mentions)]; // Deduplicate
+  }
+
+  /**
+   * Get posts where the current user is mentioned
+   */
+  async getMentions(options?: { limit?: number }): Promise<PostPackage[]> {
+    if (!this.store) {
+      throw new Error('No store configured');
+    }
+
+    const allPosts = await this.store.getFeed();
+
+    // Filter posts that mention current user
+    const mentions = allPosts.filter(post => {
+      if (!post.mentions) return false;
+      // Check if any mention matches our key (full or partial)
+      return post.mentions.some(m =>
+        this.publicKeyHex.startsWith(m) || m.startsWith(this.publicKeyHex.slice(0, 8))
+      );
+    });
+
+    // Sort by timestamp (newest first)
+    mentions.sort((a, b) => {
+      const timeA = a.proof?.timestamp || 0;
+      const timeB = b.proof?.timestamp || 0;
+      return timeB - timeA;
+    });
+
+    return options?.limit ? mentions.slice(0, options.limit) : mentions;
+  }
+
+  /**
+   * Check if a post mentions a specific user
+   */
+  static postMentionsUser(post: PostPackage, publicKey: string): boolean {
+    if (!post.mentions) return false;
+    return post.mentions.some(m =>
+      publicKey.startsWith(m) || m.startsWith(publicKey.slice(0, 8))
+    );
   }
 
   // =================================================================

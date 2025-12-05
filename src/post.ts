@@ -17,6 +17,10 @@ export interface PostConfig {
   readonly media?: MediaMetadata;
   /** NSFW flag - marks content as Not Safe For Work */
   readonly nsfw?: boolean;
+  /** Custom content warning text (e.g., "spoilers", "politics") */
+  readonly contentWarning?: string;
+  /** Public keys of users mentioned in this post */
+  readonly mentions?: string[];
 }
 
 export interface ContentGossip {
@@ -76,7 +80,9 @@ export class CloutPost {
       ephemeralPublicKey: config.ephemeralPublicKey,
       ephemeralKeyProof: config.ephemeralKeyProof,
       media: config.media,
-      nsfw: config.nsfw
+      nsfw: config.nsfw,
+      contentWarning: config.contentWarning,
+      mentions: config.mentions
     };
 
     // 7. Hash package for timestamping

@@ -167,6 +167,19 @@ export interface PostPackage {
    * unless they explicitly opt-in to view NSFW content
    */
   readonly nsfw?: boolean;
+
+  /**
+   * Content warning - custom spoiler/warning text
+   * Content is collapsed by default and shows this warning text.
+   * Examples: "spoilers", "politics", "food", "flashing images"
+   */
+  readonly contentWarning?: string;
+
+  /**
+   * Mentions - public keys of users mentioned in this post
+   * Extracted from @publicKey patterns in content during post creation
+   */
+  readonly mentions?: string[];
 }
 
 /**
@@ -193,6 +206,35 @@ export interface TrustSignal {
 
   /** Optional: Can revoke trust */
   readonly revoked?: boolean;
+}
+
+/**
+ * Reaction - A signed endorsement of a post
+ *
+ * Reactions are lightweight engagement signals (like/boost/emoji).
+ * They are trust-weighted: reactions from closer users count more.
+ */
+export interface ReactionPackage {
+  /** Unique ID (hash of postId + reactor + emoji) */
+  readonly id: string;
+
+  /** Post being reacted to */
+  readonly postId: string;
+
+  /** User reacting */
+  readonly reactor: string;
+
+  /** Reaction type (emoji like 👍, 🔥, ❤️, or keywords like 'boost') */
+  readonly emoji: string;
+
+  /** Signature from reactor */
+  readonly signature: Uint8Array;
+
+  /** Timestamp proof */
+  readonly proof: Attestation;
+
+  /** Whether this reaction has been removed */
+  readonly removed?: boolean;
 }
 
 /**
@@ -247,13 +289,16 @@ export interface SlidePackage {
  * In Clout: ContentGossipMessage spreads posts to propagate content
  */
 export interface ContentGossipMessage {
-  readonly type: 'post' | 'trust' | 'revoke' | 'slide' | 'state-sync' | 'state-request';
+  readonly type: 'post' | 'trust' | 'revoke' | 'slide' | 'reaction' | 'state-sync' | 'state-request';
 
   /** For posts */
   readonly post?: PostPackage;
 
   /** For trust signals */
   readonly trustSignal?: TrustSignal;
+
+  /** For reactions */
+  readonly reaction?: ReactionPackage;
 
   /** For encrypted slides */
   readonly slide?: SlidePackage;
@@ -323,6 +368,9 @@ export interface CloutState {
 
   /** Trust signals issued by this agent */
   myTrustSignals: TrustSignal[];
+
+  /** Reactions issued by this agent */
+  myReactions: ReactionPackage[];
 
   /** Last sync timestamp */
   lastSync?: number;
