@@ -75,7 +75,8 @@ export class ChronicleWasm extends Emitter {
         // FIX: Initialize with required fields (arrays), not just {}
         const emptyState: CloutState = {
           myPosts: [],
-          myTrustSignals: []
+          myTrustSignals: [],
+          myReactions: []
         };
         this._wasmChronicle.setState(JSON.stringify(emptyState));
       }

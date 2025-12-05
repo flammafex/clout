@@ -6,12 +6,13 @@
 import * as A from "@automerge/automerge";
 import { Chronicle } from '../vendor/hypertoken/Chronicle.js'; // This is actually ChronicleWasm
 import { Emitter } from './events.js';
-import type { CloutState, PostPackage, TrustSignal, CloutProfile } from '../clout-types.js';
+import type { CloutState, PostPackage, TrustSignal, ReactionPackage, CloutProfile } from '../clout-types.js';
 
 // Default empty state
 const INITIAL_STATE: CloutState = {
   myPosts: [],
   myTrustSignals: [],
+  myReactions: [],
   profile: {
     publicKey: '',
     trustGraph: new Set(),
@@ -79,10 +80,29 @@ export class CloutStateManager extends Emitter {
         (s: any) => s.truster === signal.truster && s.trustee === signal.trustee
       );
       if (idx !== -1) doc.myTrustSignals.splice(idx, 1);
-      
+
       // FIX: Sanitize signal
       const cleanSignal = JSON.parse(JSON.stringify(signal));
       doc.myTrustSignals.push(cleanSignal);
+    });
+  }
+
+  addReaction(reaction: ReactionPackage): void {
+    this.chronicle.change("add reaction", (doc: any) => {
+      // Ensure myReactions exists
+      if (!doc.myReactions) doc.myReactions = [];
+
+      // Check for existing reaction to same post with same emoji
+      const idx = doc.myReactions.findIndex(
+        (r: any) => r.postId === reaction.postId && r.emoji === reaction.emoji
+      );
+      if (idx !== -1) doc.myReactions.splice(idx, 1);
+
+      // Only add if not removed
+      if (!reaction.removed) {
+        const cleanReaction = JSON.parse(JSON.stringify(reaction));
+        doc.myReactions.push(cleanReaction);
+      }
     });
   }
 
