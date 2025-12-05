@@ -128,9 +128,10 @@ export class CloutWebServer {
       try {
         if (!this.initialized) throw new Error('Not initialized');
 
-        const allPosts = await this.clout!.getFeed();
-
         const limit = parseInt(req.query.limit as string) || 50;
+        const includeNsfw = req.query.nsfw === 'true';
+
+        const allPosts = await this.clout!.getFeed({ includeNsfw });
         const posts = allPosts.slice(0, limit);
 
         res.json({
@@ -138,9 +139,14 @@ export class CloutWebServer {
           data: {
             posts: posts.map((post: any) => ({
               ...post,
-              authorShort: post.author.slice(0, 8)
+              authorShort: post.author.slice(0, 8),
+              // Include reputation for each post author
+              reputation: this.clout!.getReputation(post.author),
+              // Include author's tags
+              authorTags: this.clout!.getTagsForUser(post.author)
             })),
-            totalPosts: allPosts.length
+            totalPosts: allPosts.length,
+            nsfwEnabled: this.clout!.isNsfwEnabled()
           }
         });
       } catch (error: any) {
@@ -148,11 +154,11 @@ export class CloutWebServer {
       }
     });
 
-    // Create Post (with optional media CID)
+    // Create Post (with optional media CID and NSFW flag)
     this.app.post('/api/post', async (req, res) => {
       try {
         if (!this.initialized) throw new Error('Not initialized');
-        const { content, replyTo, mediaCid } = req.body;
+        const { content, replyTo, mediaCid, nsfw } = req.body;
 
         // Auto-mint ticket if needed
         if (!this.clout!.hasActiveTicket()) {
@@ -161,8 +167,13 @@ export class CloutWebServer {
         }
 
         // Build post options
-        const options: { replyTo?: string; media?: { data: Uint8Array; mimeType: string; filename?: string } } = {};
+        const options: {
+          replyTo?: string;
+          media?: { data: Uint8Array; mimeType: string; filename?: string };
+          nsfw?: boolean;
+        } = {};
         if (replyTo) options.replyTo = replyTo;
+        if (nsfw) options.nsfw = true;
 
         // If mediaCid provided, retrieve media data to attach to post
         if (mediaCid) {
@@ -413,6 +424,240 @@ export class CloutWebServer {
         res.status(200).end();
       } catch (error: any) {
         res.status(500).end();
+      }
+    });
+
+    // =========================================================================
+    // TRUST TAGS ROUTES (Local organization of trust network)
+    // =========================================================================
+
+    // Get all tags with member counts
+    this.app.get('/api/tags', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const tags = this.clout!.getAllTags();
+        const tagsArray = Array.from(tags.entries()).map(([tag, count]) => ({
+          tag,
+          count
+        }));
+
+        res.json({ success: true, data: { tags: tagsArray } });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get users with a specific tag
+    this.app.get('/api/tags/:tag/users', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const tag = req.params.tag;
+        const users = this.clout!.getUsersByTag(tag);
+
+        res.json({
+          success: true,
+          data: {
+            tag,
+            users: users.map(u => ({ publicKey: u, short: u.slice(0, 8) }))
+          }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get tags for a specific user
+    this.app.get('/api/tags/user/:publicKey', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const publicKey = req.params.publicKey;
+        const tags = this.clout!.getTagsForUser(publicKey);
+
+        res.json({ success: true, data: { publicKey, tags } });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Add tag to user
+    this.app.post('/api/tags', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const { publicKey, tag } = req.body;
+        if (!publicKey || !tag) {
+          return res.status(400).json({
+            success: false,
+            error: 'publicKey and tag are required'
+          });
+        }
+
+        this.clout!.addTrustTag(publicKey, tag);
+        res.json({ success: true });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Remove tag from user
+    this.app.delete('/api/tags', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const { publicKey, tag } = req.body;
+        if (!publicKey || !tag) {
+          return res.status(400).json({
+            success: false,
+            error: 'publicKey and tag are required'
+          });
+        }
+
+        this.clout!.removeTrustTag(publicKey, tag);
+        res.json({ success: true });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Get feed filtered by tag
+    this.app.get('/api/feed/tag/:tag', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const tag = req.params.tag;
+        const limit = parseInt(req.query.limit as string) || 50;
+
+        const posts = await this.clout!.getFeed({ tag, limit });
+
+        res.json({
+          success: true,
+          data: {
+            tag,
+            posts: posts.map((post: any) => ({
+              ...post,
+              authorShort: post.author.slice(0, 8),
+              reputation: this.clout!.getReputation(post.author)
+            })),
+            totalPosts: posts.length
+          }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // =========================================================================
+    // SETTINGS ROUTES (Trust settings, NSFW filtering, etc.)
+    // =========================================================================
+
+    // Get current trust settings
+    this.app.get('/api/settings', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const profile = this.clout!.getProfile();
+        res.json({
+          success: true,
+          data: {
+            trustSettings: profile.trustSettings,
+            nsfwEnabled: this.clout!.isNsfwEnabled()
+          }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Update trust settings
+    this.app.post('/api/settings', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const settings = req.body;
+        await this.clout!.updateTrustSettings(settings);
+
+        const profile = this.clout!.getProfile();
+        res.json({
+          success: true,
+          data: { trustSettings: profile.trustSettings }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Toggle NSFW content display
+    this.app.post('/api/settings/nsfw', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const { enabled } = req.body;
+        if (typeof enabled !== 'boolean') {
+          return res.status(400).json({
+            success: false,
+            error: 'enabled must be a boolean'
+          });
+        }
+
+        await this.clout!.setNsfwEnabled(enabled);
+        res.json({
+          success: true,
+          data: { nsfwEnabled: this.clout!.isNsfwEnabled() }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Set content-type filter
+    this.app.post('/api/settings/content-filter', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const { contentType, maxHops, minReputation } = req.body;
+        if (!contentType) {
+          return res.status(400).json({
+            success: false,
+            error: 'contentType is required'
+          });
+        }
+
+        await this.clout!.setContentTypeFilter(contentType, {
+          maxHops: maxHops ?? 3,
+          minReputation: minReputation ?? 0.3
+        });
+
+        res.json({ success: true });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // =========================================================================
+    // REPUTATION ROUTES
+    // =========================================================================
+
+    // Get reputation for a specific user
+    this.app.get('/api/reputation/:publicKey', (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const publicKey = req.params.publicKey;
+        const reputation = this.clout!.getReputation(publicKey);
+
+        res.json({
+          success: true,
+          data: {
+            publicKey,
+            publicKeyShort: publicKey.slice(0, 8),
+            ...reputation
+          }
+        });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
       }
     });
   }

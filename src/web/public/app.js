@@ -70,6 +70,7 @@ function setupTabs() {
       if (tab === 'identity') loadIdentity();
       if (tab === 'stats') loadStats();
       if (tab === 'slides') loadSlides();
+      if (tab === 'settings') loadSettings();
     });
   });
 }
@@ -112,9 +113,25 @@ async function loadFeed() {
 
     feedList.innerHTML = data.posts.map(post => {
       const hasMedia = post.media && post.media.cid;
+      const rep = post.reputation || { score: 0, distance: 0 };
+      const repColor = getReputationColor(rep.score);
+      const tags = post.authorTags || [];
+      const tagsHtml = tags.length > 0
+        ? `<span class="author-tags">${tags.map(t => `<span class="tag-badge">${escapeHtml(t)}</span>`).join('')}</span>`
+        : '';
+
       return `
-        <div class="feed-item ${hasMedia ? 'has-media' : ''}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
-          <div class="feed-author">${post.author.slice(0, 16)}...</div>
+        <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
+          <div class="feed-header">
+            <div class="feed-author">
+              ${post.author.slice(0, 16)}...
+              <span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
+                ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd'}
+              </span>
+              ${tagsHtml}
+            </div>
+            ${post.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
+          </div>
           ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
           <div class="feed-content">${renderPostContent(post)}</div>
           <div class="feed-footer">
@@ -127,6 +144,15 @@ async function loadFeed() {
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
   }
+}
+
+// Get color for reputation score
+function getReputationColor(score) {
+  if (score >= 0.8) return '#22c55e'; // green
+  if (score >= 0.6) return '#84cc16'; // lime
+  if (score >= 0.4) return '#eab308'; // yellow
+  if (score >= 0.2) return '#f97316'; // orange
+  return '#ef4444'; // red
 }
 
 // View Thread
@@ -213,6 +239,7 @@ function cancelReply() {
 // Create Post
 async function createPost() {
   const content = $('post-content').value.trim();
+  const nsfw = $('post-nsfw').checked;
 
   // Allow posts with just media (no text required)
   if (!content && !pendingMedia) {
@@ -224,7 +251,7 @@ async function createPost() {
     $('create-post-btn').disabled = true;
     $('create-post-btn').textContent = 'Posting...';
 
-    const body = { content };
+    const body = { content, nsfw };
     if (replyingTo) {
       body.replyTo = replyingTo;
     }
@@ -244,6 +271,7 @@ async function createPost() {
     );
     $('post-content').value = '';
     $('char-count').textContent = '0';
+    $('post-nsfw').checked = false; // Reset NSFW checkbox
 
     // Clear media preview
     clearMediaPreview();
@@ -756,11 +784,141 @@ async function saveProfile() {
   }
 }
 
+// =========================================================================
+// SETTINGS FUNCTIONS
+// =========================================================================
+
+// Load Settings
+async function loadSettings() {
+  try {
+    const data = await apiCall('/settings');
+
+    // Update form fields
+    $('settings-nsfw-enabled').checked = data.nsfwEnabled || false;
+    $('settings-max-hops').value = data.trustSettings?.maxHops || 3;
+
+    const minRep = data.trustSettings?.minReputation || 0.3;
+    $('settings-min-reputation').value = Math.round(minRep * 100);
+    $('settings-min-reputation-value').textContent = minRep.toFixed(2);
+
+    // Load tags
+    await loadTags();
+  } catch (error) {
+    console.error('Error loading settings:', error);
+  }
+}
+
+// Save Settings
+async function saveSettings() {
+  try {
+    $('save-settings-btn').disabled = true;
+    $('save-settings-btn').textContent = 'Saving...';
+
+    const settings = {
+      showNsfw: $('settings-nsfw-enabled').checked,
+      maxHops: parseInt($('settings-max-hops').value),
+      minReputation: parseInt($('settings-min-reputation').value) / 100
+    };
+
+    await apiCall('/settings', 'POST', settings);
+    showResult('settings-result', 'Settings saved!', true);
+  } catch (error) {
+    showResult('settings-result', `Error: ${error.message}`, false);
+  } finally {
+    $('save-settings-btn').disabled = false;
+    $('save-settings-btn').textContent = 'Save Settings';
+  }
+}
+
+// Load Tags
+async function loadTags() {
+  try {
+    const data = await apiCall('/tags');
+    const tagsList = $('tags-list');
+
+    if (!data.tags || data.tags.length === 0) {
+      tagsList.innerHTML = '<p class="empty-state">No tags yet</p>';
+      return;
+    }
+
+    tagsList.innerHTML = data.tags.map(tag => `
+      <div class="tag-item">
+        <span class="tag-name">${escapeHtml(tag.tag)}</span>
+        <span class="tag-count">${tag.count} users</span>
+        <button class="btn btn-small" onclick="viewTagUsers('${escapeHtml(tag.tag)}')">View</button>
+      </div>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading tags:', error);
+    $('tags-list').innerHTML = '<p class="empty-state">Error loading tags</p>';
+  }
+}
+
+// View users with a specific tag
+async function viewTagUsers(tag) {
+  try {
+    const data = await apiCall(`/tags/${encodeURIComponent(tag)}/users`);
+    const users = data.users || [];
+
+    if (users.length === 0) {
+      alert(`No users with tag "${tag}"`);
+      return;
+    }
+
+    const userList = users.map(u => `${u.short}... (${u.publicKey})`).join('\n');
+    alert(`Users with tag "${tag}":\n\n${userList}`);
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  }
+}
+
+// Add Tag
+async function addTag() {
+  const tag = $('new-tag-name').value.trim();
+  const publicKey = $('new-tag-user').value.trim();
+
+  if (!tag || !publicKey) {
+    showResult('tag-result', 'Please enter both tag name and user public key', false);
+    return;
+  }
+
+  try {
+    $('add-tag-btn').disabled = true;
+    await apiCall('/tags', 'POST', { tag, publicKey });
+
+    showResult('tag-result', `Tag "${tag}" added to user!`, true);
+    $('new-tag-name').value = '';
+    $('new-tag-user').value = '';
+
+    // Reload tags
+    await loadTags();
+  } catch (error) {
+    showResult('tag-result', `Error: ${error.message}`, false);
+  } finally {
+    $('add-tag-btn').disabled = false;
+  }
+}
+
+// Setup settings event listeners
+function setupSettings() {
+  // Min reputation slider
+  $('settings-min-reputation').addEventListener('input', (e) => {
+    $('settings-min-reputation-value').textContent = (e.target.value / 100).toFixed(2);
+  });
+
+  // Save settings button
+  $('save-settings-btn').addEventListener('click', saveSettings);
+
+  // Add tag button
+  $('add-tag-btn').addEventListener('click', addTag);
+}
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
   setupTabs();
   setupCharCounter();
   setupMediaUpload();
+  setupSettings();
 
   // Event listeners
   $('init-btn').addEventListener('click', initializeClout);

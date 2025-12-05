@@ -15,6 +15,8 @@ export interface PostConfig {
   readonly ephemeralKeyProof?: Uint8Array;
   /** Optional: Media metadata for posts with attached media */
   readonly media?: MediaMetadata;
+  /** NSFW flag - marks content as Not Safe For Work */
+  readonly nsfw?: boolean;
 }
 
 export interface ContentGossip {
@@ -73,7 +75,8 @@ export class CloutPost {
       contentType: config.contentType || 'text/plain',
       ephemeralPublicKey: config.ephemeralPublicKey,
       ephemeralKeyProof: config.ephemeralKeyProof,
-      media: config.media
+      media: config.media,
+      nsfw: config.nsfw
     };
 
     // 7. Hash package for timestamping

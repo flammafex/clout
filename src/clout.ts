@@ -179,6 +179,8 @@ export class Clout {
             // Check Trust: Is this author in my web of trust?
             const reputation = this.reputationValidator.computeReputation(msg.post.author);
             if (reputation.visible) {
+              // NSFW filtering happens at display time in getFeed(), not here
+              // We still store NSFW posts so users can toggle the setting later
               await this.store.addPost(msg.post);
             }
           }
@@ -419,7 +421,7 @@ export class Clout {
    * 3. Link: Embed CID reference in post content
    *
    * @param content - Post content
-   * @param options - Post options including replyTo, media, and ephemeral key settings
+   * @param options - Post options including replyTo, media, nsfw flag, and ephemeral key settings
    */
   async post(
     content: string,
@@ -427,11 +429,14 @@ export class Clout {
       replyTo?: string;
       media?: MediaInput;
       useEphemeralKey?: boolean;
+      /** Mark post as Not Safe For Work - requires user to willingly label content */
+      nsfw?: boolean;
     }
   ): Promise<CloutPost> {
     const replyTo = options?.replyTo;
     const media = options?.media;
     const useEphemeralKey = options?.useEphemeralKey !== false; // default: true
+    const nsfw = options?.nsfw ?? false;
 
     // 1. Check for Day Pass
     if (!this.currentTicket) {
@@ -493,7 +498,8 @@ export class Clout {
       contentType: media ? media.mimeType : 'text/plain',
       ephemeralPublicKey,
       ephemeralKeyProof,
-      media: mediaMetadata
+      media: mediaMetadata,
+      nsfw
     };
 
     // 5. Create & Gossip Post
@@ -806,6 +812,95 @@ export class Clout {
     });
   }
 
+  /**
+   * Update trust settings (NSFW filtering, content-type filters, etc.)
+   * Changes sync automatically via Chronicle CRDT
+   */
+  async updateTrustSettings(settings: Partial<import('./clout-types.js').TrustSettings>): Promise<void> {
+    console.log(`[Clout] ⚙️ Updating trust settings`);
+
+    // Get current profile
+    const currentProfile = this.getProfile();
+
+    // Merge new settings with existing
+    const updatedSettings = {
+      ...currentProfile.trustSettings,
+      ...settings
+    };
+
+    // Update profile in Chronicle
+    this.state.updateProfile({
+      publicKey: this.publicKeyHex,
+      trustGraph: this.trustGraph,
+      trustSettings: updatedSettings,
+      metadata: currentProfile.metadata
+    });
+
+    // Update reputation validator settings if maxHops or minReputation changed
+    if (settings.maxHops !== undefined || settings.minReputation !== undefined) {
+      // Note: ReputationValidator is readonly, so we'd need to reinitialize
+      // For now, the new settings will be used via getProfile().trustSettings
+      console.log(`[Clout] Updated filter settings: maxHops=${updatedSettings.maxHops}, minReputation=${updatedSettings.minReputation}`);
+    }
+
+    if (settings.showNsfw !== undefined) {
+      console.log(`[Clout] NSFW content: ${settings.showNsfw ? 'enabled' : 'disabled'}`);
+    }
+  }
+
+  /**
+   * Set content-type specific filter rules
+   * Example: setContentTypeFilter('image/*', { maxHops: 1, minReputation: 0.8 })
+   */
+  async setContentTypeFilter(
+    contentType: string,
+    filter: import('./clout-types.js').ContentTypeFilter
+  ): Promise<void> {
+    console.log(`[Clout] 🔧 Setting filter for content type: ${contentType}`);
+
+    const currentProfile = this.getProfile();
+    const currentFilters = currentProfile.trustSettings.contentTypeFilters || {};
+
+    await this.updateTrustSettings({
+      contentTypeFilters: {
+        ...currentFilters,
+        [contentType]: filter
+      }
+    });
+  }
+
+  /**
+   * Remove content-type specific filter (use defaults)
+   */
+  async removeContentTypeFilter(contentType: string): Promise<void> {
+    const currentProfile = this.getProfile();
+    const currentFilters = { ...currentProfile.trustSettings.contentTypeFilters };
+
+    if (currentFilters[contentType]) {
+      delete currentFilters[contentType];
+
+      await this.updateTrustSettings({
+        contentTypeFilters: currentFilters
+      });
+
+      console.log(`[Clout] 🔧 Removed filter for content type: ${contentType}`);
+    }
+  }
+
+  /**
+   * Enable or disable NSFW content display
+   */
+  async setNsfwEnabled(enabled: boolean): Promise<void> {
+    await this.updateTrustSettings({ showNsfw: enabled });
+  }
+
+  /**
+   * Check if NSFW content is enabled
+   */
+  isNsfwEnabled(): boolean {
+    return this.getProfile().trustSettings.showNsfw ?? false;
+  }
+
   // =================================================================
   //  SECTION 4: TRUST TAGS (Local Organization)
   // =================================================================
@@ -914,20 +1009,42 @@ export class Clout {
 
   /**
    * Get posts from the local feed cache
+   *
+   * @param options.tag - Filter by trust tag
+   * @param options.limit - Maximum number of posts
+   * @param options.includeNsfw - Override NSFW setting for this call
    */
-  async getFeed(options?: { tag?: string; limit?: number }): Promise<PostPackage[]> {
+  async getFeed(options?: { tag?: string; limit?: number; includeNsfw?: boolean }): Promise<PostPackage[]> {
     if (!this.store) {
       throw new Error('No store configured');
     }
 
+    let posts: PostPackage[];
+
     // Filter by tag if specified
     if (options?.tag) {
-      const posts = await this.getFeedByTag(options.tag);
-      return options.limit ? posts.slice(0, options.limit) : posts;
+      posts = await this.getFeedByTag(options.tag);
+    } else {
+      posts = await this.store.getFeed();
     }
 
-    // Get all posts
-    const posts = await this.store.getFeed();
+    // Apply NSFW filtering
+    const settings = this.getProfile().trustSettings;
+    const showNsfw = options?.includeNsfw ?? settings.showNsfw ?? false;
+    const nsfwMinReputation = settings.nsfwMinReputation ?? DEFAULT_TRUST_SETTINGS.nsfwMinReputation ?? 0.7;
+
+    if (!showNsfw) {
+      // Filter out NSFW posts
+      posts = posts.filter(post => !post.nsfw);
+    } else {
+      // Show NSFW but only from high-reputation users
+      posts = posts.filter(post => {
+        if (!post.nsfw) return true;
+        const rep = this.reputationValidator.computeReputation(post.author);
+        return rep.score >= nsfwMinReputation;
+      });
+    }
+
     return options?.limit ? posts.slice(0, options.limit) : posts;
   }
 
