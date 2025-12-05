@@ -1,9 +1,28 @@
 /**
- * Feed Routes - Posts, threads, reactions, and mentions
+ * Feed Routes - Posts, threads, reactions, mentions, and live updates
  */
 
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import type { Clout } from '../../clout.js';
+
+// Store connected SSE clients for live updates
+const sseClients: Set<Response> = new Set();
+
+// Notify all connected clients of a new post
+export function notifyNewPost(post: any) {
+  const message = JSON.stringify({ type: 'new_post', data: post });
+  for (const client of sseClients) {
+    client.write(`data: ${message}\n\n`);
+  }
+}
+
+// Notify clients of notification count changes
+export function notifyNotifications(counts: any) {
+  const message = JSON.stringify({ type: 'notifications', data: counts });
+  for (const client of sseClients) {
+    client.write(`data: ${message}\n\n`);
+  }
+}
 
 // Helper to get reactions summary for a post
 function getReactionsSummary(clout: Clout, postId: string) {
@@ -47,7 +66,8 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
               trustPathKeys: trustPath?.path.map(k => k.slice(0, 8)) || [],
               isDirectlyTrusted: clout.isDirectlyTrusted(post.author),
               reactions: reactionData.reactions,
-              myReaction: reactionData.myReaction
+              myReaction: reactionData.myReaction,
+              isBookmarked: clout.isBookmarked(post.id)
             };
           }),
           totalPosts: allPosts.length,
@@ -285,6 +305,242 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
+  });
+
+  // =========================================================================
+  // BOOKMARKS
+  // =========================================================================
+
+  // Get bookmarked posts
+  router.get('/bookmarks', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const posts = await clout.getBookmarks();
+
+      res.json({
+        success: true,
+        data: {
+          posts: posts.map((post: any) => ({
+            ...post,
+            authorShort: post.author.slice(0, 8),
+            authorDisplayName: clout.getDisplayName(post.author),
+            reactions: getReactionsSummary(clout, post.id).reactions,
+            isBookmarked: true
+          })),
+          count: posts.length
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Bookmark a post
+  router.post('/bookmark', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+      const { postId } = req.body;
+
+      if (!postId) {
+        return res.status(400).json({ success: false, error: 'postId is required' });
+      }
+
+      clout.bookmark(postId);
+      res.json({ success: true, data: { postId, bookmarked: true } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Remove bookmark from a post
+  router.post('/unbookmark', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+      const { postId } = req.body;
+
+      if (!postId) {
+        return res.status(400).json({ success: false, error: 'postId is required' });
+      }
+
+      clout.unbookmark(postId);
+      res.json({ success: true, data: { postId, bookmarked: false } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // =========================================================================
+  // SEARCH
+  // =========================================================================
+
+  // Search posts by content or author
+  router.get('/search', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const query = (req.query.q as string || '').toLowerCase().trim();
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      if (!query) {
+        return res.json({ success: true, data: { posts: [], count: 0, query: '' } });
+      }
+
+      const allPosts = await clout.getFeed();
+
+      // Search in content, author key, and author display name
+      const results = allPosts.filter((post: any) => {
+        const content = (post.content || '').toLowerCase();
+        const authorKey = post.author.toLowerCase();
+        const displayName = (clout.getDisplayName(post.author) || '').toLowerCase();
+        const nickname = (clout.getNickname(post.author) || '').toLowerCase();
+
+        return content.includes(query) ||
+               authorKey.includes(query) ||
+               displayName.includes(query) ||
+               nickname.includes(query);
+      }).slice(0, limit);
+
+      res.json({
+        success: true,
+        data: {
+          posts: results.map((post: any) => ({
+            ...post,
+            authorShort: post.author.slice(0, 8),
+            authorDisplayName: clout.getDisplayName(post.author),
+            reactions: getReactionsSummary(clout, post.id).reactions,
+            isBookmarked: clout.isBookmarked(post.id)
+          })),
+          count: results.length,
+          query
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // =========================================================================
+  // NOTIFICATIONS
+  // =========================================================================
+
+  // Get notification counts
+  router.get('/notifications/counts', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const counts = await clout.getNotificationCounts();
+      res.json({ success: true, data: counts });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get replies to my posts
+  router.get('/notifications/replies', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const limit = parseInt(req.query.limit as string) || 20;
+      const unreadOnly = req.query.unread === 'true';
+
+      const replies = await clout.getReplies({ limit, unreadOnly });
+
+      res.json({
+        success: true,
+        data: {
+          posts: replies.map((post: any) => ({
+            ...post,
+            authorShort: post.author.slice(0, 8),
+            authorDisplayName: clout.getDisplayName(post.author),
+            reactions: getReactionsSummary(clout, post.id).reactions
+          })),
+          count: replies.length
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Mark notifications as seen
+  router.post('/notifications/mark-seen', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+      const { type } = req.body;
+
+      switch (type) {
+        case 'slides':
+          clout.markSlidesSeen();
+          break;
+        case 'replies':
+          clout.markRepliesSeen();
+          break;
+        case 'mentions':
+          clout.markMentionsSeen();
+          break;
+        case 'all':
+          clout.markSlidesSeen();
+          clout.markRepliesSeen();
+          clout.markMentionsSeen();
+          break;
+        default:
+          return res.status(400).json({ success: false, error: 'Invalid type. Use: slides, replies, mentions, or all' });
+      }
+
+      res.json({ success: true, data: { marked: type } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // =========================================================================
+  // LIVE UPDATES (Server-Sent Events)
+  // =========================================================================
+
+  // SSE endpoint for live updates
+  router.get('/live', (req, res) => {
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable buffering for nginx
+
+    // Send initial connection message
+    res.write(`data: ${JSON.stringify({ type: 'connected', timestamp: Date.now() })}\n\n`);
+
+    // Add client to set
+    sseClients.add(res);
+    console.log(`[SSE] Client connected. Total: ${sseClients.size}`);
+
+    // Send heartbeat every 30 seconds to keep connection alive
+    const heartbeat = setInterval(() => {
+      res.write(`data: ${JSON.stringify({ type: 'heartbeat', timestamp: Date.now() })}\n\n`);
+    }, 30000);
+
+    // Remove client on disconnect
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      sseClients.delete(res);
+      console.log(`[SSE] Client disconnected. Total: ${sseClients.size}`);
+    });
+  });
+
+  // Get number of connected clients (for debugging)
+  router.get('/live/status', (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        connectedClients: sseClients.size
+      }
+    });
   });
 
   return router;

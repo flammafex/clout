@@ -4,7 +4,7 @@
  * Exports all route factory functions for use by the main server.
  */
 
-export { createFeedRoutes } from './feed.js';
+export { createFeedRoutes, notifyNewPost, notifyNotifications } from './feed.js';
 export { createTrustRoutes } from './trust.js';
 export { createMediaRoutes } from './media.js';
 export { createSlidesRoutes } from './slides.js';
