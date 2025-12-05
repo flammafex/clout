@@ -71,6 +71,7 @@ function setupTabs() {
       if (tab === 'stats') loadStats();
       if (tab === 'slides') loadSlides();
       if (tab === 'settings') loadSettings();
+      if (tab === 'trust') loadTrustedUsers();
     });
   });
 }
@@ -107,7 +108,17 @@ async function loadFeed() {
     const feedList = $('feed-list');
 
     if (!data.posts || data.posts.length === 0) {
-      feedList.innerHTML = '<p class="empty-state">No posts yet. Trust someone or create a post!</p>';
+      feedList.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">🏠</div>
+          <h4>Your feed is quiet</h4>
+          <p>Posts from people in your trust circle will appear here.</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" onclick="switchToTab('trust')">Add Someone to Trust</button>
+            <button class="btn btn-secondary" onclick="switchToTab('post')">Write Your First Post</button>
+          </div>
+        </div>
+      `;
       return;
     }
 
@@ -120,17 +131,44 @@ async function loadFeed() {
         ? `<span class="author-tags">${tags.map(t => `<span class="tag-badge">${escapeHtml(t)}</span>`).join('')}</span>`
         : '';
 
+      // Build trust path display ("Via Alice → Bob")
+      const trustPath = post.trustPath || [];
+      const isYou = rep.distance === 0;
+      const isDirectTrust = post.isDirectlyTrusted || rep.distance === 1;
+      let trustContext = '';
+
+      if (isYou) {
+        trustContext = '<span class="trust-context trust-self">Your post</span>';
+      } else if (isDirectTrust) {
+        trustContext = '<span class="trust-context trust-direct">In your circle</span>';
+      } else if (trustPath.length > 0) {
+        const pathDisplay = trustPath.slice(0, -1).join(' → '); // Show intermediaries
+        trustContext = `<span class="trust-context trust-indirect">Via ${pathDisplay}</span>`;
+      }
+
+      // Visual hierarchy class based on distance
+      const distanceClass = `distance-${Math.min(rep.distance, 3)}`;
+
+      // Quick trust button for non-directly-trusted users
+      const quickTrustBtn = (!isYou && !isDirectTrust)
+        ? `<button class="btn-trust-quick" onclick="event.stopPropagation(); quickTrust('${post.author}')" title="Add to your circle">+</button>`
+        : '';
+
       return `
-        <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
+        <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${distanceClass}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
           <div class="feed-header">
             <div class="feed-author">
               ${post.author.slice(0, 16)}...
               <span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
-                ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd'}
+                ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
               </span>
               ${tagsHtml}
+              ${quickTrustBtn}
             </div>
-            ${post.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
+            <div class="feed-meta">
+              ${trustContext}
+              ${post.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
+            </div>
           </div>
           ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
           <div class="feed-content">${renderPostContent(post)}</div>
@@ -144,6 +182,77 @@ async function loadFeed() {
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
   }
+}
+
+// Switch to a specific tab
+function switchToTab(tabName) {
+  const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+  if (tabBtn) tabBtn.click();
+}
+
+// Quick trust a user from feed
+async function quickTrust(publicKey) {
+  try {
+    await apiCall('/trust', 'POST', { publicKey });
+    showResult('feed-list', `Added ${publicKey.slice(0, 8)}... to your trust circle!`, true);
+    // Reload feed to update trust indicators
+    setTimeout(() => loadFeed(), 1000);
+  } catch (error) {
+    alert(`Could not trust user: ${error.message}`);
+  }
+}
+
+// Load trusted users for Trust tab
+async function loadTrustedUsers() {
+  try {
+    const data = await apiCall('/trusted');
+    const container = $('trusted-users-list');
+    const countBadge = $('trust-count-badge');
+
+    countBadge.textContent = data.count || 0;
+
+    if (!data.users || data.users.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">🌱</div>
+          <h4>Your trust circle is empty</h4>
+          <p>Start by trusting someone you know. Their posts will appear in your feed, and you'll see posts from people they trust too.</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = data.users.map(user => {
+      const tags = user.tags || [];
+      const tagsHtml = tags.length > 0
+        ? `<div class="user-tags">${tags.map(t => `<span class="tag-badge-small">${escapeHtml(t)}</span>`).join('')}</div>`
+        : '';
+
+      return `
+        <div class="trusted-user-card">
+          <div class="trusted-user-info">
+            <div class="trusted-user-key" title="${user.publicKey}">
+              ${user.publicKeyShort}...
+            </div>
+            ${tagsHtml}
+          </div>
+          <div class="trusted-user-actions">
+            <button class="btn-small" onclick="copyToClipboard2('${user.publicKey}')">Copy Key</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Error loading trusted users:', error);
+    $('trusted-users-list').innerHTML = `<p class="empty-state">Error loading trust circle</p>`;
+  }
+}
+
+// Copy text to clipboard (helper)
+function copyToClipboard2(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    alert('Public key copied!');
+  });
 }
 
 // Get color for reputation score
@@ -303,17 +412,20 @@ async function trustUser() {
 
   try {
     $('trust-btn').disabled = true;
-    $('trust-btn').textContent = 'Trusting...';
+    $('trust-btn').textContent = 'Adding...';
 
     await apiCall('/trust', 'POST', { publicKey });
 
-    showResult('trust-result', 'User trusted successfully!', true);
+    showResult('trust-result', `Added ${publicKey.slice(0, 8)}... to your circle!`, true);
     $('trust-public-key').value = '';
+
+    // Reload the trusted users list
+    await loadTrustedUsers();
   } catch (error) {
     showResult('trust-result', `Error: ${error.message}`, false);
   } finally {
     $('trust-btn').disabled = false;
-    $('trust-btn').textContent = 'Trust User';
+    $('trust-btn').textContent = 'Trust';
   }
 }
 

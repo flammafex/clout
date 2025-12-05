@@ -1064,3 +1064,275 @@ h2 {
   flex: 1;
   min-width: 150px;
 }
+
+/* =========================================================================
+   TRUST-CENTRIC UI IMPROVEMENTS
+   ========================================================================= */
+
+/* Empty State - Helpful */
+.empty-state-helpful {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 2px dashed var(--border);
+}
+
+.empty-state-helpful .empty-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.empty-state-helpful h4 {
+  font-size: 1.25rem;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+
+.empty-state-helpful p {
+  color: var(--text-dim);
+  margin-bottom: 1.5rem;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.empty-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* Trust Network Section */
+.trust-network-section {
+  margin-bottom: 2rem;
+}
+
+.trust-count {
+  background: var(--primary);
+  color: white;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.trusted-users-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.trusted-user-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: var(--bg-card);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+  transition: border-color 0.2s;
+}
+
+.trusted-user-card:hover {
+  border-color: var(--primary);
+}
+
+.trusted-user-info {
+  flex: 1;
+}
+
+.trusted-user-key {
+  font-family: monospace;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.user-tags {
+  margin-top: 0.5rem;
+}
+
+.tag-badge-small {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-right: 0.25rem;
+}
+
+/* Add Trust Card */
+.add-trust-card {
+  margin-bottom: 2rem;
+}
+
+.trust-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.trust-input-row .input {
+  flex: 1;
+}
+
+/* Trust Explainer */
+.trust-explainer {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+}
+
+.trust-explainer h4 {
+  margin-bottom: 1rem;
+  color: var(--text);
+}
+
+.trust-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.trust-level {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.trust-level.level-1 {
+  border-left: 3px solid #22c55e;
+}
+
+.trust-level.level-2 {
+  border-left: 3px solid #eab308;
+}
+
+.trust-level.level-3 {
+  border-left: 3px solid #f97316;
+}
+
+.level-icon {
+  font-size: 1.5rem;
+}
+
+.level-info strong {
+  display: block;
+  color: var(--text);
+  margin-bottom: 0.15rem;
+}
+
+.level-info p {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+/* Trust Context on Posts */
+.feed-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.trust-context {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+}
+
+.trust-context.trust-self {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+}
+
+.trust-context.trust-direct {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+}
+
+.trust-context.trust-indirect {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fde047;
+}
+
+/* Visual Hierarchy by Trust Distance */
+.feed-item.distance-0 {
+  border-left: 3px solid var(--primary);
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.1), transparent);
+}
+
+.feed-item.distance-1 {
+  border-left: 3px solid #22c55e;
+}
+
+.feed-item.distance-2 {
+  border-left: 3px solid #eab308;
+  opacity: 0.95;
+}
+
+.feed-item.distance-3 {
+  border-left: 3px solid #f97316;
+  opacity: 0.9;
+}
+
+/* Quick Trust Button */
+.btn-trust-quick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  margin-left: 0.5rem;
+  transition: all 0.2s;
+}
+
+.btn-trust-quick:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+/* Small Button */
+.btn-small {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-small:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Responsive adjustments */
+@media (max-width: 600px) {
+  .trust-input-row {
+    flex-direction: column;
+  }
+
+  .empty-actions {
+    flex-direction: column;
+  }
+
+  .empty-actions .btn {
+    width: 100%;
+  }
+}

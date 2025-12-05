@@ -138,14 +138,21 @@ export class CloutWebServer {
         res.json({
           success: true,
           data: {
-            posts: posts.map((post: any) => ({
-              ...post,
-              authorShort: post.author.slice(0, 8),
-              // Include reputation for each post author
-              reputation: this.clout!.getReputation(post.author),
-              // Include author's tags
-              authorTags: this.clout!.getTagsForUser(post.author)
-            })),
+            posts: posts.map((post: any) => {
+              const trustPath = this.clout!.getTrustPath(post.author);
+              return {
+                ...post,
+                authorShort: post.author.slice(0, 8),
+                // Include reputation for each post author
+                reputation: this.clout!.getReputation(post.author),
+                // Include author's tags
+                authorTags: this.clout!.getTagsForUser(post.author),
+                // Include trust path for "Via X → Y" display
+                trustPath: trustPath?.path.map(k => k.slice(0, 8)) || [],
+                // Is author directly trusted?
+                isDirectlyTrusted: this.clout!.isDirectlyTrusted(post.author)
+              };
+            }),
             totalPosts: allPosts.length,
             nsfwEnabled: this.clout!.isNsfwEnabled()
           }
@@ -632,6 +639,43 @@ export class CloutWebServer {
         });
 
         res.json({ success: true });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // =========================================================================
+    // TRUST NETWORK ROUTES
+    // =========================================================================
+
+    // Get list of directly trusted users with their details
+    this.app.get('/api/trusted', async (req, res) => {
+      try {
+        if (!this.initialized) throw new Error('Not initialized');
+
+        const profile = this.clout!.getProfile();
+        const myKey = profile.publicKey;
+        const trustedKeys = Array.from(profile.trustGraph).filter(k => k !== myKey);
+
+        const trustedUsers = trustedKeys.map(publicKey => {
+          const reputation = this.clout!.getReputation(publicKey);
+          const tags = this.clout!.getTagsForUser(publicKey);
+          return {
+            publicKey,
+            publicKeyShort: publicKey.slice(0, 12),
+            reputation,
+            tags,
+            distance: 1 // Direct trust = distance 1
+          };
+        });
+
+        res.json({
+          success: true,
+          data: {
+            count: trustedUsers.length,
+            users: trustedUsers
+          }
+        });
       } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
       }

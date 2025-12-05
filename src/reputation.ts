@@ -403,6 +403,39 @@ export class ReputationValidator {
   }
 
   /**
+   * Get trust path to a user (public API)
+   *
+   * Returns the best trust path to a user, showing who vouched for them.
+   * Useful for displaying "Via Alice → Bob" in the UI.
+   */
+  getTrustPath(publicKey: string): { path: string[]; distance: number } | null {
+    const paths = this.findTrustPaths(publicKey);
+
+    if (paths.length === 0) {
+      return null;
+    }
+
+    // Find best path (shortest, then highest weight)
+    const bestPath = paths.reduce((best, path) => {
+      if (path.hops.length < best.hops.length) return path;
+      if (path.hops.length === best.hops.length && path.weight > best.weight) return path;
+      return best;
+    });
+
+    return {
+      path: bestPath.hops,
+      distance: bestPath.hops.length
+    };
+  }
+
+  /**
+   * Check if a user is directly trusted (1 hop)
+   */
+  isDirectlyTrusted(publicKey: string): boolean {
+    return this.trustGraph.has(publicKey);
+  }
+
+  /**
    * Default reputation score for invalid/unknown users
    */
   private getDefaultScore(): ReputationScore {
