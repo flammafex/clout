@@ -1,6 +1,6 @@
 # Getting Started with Clout
 
-This guide explains how to participate in the Clout network - whether you want to join an existing community, start your own, or understand how the network spreads content.
+This guide explains how to participate in the Clout network - whether you want to start your own network, join an existing one, or understand how networks connect.
 
 ## Understanding Clout's Model
 
@@ -8,213 +8,301 @@ This guide explains how to participate in the Clout network - whether you want t
 
 | Concept | Traditional Federation (Mastodon) | Clout |
 |---------|-----------------------------------|-------|
-| **Server/Instance** | Separate servers you join | No instances - pure P2P network |
+| **Server/Instance** | Separate servers you join | You configure your own infrastructure stack |
+| **Who's the origin?** | Server admin creates the instance | You run your own Witness + Freebird + Relay |
 | **Moderation** | Server admin controls visibility | Your personal trust graph controls visibility |
-| **Federation** | Server-to-server protocol | User-to-user gossip based on trust |
-| **Feed Algorithm** | Server-side computation | Client-side trust graph filtering |
-| **Censorship** | Instance can ban you | No central authority - "shadowban" via not propagating |
+| **Federation** | Server-to-server protocol | User-to-user gossip; networks connect via shared infrastructure |
+| **Anti-spam** | Server admin approves accounts | Freebird tokens + Day Pass system |
 
-In Clout, there are no "instances" to join. Instead, you:
-1. Create a cryptographic identity
-2. Get invited by someone already in the network (for anti-spam)
-3. Build your **web of trust** by following people you trust
-4. Your feed is determined by posts from your trust graph (up to 3 hops away by default)
+**The key insight**: In Clout, you don't "join someone's instance." You either:
+1. **Start your own network** by running your own infrastructure (Witness, Freebird, Relay)
+2. **Connect to an existing network** by pointing your node at shared infrastructure
 
 ---
 
-## Joining Someone's Network (Being Invited)
+## Architecture: The Three Infrastructure Components
 
-To participate in Clout, you need to be invited by someone already in the network. This isn't about "joining their instance" - it's about being vouched for to prevent spam.
+Clout is built on three infrastructure services that you can run yourself:
 
-### Step 1: Create Your Identity
-
-```bash
-# Using CLI
-clout identity create
-
-# This generates:
-# - Public Key: Your visible address (like a username)
-# - Private Key: Stored securely in ~/.clout/identities.json
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     YOUR CLOUT NODE                         │
+│  (Identity, Posts, Trust Graph, Feed)                       │
+└─────────────────────────────────────────────────────────────┘
+          │                │                    │
+          ▼                ▼                    ▼
+   ┌────────────┐   ┌─────────────┐   ┌────────────────────┐
+   │  WITNESS   │   │  FREEBIRD   │   │  HYPERTOKEN RELAY  │
+   │ (Timestamp)│   │ (Anti-Sybil)│   │ (P2P Networking)   │
+   └────────────┘   └─────────────┘   └────────────────────┘
 ```
 
-Or programmatically:
-```typescript
-import { Crypto } from 'clout';
-
-const keypair = Crypto.generateKeyPair();
-console.log('Your public key:', keypair.publicKey.hex);
-// Share this with whoever will invite you
-```
-
-### Step 2: Share Your Public Key
-
-Send your public key to someone who will invite you. They need this to create your invitation.
-
-### Step 3: Receive and Accept Invitation
-
-Your inviter will send you an invitation code:
-
-```typescript
-// Accept the invitation
-const freebirdToken = await yourNode.acceptInvitation(invitationCode);
-```
-
-### Step 4: Get Your Day Pass
-
-Exchange your Freebird token for a Day Pass (anti-spam measure):
-
-```bash
-# CLI
-clout ticket
-```
-
-```typescript
-// Programmatic
-await clout.buyDayPass(freebirdToken);
-
-// Duration depends on your reputation:
-// - New users: 1 day
-// - Reputation ≥0.5: 2 days
-// - Reputation ≥0.7: 3 days
-// - Reputation ≥0.9: 7 days
-```
-
-### Step 5: Trust Your Inviter (Optional but Recommended)
-
-```bash
-# CLI
-clout follow <inviter-public-key>
-
-# With custom trust weight (0.1 to 1.0)
-clout follow <public-key> --weight 0.8
-```
-
-```typescript
-// Programmatic
-await clout.trust(inviterPublicKey);      // Full trust (1.0)
-await clout.trust(inviterPublicKey, 0.8); // Partial trust (0.8)
-```
-
-### Step 6: Start Posting
-
-```bash
-# CLI
-clout post "Hello, Clout!"
-clout reply <post-id> "Great post!"
-
-# Send encrypted DM
-clout slide <public-key> "Private message"
-```
+| Component | Purpose | Source |
+|-----------|---------|--------|
+| **Witness** | Timestamping for proof-of-order | [Witness repo](https://github.com/flammafex/Witness) or fallback mode |
+| **Freebird** | Anonymous anti-spam tokens (VOPRF) | [Freebird repo](https://github.com/flammafex/Freebird) or fallback mode |
+| **HyperToken Relay** | WebRTC signaling, peer discovery | **Built into Clout** - you can run this |
 
 ---
 
-## Starting Your Own Node and Inviting Friends
+## Option 1: Start Your Own Network (Be the Origin)
 
-There's no "instance" to set up in the traditional sense. You run a Clout node, and you can invite friends to join the network through you.
+This is the primary use case. You run your own infrastructure and become the origin of your network.
 
-### Option A: Web UI (Light Client)
+### Step 1: Start the Relay Server
 
-The simplest way to run Clout:
-
-```bash
-# Start the web server
-npm run web
-
-# Open http://localhost:3000
-```
-
-This runs a **light client** that:
-- Stores your identity locally
-- Connects to relay servers for peer discovery
-- Propagates content through your trust graph
-
-### Option B: CLI Node
+The relay server is built into Clout:
 
 ```bash
 # Build Clout
 npm install
 npm run build
+```
 
+Create `start-relay.js`:
+```javascript
+import { RelayServer } from './dist/src/index.js';
+
+const relay = new RelayServer({
+  port: 3000,
+  host: '0.0.0.0'
+});
+
+await relay.start();
+console.log('Relay listening on ws://0.0.0.0:3000');
+```
+
+```bash
+node start-relay.js
+```
+
+### Step 2: Set Up Witness (Timestamping)
+
+**Option A: Run your own Witness server**
+
+Deploy from the [Witness repository](https://github.com/flammafex/Witness):
+```bash
+# From Witness repo
+cargo build --release
+./target/release/witness-gateway --port 8080
+```
+
+**Option B: Use fallback mode (development/small networks)**
+
+If no Witness gateway is configured, Clout automatically uses simulated local attestations. This is fine for development or small trusted networks where you don't need cryptographic proof-of-order.
+
+### Step 3: Set Up Freebird (Anti-Spam Tokens)
+
+**Option A: Run your own Freebird issuers**
+
+Deploy from the [Freebird repository](https://github.com/flammafex/Freebird):
+```bash
+# From Freebird repo
+cargo build --release
+./target/release/freebird-issuer --port 8081
+./target/release/freebird-verifier --port 8082
+```
+
+For MPC threshold issuance (recommended for production), run multiple issuers.
+
+**Option B: Use fallback mode (development/small networks)**
+
+If no Freebird issuers are configured, Clout uses hash-based simulated tokens. This is fine for development or small trusted networks where Sybil attacks aren't a concern.
+
+### Step 4: Configure Your Node
+
+Create `~/.clout/config.json`:
+
+```json
+{
+  "witness": {
+    "gatewayUrl": "http://localhost:8080"
+  },
+  "freebird": {
+    "issuerEndpoints": ["http://localhost:8081"],
+    "verifierUrl": "http://localhost:8082"
+  },
+  "hypertoken": {
+    "relayUrl": "ws://localhost:3000"
+  }
+}
+```
+
+Or use environment variables:
+```bash
+export WITNESS_GATEWAY_URL=http://localhost:8080
+export FREEBIRD_ISSUER_URL=http://localhost:8081
+export FREEBIRD_VERIFIER_URL=http://localhost:8082
+export HYPERTOKEN_RELAY_URL=ws://localhost:3000
+```
+
+### Step 5: Create Your Identity and Start Posting
+
+```bash
 # Create your identity
 clout identity create
 
-# Start using Clout
-clout post "Hello from my node!"
+# You're the origin - no invitation needed!
+# Get a day pass (uses your Freebird)
+clout ticket
+
+# Start posting
+clout post "Hello from my own Clout network!"
 ```
 
-### Option C: Programmatic Node
+### Step 6: Invite Friends to Your Network
 
-```typescript
-import { Clout, Crypto, FreebirdAdapter, WitnessAdapter } from 'clout';
+Share your infrastructure URLs with friends. They configure their nodes to point at your services:
 
-// Generate identity
-const keypair = Crypto.generateKeyPair();
-
-// Connect to infrastructure
-const freebird = new FreebirdAdapter({
-  issuerEndpoints: ['http://freebird-server:8081'],
-  verifierUrl: 'http://freebird-server:8082'
-});
-
-const witness = new WitnessAdapter({
-  endpoints: ['http://witness-server:8080']
-});
-
-// Create Clout instance
-const clout = new Clout({
-  publicKey: keypair.publicKey.hex,
-  privateKey: keypair.privateKey.bytes,
-  freebird,
-  witness,
-  maxHops: 3,         // See posts up to 3 degrees away
-  minReputation: 0.3  // Minimum trust score required
-});
+```json
+{
+  "witness": { "gatewayUrl": "http://your-server:8080" },
+  "freebird": {
+    "issuerEndpoints": ["http://your-server:8081"],
+    "verifierUrl": "http://your-server:8082"
+  },
+  "hypertoken": { "relayUrl": "ws://your-server:3000" }
+}
 ```
 
-### Inviting Friends
-
-Once you're in the network, you can invite others:
-
-```typescript
-// Create invitation for a friend
-const invitation = await clout.invite(friendPublicKey, {
-  message: "Welcome to Clout!"
-});
-
-// Share the invitation code with your friend
-console.log('Invitation code:', invitation.code);
+For anti-spam, you can issue invitations:
+```bash
+clout invite <friend-public-key>
 ```
 
-**For High-Reputation Users (≥0.7)**: You can delegate day passes directly:
-
+Or if you have high reputation, delegate day passes directly:
 ```typescript
-// Delegate a pass (no Freebird token needed by recipient)
 await clout.delegatePass(friendPublicKey, 24); // 24-hour pass
-
-// Limits:
-// - Reputation ≥0.9: 10 delegations per week
-// - Reputation ≥0.7: 5 delegations per week
-```
-
-Your friend accepts the delegation:
-```typescript
-await friend.acceptDelegatedPass();
 ```
 
 ---
 
-## Infrastructure: Relay Servers
+## Option 2: Connect to Someone's Network
 
-While Clout is P2P, **relay servers** provide optional infrastructure for:
+If a friend is running Clout infrastructure and you want to join their network:
 
-1. **WebRTC Signaling** - Helps peers establish direct connections
-2. **NAT Traversal** - Allows connections through firewalls
-3. **Peer Discovery** - Bootstrap finding other nodes
-4. **Message Forwarding** - For unreachable peers
+### Step 1: Get Their Infrastructure URLs
 
-### Running Your Own Relay
+Your friend shares their configuration:
+- Witness gateway URL
+- Freebird issuer/verifier URLs
+- HyperToken relay URL
 
-If you want to run infrastructure for your community:
+### Step 2: Configure Your Node
+
+```json
+{
+  "witness": { "gatewayUrl": "http://their-witness:8080" },
+  "freebird": {
+    "issuerEndpoints": ["http://their-freebird:8081"],
+    "verifierUrl": "http://their-freebird:8082"
+  },
+  "hypertoken": { "relayUrl": "ws://their-relay:3000" }
+}
+```
+
+### Step 3: Create Identity and Get Invited
+
+```bash
+clout identity create
+clout id  # Share this public key with your friend
+```
+
+Your friend invites you:
+```bash
+clout invite <your-public-key>
+```
+
+### Step 4: Accept and Start Posting
+
+```bash
+# Accept invitation and get day pass
+clout ticket
+
+# Start posting
+clout post "Hello!"
+
+# Trust your friend
+clout follow <friend-public-key>
+```
+
+---
+
+## Option 3: Quick Start with Fallback Mode
+
+For development or small trusted groups, you can skip external infrastructure entirely:
+
+```bash
+npm install
+npm run build
+
+# Create identity (no external services needed)
+clout identity create
+
+# Start the web UI
+npm run web
+# Open http://localhost:3000
+```
+
+In fallback mode:
+- **Witness**: Uses simulated local attestations
+- **Freebird**: Uses hash-based simulated tokens
+- **Relay**: Runs embedded or connects to configured relay
+
+This is perfect for:
+- Local development
+- Small trusted friend groups
+- Testing before deploying full infrastructure
+
+---
+
+## How Networks Connect ("Federation")
+
+Networks connect when users from different infrastructure setups trust each other.
+
+### Scenario: Two Independent Networks
+
+**Network A**: Alice runs her own Witness + Freebird + Relay
+**Network B**: Bob runs his own Witness + Freebird + Relay
+
+These are completely separate until:
+
+1. Alice and Bob meet (out of band)
+2. They exchange public keys
+3. Alice trusts Bob: `clout follow <bob-key>`
+4. Bob trusts Alice: `clout follow <alice-key>`
+
+Now:
+- Posts from Alice propagate to Bob (and vice versa)
+- Alice's friends can see Bob's posts (2 hops)
+- Bob's friends can see Alice's posts (2 hops)
+- The networks are **bridged through trust**, not infrastructure
+
+### Shared Infrastructure
+
+Alternatively, multiple communities can share infrastructure:
+
+```
+Community A ──┐
+              │
+Community B ──┼──► Shared Witness + Freebird + Relay
+              │
+Community C ──┘
+```
+
+Users from all communities can discover each other through the shared relay, but they still only see content from their trust graphs.
+
+---
+
+## Infrastructure Deep Dive
+
+### HyperToken Relay (Built-in)
+
+The relay server handles:
+- **WebRTC Signaling**: ICE candidates, offer/answer exchange
+- **NAT Traversal**: Helps peers behind firewalls connect
+- **Peer Discovery**: Returns list of connected peers
+- **Message Forwarding**: Routes messages to unreachable peers
 
 ```typescript
 import { RelayServer } from 'clout';
@@ -225,114 +313,87 @@ const relay = new RelayServer({
 });
 
 await relay.start();
-// Relay now accepting WebSocket connections
+
+// Check stats
+console.log(relay.getStats());
+// { connectedClients: 5, clients: [...] }
 ```
 
-Relay servers are **optional helpers** - they don't control content, can't censor, and don't store your data. They simply help peers find each other.
+The relay is **optional infrastructure** - it helps with connectivity but doesn't control content.
 
-### Configuration
+### Witness (Timestamping)
 
-Configure your node to use specific infrastructure in `~/.scarcity/config.json`:
+Provides proof-of-order for posts and transactions:
+- Threshold signatures from multiple witness nodes
+- BLS12-381 aggregated signatures
+- Prevents backdating attacks
 
+Configuration supports multiple gateways for quorum:
 ```json
 {
   "witness": {
-    "gatewayUrl": "http://witness-server:8080"
-  },
-  "freebird": {
-    "issuerEndpoints": ["http://freebird-server:8081"],
-    "verifierUrl": "http://freebird-server:8082"
-  },
-  "hypertoken": {
-    "relayUrl": "ws://relay-server:3000"
+    "gatewayUrls": [
+      "http://witness-1:8080",
+      "http://witness-2:8080",
+      "http://witness-3:8080"
+    ],
+    "quorumThreshold": 2
   }
 }
 ```
 
-Or via environment variables:
-```bash
-WITNESS_GATEWAY_URL=http://witness:8080
-FREEBIRD_ISSUER_URL=http://freebird:8081
-FREEBIRD_VERIFIER_URL=http://freebird:8082
-HYPERTOKEN_RELAY_URL=ws://relay:3000
+### Freebird (Anti-Sybil)
+
+Issues anonymous tokens using VOPRF (Verifiable Oblivious Pseudorandom Function):
+- P-256 curve with DLEQ proofs
+- MPC threshold issuance across multiple issuers
+- Tokens are unlinkable - privacy preserving
+
+Configuration for MPC mode:
+```json
+{
+  "freebird": {
+    "issuerEndpoints": [
+      "http://issuer-1:8081",
+      "http://issuer-2:8081",
+      "http://issuer-3:8081"
+    ],
+    "verifierUrl": "http://verifier:8082"
+  }
+}
 ```
 
 ---
 
-## How "Federation" Works: Trust-Based Propagation
+## Trust-Based Content Propagation
 
-In Clout, there's no server-to-server federation. Instead, **content spreads through trust graphs**.
-
-### The Propagation Flow
+Once you're on a network, content spreads through trust graphs:
 
 ```
-1. Alice posts "Hello world!"
-   → Alice signs the post
-   → Witness timestamps it
-   → Post broadcasts to gossip network
+1. You post "Hello world!"
+   → Signed with your key
+   → Timestamped by Witness
+   → Broadcast to gossip network
 
-2. Bob receives the post
-   → Bob checks: Is Alice in my trust graph (within 3 hops)?
-   → YES: Bob accepts and re-propagates to his peers
-   → NO: Post is silently dropped (the "shadowban effect")
+2. Alice (who trusts you) receives the post
+   → Checks: Are you in her trust graph (within 3 hops)?
+   → YES: Alice accepts and re-propagates
+   → NO: Post is silently dropped
 
-3. Charlie (who trusts Bob but not Alice)
-   → If Charlie is within 3 hops of Alice via Bob, he sees the post
-   → Otherwise, Alice's post never reaches Charlie's feed
+3. Bob (who trusts Alice but not you)
+   → Receives your post via Alice (2 hops)
+   → If within his maxHops, he sees it
 ```
 
-### Your Trust Graph = Your "Instance"
-
-| Distance | Who | Example Size | Trust Score |
-|----------|-----|--------------|-------------|
-| 0 | You | 1 | 1.0 |
-| 1 | People you directly trust | ~50-150 (Dunbar's number) | 0.9 |
-| 2 | Friends of friends | ~2,500-22,500 | 0.6 |
-| 3 | Extended network | ~125,000-3.3M | 0.3 |
-| 4+ | Too far - filtered out | - | - |
-
-Each person's view of the network is **subjective** - determined entirely by their own trust graph.
-
-### Weighted Trust
-
-Trust isn't binary. You can assign weights:
-
-```typescript
-await clout.trust(aliceKey, 1.0);   // Full trust
-await clout.trust(bobKey, 0.5);     // Partial trust
-await clout.trust(charlieKey, 0.1); // Minimal trust
-```
-
-Trust weights multiply through paths:
-- You trust Alice (0.8)
-- Alice trusts Bob (0.7)
-- Your effective trust in Bob = 0.8 × 0.7 = 0.56
-
-### Temporal Decay
-
-Trust relationships decay over time (default: 1-year half-life):
+### Trust Graph Settings
 
 ```typescript
 const clout = new Clout({
   // ...
-  trustDecayDays: 365  // Half-life (0 = no decay)
-});
+  maxHops: 3,           // See posts up to 3 degrees away
+  minReputation: 0.3,   // Minimum trust score required
+  trustDecayDays: 365,  // Trust decays over time (1-year half-life)
 
-// Fresh trust: 1.0× multiplier
-// 1 year old: 0.5× multiplier
-// 2 years old: 0.25× multiplier
-```
-
-This keeps your network reflecting **active relationships**.
-
-### Content-Type Filtering
-
-Set different rules for different content:
-
-```typescript
-const clout = new Clout({
-  maxHops: 3,
-  minReputation: 0.3,
   contentTypeFilters: {
     'slide': { maxHops: 5, minReputation: 0.2 },       // More permissive for DMs
     'image/png': { maxHops: 2, minReputation: 0.7 },   // Stricter for images
@@ -342,87 +403,78 @@ const clout = new Clout({
 
 ---
 
-## Connecting Multiple Communities
+## Docker Compose Example
 
-Since Clout doesn't have instances, "connecting communities" happens naturally through **trust bridges**.
+Full stack deployment:
 
-### Scenario: Two Groups
+```yaml
+version: '3'
+services:
+  relay:
+    build: .
+    command: node start-relay.js
+    ports:
+      - "3000:3000"
 
-**Group A**: Alice's network (tech enthusiasts)
-**Group B**: Bob's network (artists)
+  witness:
+    image: witness:latest  # From Witness repo
+    ports:
+      - "8080:8080"
+    environment:
+      - NETWORK_ID=my-network
+      - THRESHOLD=2
 
-If Alice and Bob trust each other:
-- Alice's network can see Bob's posts (and vice versa)
-- Posts from Group B can reach Group A members through Alice
-- The trust scores ensure only relevant content propagates
+  freebird-issuer:
+    image: freebird:latest  # From Freebird repo
+    ports:
+      - "8081:8081"
 
-### Cross-Community Visibility
+  freebird-verifier:
+    image: freebird:latest
+    command: ["--verifier"]
+    ports:
+      - "8082:8082"
 
-```
-Group A:             Group B:
-  ┌───┐               ┌───┐
-  │ A │───────────────│ B │
-  └───┘     Trust     └───┘
-    │                   │
-┌───┴───┐           ┌───┴───┐
-│A1  A2 │           │B1  B2 │
-└───────┘           └───────┘
-```
-
-- A1 and A2 see each other's posts (1 hop)
-- A1 sees B's posts (2 hops via Alice)
-- A1 sees B1's posts (3 hops: A1→Alice→Bob→B1)
-- If B1 is too far, A1 never sees B1's posts
-
-### No Central Federation Required
-
-Unlike Mastodon where admins must configure server federation:
-- No allowlists/blocklists to manage
-- No "defederating" - just stop trusting someone
-- Communities naturally connect through shared trust
-- Different communities can have different norms without conflict
-
----
-
-## Privacy Features
-
-### Tor Integration
-
-```typescript
-import { TorProxy } from 'clout';
-
-const torProxy = new TorProxy({
-  proxyHost: 'localhost',
-  proxyPort: 9050,
-  circuitIsolation: true  // Separate circuits per destination
-});
-```
-
-### Ephemeral Keys
-
-Posts use rotating ephemeral keys (24-hour rotation) for forward secrecy:
-
-```typescript
-// Enabled by default
-await clout.post('Hello world');
-
-// Disable for permanent signature
-await clout.post('Permanent record', { useEphemeralKey: false });
-```
-
-### Encrypted DMs (Slides)
-
-End-to-end encrypted messages using X25519 + XChaCha20-Poly1305:
-
-```bash
-clout slide <recipient-key> "Private message"
+  clout-web:
+    build: .
+    command: npm run web
+    ports:
+      - "8000:3000"
+    environment:
+      - WITNESS_GATEWAY_URL=http://witness:8080
+      - FREEBIRD_ISSUER_URL=http://freebird-issuer:8081
+      - FREEBIRD_VERIFIER_URL=http://freebird-verifier:8082
+      - HYPERTOKEN_RELAY_URL=ws://relay:3000
+    depends_on:
+      - relay
+      - witness
+      - freebird-issuer
+      - freebird-verifier
 ```
 
 ---
 
-## Quick Reference
+## Summary
 
-### CLI Commands
+| Goal | How to Do It |
+|------|--------------|
+| **Start your own network** | Run Relay (built-in) + Witness + Freebird, create identity |
+| **Quick start (dev/small group)** | Just run Clout with fallback mode - no external services needed |
+| **Join someone's network** | Configure their infrastructure URLs, get invited |
+| **Connect two networks** | Users from each network trust each other |
+| **Invite friends** | `clout invite <key>` or delegate day passes |
+
+### Key Points
+
+1. **You are the origin** - Configure your own infrastructure stack
+2. **Fallback mode works** - Witness and Freebird have local fallbacks for development
+3. **Relay is built-in** - You can run the HyperToken relay from this codebase
+4. **Invitations are anti-spam** - Not access control; anyone can run their own network
+5. **Networks connect through trust** - Not through infrastructure federation
+
+---
+
+## CLI Quick Reference
 
 ```bash
 # Identity
@@ -443,29 +495,5 @@ clout slides                    # View inbox
 
 # Access
 clout invite <publicKey>        # Create invitation
-clout ticket                    # Check day pass status
+clout ticket                    # Check/get day pass
 ```
-
-### Key Differences from Mastodon/Traditional Federation
-
-1. **No servers to join** - You ARE the node
-2. **No admins** - You control your own experience
-3. **No global moderation** - Trust graph is the filter
-4. **No federation agreements** - Trust bridges form naturally
-5. **No algorithmic feed** - Just your trust graph
-6. **No central point of failure** - Pure P2P
-
----
-
-## Summary
-
-| Task | How to Do It |
-|------|--------------|
-| **Join the network** | Get invited by someone, accept invitation, buy day pass |
-| **Start your own node** | Run `npm run web` or build CLI, create identity |
-| **Invite friends** | `clout invite <their-public-key>` or delegate pass |
-| **Run infrastructure** | Optional: Run relay server for NAT traversal |
-| **Connect communities** | Trust someone from another community |
-| **"Federate"** | Automatic through trust - no configuration needed |
-
-Clout respects Dunbar's number (~150 direct relationships) and creates **village-scale social networks** where your feed stays cognitively manageable without algorithmic curation.
