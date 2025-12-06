@@ -340,7 +340,7 @@ export class CloutWebServer {
       console.log(`Created new identity: ${identity.publicKey.slice(0, 16)}...`);
 
       // Bootstrap Dunbar pool on first init (invitation mode only)
-      await this.bootstrapDunbarPool();
+      await this.bootstrapDunbarPool(identity.publicKey);
     }
     const secretKey = this.identityManager.getSecretKey();
 
@@ -373,9 +373,12 @@ export class CloutWebServer {
    * Bootstrap the Dunbar pool with initial invitations
    *
    * Called on first initialization when running in 'invitation' mode.
-   * Creates 150 invitation codes (Dunbar's number) for the admin to distribute.
+   * Creates 50 invitation codes for the admin to distribute and
+   * registers the Self user as the Freebird owner.
+   *
+   * @param selfPublicKey The public key of the Self identity (hex string)
    */
-  private async bootstrapDunbarPool(): Promise<void> {
+  private async bootstrapDunbarPool(selfPublicKey: string): Promise<void> {
     const sybilMode = process.env.FREEBIRD_SYBIL_MODE || 'invitation';
 
     if (sybilMode !== 'invitation') {
@@ -396,6 +399,9 @@ export class CloutWebServer {
         console.warn('[Bootstrap] Freebird admin API not accessible, skipping bootstrap');
         return;
       }
+
+      // Register Self as the Freebird owner (first registration wins)
+      await freebirdAdmin.registerOwner(selfPublicKey);
 
       // Check if invitations already exist
       const existingInvites = await freebirdAdmin.listInvitations();
