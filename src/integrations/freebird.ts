@@ -335,10 +335,25 @@ export class FreebirdAdapter implements FreebirdClient {
             let proofBytes: Uint8Array;
 
             if (tokenBytes.length === 195 && tokenBytes[0] === 0x01) {
-              // New format: version byte + uncompressed points
-              A_bytes = tokenBytes.slice(1, 66);    // 65 bytes uncompressed
-              B_bytes = tokenBytes.slice(66, 131);  // 65 bytes uncompressed
-              proofBytes = tokenBytes.slice(131);   // 64 bytes proof
+              // V1 format: version byte + points + proof
+              // Check if points are compressed (0x02/0x03) or uncompressed (0x04)
+              const pointPrefix = tokenBytes[1];
+              if (pointPrefix === 0x04) {
+                // Uncompressed points (65 bytes each)
+                A_bytes = tokenBytes.slice(1, 66);
+                B_bytes = tokenBytes.slice(66, 131);
+                proofBytes = tokenBytes.slice(131);
+              } else if (pointPrefix === 0x02 || pointPrefix === 0x03) {
+                // Compressed points (33 bytes each) with extra data
+                // Format: version(1) + A(33) + B(33) + proof(64) + extra(64) = 195
+                A_bytes = tokenBytes.slice(1, 34);
+                B_bytes = tokenBytes.slice(34, 67);
+                proofBytes = tokenBytes.slice(67, 131);
+                // Ignore extra 64 bytes at end (might be key ID or epoch data)
+              } else {
+                console.warn(`[Freebird] Unknown point prefix: 0x${pointPrefix.toString(16)}`);
+                return { success: false, url, index };
+              }
             } else if (tokenBytes.length === 130) {
               // Legacy format: compressed points
               A_bytes = tokenBytes.slice(0, 33);
@@ -371,6 +386,9 @@ export class FreebirdAdapter implements FreebirdClient {
             // Use server's index if provided, otherwise use endpoint index (1-based)
             const serverIndex = data.index ?? (index + 1);
 
+            // Determine if points are compressed based on prefix
+            const isCompressed = A_bytes.length === 33;
+
             return {
               success: true,
               url,
@@ -378,7 +396,8 @@ export class FreebirdAdapter implements FreebirdClient {
               evaluatedPoint: B_bytes,
               blindedElement: A_bytes,
               fullToken: tokenBytes,
-              isV1Format: tokenBytes.length === 195
+              isV1Format: tokenBytes.length === 195,
+              isCompressed
             };
           } catch (error) {
             console.warn(`[Freebird] Request to ${url} failed:`, error);
@@ -395,6 +414,7 @@ export class FreebirdAdapter implements FreebirdClient {
           blindedElement: Uint8Array;
           fullToken: Uint8Array;
           isV1Format: boolean;
+          isCompressed: boolean;
         };
         const validResponses = results.filter(r => r.success) as ValidResponse[];
 
@@ -437,11 +457,20 @@ export class FreebirdAdapter implements FreebirdClient {
 
         // Reconstruct token with aggregated evaluation using same format as received
         const isV1 = validResponses[0].isV1Format;
+        const isCompressed = validResponses[0].isCompressed;
         const A_bytes = validResponses[0].blindedElement;
 
         let aggregatedToken: Uint8Array;
-        if (isV1) {
-          // V1 Format: [ Version (1) | A (65 uncompressed) | B (65 uncompressed) | Proof (64) ] = 195 bytes
+        if (isV1 && isCompressed) {
+          // V1 Format with compressed points: [ Version (1) | A (33) | B (33) | Proof (64) | Extra (64) ] = 195 bytes
+          aggregatedToken = new Uint8Array(195);
+          aggregatedToken[0] = 0x01;
+          aggregatedToken.set(A_bytes, 1);
+          aggregatedToken.set(aggregatedPoint, 34);
+          aggregatedToken.set(zeroProof, 67);
+          // Extra 64 bytes remain zeros
+        } else if (isV1) {
+          // V1 Format with uncompressed: [ Version (1) | A (65) | B (65) | Proof (64) ] = 195 bytes
           aggregatedToken = new Uint8Array(195);
           aggregatedToken[0] = 0x01;
           aggregatedToken.set(A_bytes, 1);
