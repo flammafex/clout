@@ -102,7 +102,7 @@ export class FreebirdAdmin {
       'POST',
       { count, expires_in_days: expiresInDays }
     );
-    return response.invitations;
+    return response.invitations || [];
   }
 
   /**
