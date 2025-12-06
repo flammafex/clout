@@ -101,7 +101,7 @@ services:
       - BIND_ADDR=0.0.0.0:8081
       - ISSUER_ID=clout-issuer
       - TOKEN_TTL_MIN=60
-      - SYBIL_RESISTANCE=invitation
+      - SYBIL_RESISTANCE=none
       - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
     volumes:
       - freebird-issuer-data:/data
