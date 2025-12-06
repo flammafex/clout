@@ -13,14 +13,17 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install all dependencies (including devDependencies for build)
-RUN npm ci
+# --ignore-scripts prevents postinstall issues with native modules
+RUN npm ci --ignore-scripts
 
 # Copy source code
 COPY tsconfig.json ./
 COPY src/ ./src/
 
 # Build TypeScript and copy static files
-RUN npm run build
+RUN npm run build && \
+    echo "=== Build verification ===" && \
+    ls -la dist/src/web/server.js
 
 # ============================================
 # Stage 2: Runtime (default target)
