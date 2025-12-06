@@ -217,13 +217,13 @@ async function loadFeed() {
 
       // Mute button (not for your own posts)
       const muteBtn = !isYou
-        ? `<button class="btn-mute-small" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Mute this user">🔇</button>`
+        ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Mute this user">Mute</button>`
         : '';
 
       // Edit/Delete buttons (only for your own posts)
       const authorActions = post.isAuthor
-        ? `<button class="btn-edit-small" onclick="event.stopPropagation(); startEditPost('${post.id}', \`${escapeHtml(post.content).replace(/`/g, '\\`')}\`)" title="Edit post">✏️</button>
-           <button class="btn-delete-small" onclick="event.stopPropagation(); deletePost('${post.id}')" title="Delete post">🗑️</button>`
+        ? `<button class="btn-action" onclick="event.stopPropagation(); startEditPost('${post.id}', \`${escapeHtml(post.content).replace(/`/g, '\\`')}\`)" title="Edit post">Edit</button>
+           <button class="btn-action btn-delete" onclick="event.stopPropagation(); deletePost('${post.id}')" title="Delete post">Delete</button>`
         : '';
 
       // Show "edited" indicator if post is an edit
@@ -286,10 +286,10 @@ async function loadFeed() {
                 <div class="feed-timestamp">${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
                 <div class="feed-actions">
                   ${reactionsHtml}
-                  <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
-                    ${post.isBookmarked ? '🔖' : '📑'}
+                  <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+                    ${post.isBookmarked ? 'Saved' : 'Save'}
                   </button>
-                  <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+                  <button class="btn-action" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
                   ${muteBtn}
                   ${authorActions}
                 </div>
@@ -361,9 +361,8 @@ async function deletePost(postId) {
 
   try {
     await apiCall(`/post/${postId}`, 'DELETE', { reason: 'retracted' });
-    showResult('feed-list', 'Post deleted successfully', true);
-    // Reload feed to remove the deleted post
-    setTimeout(() => loadFeedWithCurrentFilter(), 500);
+    // Reload feed directly to remove the deleted post
+    await loadFeedWithCurrentFilter();
   } catch (error) {
     alert(`Could not delete post: ${error.message}`);
   }
@@ -736,11 +735,11 @@ function renderFeedItem(post) {
             <div class="feed-timestamp">${formatRelativeTime(post.proof?.timestamp || post.timestamp)}</div>
             <div class="feed-actions">
               ${reactionsHtml}
-              <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')">
-                ${post.isBookmarked ? '🔖' : '📑'}
+              <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')">
+                ${post.isBookmarked ? 'Saved' : 'Save'}
               </button>
-              <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
-              ${!isYou ? `<button class="btn-mute-small" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Mute">🔇</button>` : ''}
+              <button class="btn-action" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+              ${!isYou ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Mute">Mute</button>` : ''}
             </div>
           </div>
         </div>

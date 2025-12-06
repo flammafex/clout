@@ -316,22 +316,6 @@ h2 {
   margin-top: 0.75rem;
 }
 
-.btn-reply {
-  background: var(--bg-hover);
-  color: var(--text);
-  border: 1px solid var(--border);
-  padding: 0.4rem 0.8rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-reply:hover {
-  background: var(--primary);
-  border-color: var(--primary);
-}
-
 /* Feed actions container */
 .feed-actions {
   display: flex;
@@ -339,59 +323,33 @@ h2 {
   align-items: center;
 }
 
-/* Mute button in feed */
-.btn-mute-small {
+/* Action buttons in feed (Save, Reply, Mute, Edit, Delete) */
+.btn-action {
   background: transparent;
   color: var(--text-dim);
   border: none;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.6rem;
   border-radius: 4px;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
   cursor: pointer;
-  opacity: 0.5;
   transition: all 0.2s;
 }
 
-.btn-mute-small:hover {
-  opacity: 1;
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-}
-
-/* Edit button in feed */
-.btn-edit-small {
-  background: transparent;
-  color: var(--text-dim);
-  border: none;
-  padding: 0.3rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  opacity: 0.5;
-  transition: all 0.2s;
-}
-
-.btn-edit-small:hover {
-  opacity: 1;
+.btn-action:hover {
   background: rgba(99, 102, 241, 0.1);
   color: var(--primary);
 }
 
-/* Delete button in feed */
-.btn-delete-small {
-  background: transparent;
-  color: var(--text-dim);
-  border: none;
-  padding: 0.3rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  opacity: 0.5;
-  transition: all 0.2s;
+.btn-action.active {
+  color: var(--primary);
 }
 
-.btn-delete-small:hover {
-  opacity: 1;
+.btn-action.btn-mute:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.btn-action.btn-delete:hover {
   background: rgba(239, 68, 68, 0.1);
   color: #ef4444;
 }
@@ -1997,25 +1955,6 @@ h2 {
 /* =========================================================================
    BOOKMARKS
    ========================================================================= */
-
-.btn-bookmark {
-  background: transparent;
-  border: none;
-  font-size: 1rem;
-  cursor: pointer;
-  opacity: 0.5;
-  transition: all 0.2s;
-  padding: 0.25rem;
-}
-
-.btn-bookmark:hover {
-  opacity: 1;
-  transform: scale(1.1);
-}
-
-.btn-bookmark.active {
-  opacity: 1;
-}
 
 /* =========================================================================
    NOTIFICATION BADGES
