@@ -132,10 +132,10 @@ export class FreebirdAdmin {
    * Creates the initial set of invitations for the admin to distribute.
    * This is called on first initialization to seed the network.
    *
-   * @param count Number of invitations (default: 150 - Dunbar's number)
+   * @param count Number of invitations (default: 50, max 100 per Freebird limit)
    * @returns The created invitations
    */
-  async bootstrapDunbarPool(count: number = 150): Promise<Invitation[]> {
+  async bootstrapDunbarPool(count: number = 50): Promise<Invitation[]> {
     console.log(`[FreebirdAdmin] 🎫 Bootstrapping Dunbar pool with ${count} invitations...`);
 
     const invitations = await this.createInvitations(count, 365); // 1 year expiry
@@ -149,6 +149,37 @@ export class FreebirdAdmin {
    */
   getAdminUiUrl(): string {
     return `${this.issuerUrl}/admin`;
+  }
+
+  /**
+   * Register the owner of this Freebird instance
+   *
+   * This ties the Freebird instance to a Clout user (the "Self" user).
+   * Can only be called once - first registration wins.
+   *
+   * @param userId The public key of the owner (Clout's "Self" user)
+   * @returns The registered owner info
+   */
+  async registerOwner(userId: string): Promise<{ success: boolean; owner: string }> {
+    console.log(`[FreebirdAdmin] 👤 Registering owner: ${userId.substring(0, 16)}...`);
+
+    try {
+      const response = await this.request<{ success: boolean; owner: string }>(
+        '/admin/register-owner',
+        'POST',
+        { user_id: userId }
+      );
+
+      console.log(`[FreebirdAdmin] ✅ Owner registered successfully`);
+      return response;
+    } catch (error) {
+      // If owner already registered, that's fine - just log and continue
+      if (error instanceof Error && error.message.includes('already')) {
+        console.log(`[FreebirdAdmin] ℹ️ Owner already registered`);
+        return { success: true, owner: userId };
+      }
+      throw error;
+    }
   }
 }
 
