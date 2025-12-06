@@ -31,8 +31,7 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - CLOUT_AUTH=${CLOUT_AUTH:-false}
-      - CLOUT_DATA_DIR=/data/clout
-      - SCARCITY_DATA_DIR=/data/scarcity
+      - CLOUT_DATA_DIR=/data
       # External services - use Docker service names when running full stack
       - WITNESS_GATEWAY_URL=${WITNESS_GATEWAY_URL:-http://witness-gateway:8080}
       - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-scarcity-testnet}
@@ -65,8 +64,7 @@ services:
     profiles:
       - cli
     environment:
-      - CLOUT_DATA_DIR=/data/clout
-      - SCARCITY_DATA_DIR=/data/scarcity
+      - CLOUT_DATA_DIR=/data
       - WITNESS_GATEWAY_URL=${WITNESS_GATEWAY_URL:-http://witness-gateway:8080}
       - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-scarcity-testnet}
       - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}

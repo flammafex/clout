@@ -44,8 +44,8 @@ COPY --from=builder /app/dist ./dist
 # Create non-root user for security
 RUN groupadd -r clout && useradd -r -g clout clout
 
-# Create data directories with correct ownership
-RUN mkdir -p /data/clout /data/scarcity && \
+# Create data directory with correct ownership
+RUN mkdir -p /data && \
     chown -R clout:clout /data /app
 
 # Switch to non-root user
@@ -55,8 +55,7 @@ USER clout
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV CLOUT_AUTH=false
-ENV CLOUT_DATA_DIR=/data/clout
-ENV SCARCITY_DATA_DIR=/data/scarcity
+ENV CLOUT_DATA_DIR=/data
 
 # External service URLs (override for Docker networking)
 ENV WITNESS_GATEWAY_URL=http://localhost:8080
@@ -102,8 +101,8 @@ COPY --from=builder /app/dist ./dist
 # Create non-root user for security
 RUN groupadd -r clout && useradd -r -g clout clout
 
-# Create data directories with correct ownership
-RUN mkdir -p /data/clout /data/scarcity && \
+# Create data directory with correct ownership
+RUN mkdir -p /data && \
     chown -R clout:clout /data /app
 
 # Switch to non-root user
@@ -111,8 +110,7 @@ USER clout
 
 # Environment variables
 ENV NODE_ENV=production
-ENV CLOUT_DATA_DIR=/data/clout
-ENV SCARCITY_DATA_DIR=/data/scarcity
+ENV CLOUT_DATA_DIR=/data
 
 # External service URLs
 ENV WITNESS_GATEWAY_URL=http://localhost:8080

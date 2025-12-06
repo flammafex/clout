@@ -11,10 +11,10 @@ import { Crypto } from '../crypto.js';
 import type { PublicKey } from '../types.js';
 
 /**
- * Get Scarcity data directory from environment or default
+ * Get Clout data directory from environment or default
  */
-function getScarcityDataDir(): string {
-  return process.env.SCARCITY_DATA_DIR || join(homedir(), '.scarcity');
+function getCloutDataDir(): string {
+  return process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
 }
 
 export interface WalletData {
@@ -35,7 +35,7 @@ export class WalletManager {
   private store: WalletStore;
 
   constructor(customPath?: string) {
-    this.walletPath = customPath || join(getScarcityDataDir(), 'wallets.json');
+    this.walletPath = customPath || join(getCloutDataDir(), 'wallets.json');
     this.ensureWalletDir();
     this.store = this.loadStore();
   }

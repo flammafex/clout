@@ -9,10 +9,10 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 
 /**
- * Get Scarcity data directory from environment or default
+ * Get Clout data directory from environment or default
  */
-function getScarcityDataDir(): string {
-  return process.env.SCARCITY_DATA_DIR || join(homedir(), '.scarcity');
+function getCloutDataDir(): string {
+  return process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
 }
 
 export interface StoredToken {
@@ -40,7 +40,7 @@ export class TokenStorage {
   private store: TokenStore;
 
   constructor(customPath?: string) {
-    this.storePath = customPath || join(getScarcityDataDir(), 'tokens.json');
+    this.storePath = customPath || join(getCloutDataDir(), 'tokens.json');
     this.ensureStoreDir();
     this.store = this.loadStore();
   }

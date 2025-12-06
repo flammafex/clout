@@ -9,10 +9,10 @@ import { join, dirname } from 'path';
 import { homedir } from 'os';
 
 /**
- * Get Scarcity data directory from environment or default
+ * Get Clout data directory from environment or default
  */
-function getScarcityDataDir(): string {
-  return process.env.SCARCITY_DATA_DIR || join(homedir(), '.scarcity');
+function getCloutDataDir(): string {
+  return process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
 }
 
 export interface ScarcityConfig {
@@ -60,7 +60,7 @@ export class ConfigManager {
   private config: ScarcityConfig;
 
   constructor(customPath?: string) {
-    this.configPath = customPath || join(getScarcityDataDir(), 'config.json');
+    this.configPath = customPath || join(getCloutDataDir(), 'config.json');
     this.ensureConfigDir();
     this.config = this.loadConfig();
   }
