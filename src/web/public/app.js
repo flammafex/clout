@@ -193,7 +193,7 @@ async function loadFeed() {
 
       // Build trust path display ("Via Alice → Bob")
       const trustPath = post.trustPath || [];
-      const isYou = rep.distance === 0;
+      const isYou = rep.distance === 0 || post.author === window.userPublicKey;
       const isDirectTrust = post.isDirectlyTrusted || rep.distance === 1;
       let trustContext = '';
 
@@ -588,7 +588,7 @@ function renderFeedItem(post) {
   const myReaction = post.myReaction;
   const reactionEmojis = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
   const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, reactionEmojis);
-  const isYou = rep.distance === 0;
+  const isYou = rep.distance === 0 || post.author === window.userPublicKey;
   const authorAvatar = post.authorAvatar || '👤';
 
   return `
