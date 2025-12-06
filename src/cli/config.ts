@@ -24,6 +24,7 @@ export interface CloutConfig {
   freebird: {
     issuerEndpoints: string[];
     verifierUrl: string;
+    sybilMode: 'none' | 'pow' | 'invitation';
   };
   hypertoken: {
     relayUrl: string;
@@ -43,7 +44,8 @@ export const DEFAULT_CONFIG: CloutConfig = {
   },
   freebird: {
     issuerEndpoints: ['http://localhost:8081'],
-    verifierUrl: 'http://localhost:8082'
+    verifierUrl: 'http://localhost:8082',
+    sybilMode: 'none'
   },
   hypertoken: {
     relayUrl: 'ws://localhost:3000'
@@ -119,6 +121,15 @@ export class ConfigManager {
 
     if (process.env.FREEBIRD_VERIFIER_URL) {
       config.freebird.verifierUrl = process.env.FREEBIRD_VERIFIER_URL;
+    }
+
+    if (process.env.FREEBIRD_SYBIL_MODE) {
+      const mode = process.env.FREEBIRD_SYBIL_MODE.toLowerCase();
+      if (mode === 'none' || mode === 'pow' || mode === 'invitation') {
+        config.freebird.sybilMode = mode;
+      } else {
+        console.warn(`Invalid FREEBIRD_SYBIL_MODE: ${mode}, using 'none'`);
+      }
     }
 
     if (process.env.HYPERTOKEN_RELAY_URL) {
@@ -222,6 +233,7 @@ export class ConfigManager {
     return {
       issuerEndpoints: this.config.freebird.issuerEndpoints,
       verifierUrl: this.config.freebird.verifierUrl,
+      sybilMode: this.config.freebird.sybilMode,
       tor: this.config.tor.enabled ? {
         proxyHost: this.config.tor.proxyHost,
         proxyPort: this.config.tor.proxyPort

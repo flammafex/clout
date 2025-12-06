@@ -34,6 +34,7 @@ services:
       - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-clout-testnet}
       - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
       - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
+      - FREEBIRD_SYBIL_MODE=${FREEBIRD_SYBIL_MODE:-none}
       - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
       # Tor (optional)
       - TOR_ENABLED=${TOR_ENABLED:-false}
@@ -75,6 +76,7 @@ services:
       - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-clout-testnet}
       - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
       - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
+      - FREEBIRD_SYBIL_MODE=${FREEBIRD_SYBIL_MODE:-none}
       - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
     volumes:
       - clout-data:/data
@@ -101,7 +103,8 @@ services:
       - BIND_ADDR=0.0.0.0:8081
       - ISSUER_ID=clout-issuer
       - TOKEN_TTL_MIN=60
-      - SYBIL_RESISTANCE=none
+      - SYBIL_RESISTANCE=${FREEBIRD_SYBIL_MODE:-none}
+      - ADMIN_ENABLED=true
       - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
     volumes:
       - freebird-issuer-data:/data
