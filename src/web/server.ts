@@ -323,6 +323,17 @@ export class CloutWebServer {
       store
     });
 
+    // Auto-mint day pass if not already active
+    if (!this.clout.hasActiveTicket()) {
+      try {
+        const token = await this.clout.obtainToken();
+        await this.clout.buyDayPass(token);
+        console.log('Day pass minted on initialization');
+      } catch (error) {
+        console.warn('Could not auto-mint day pass:', error);
+      }
+    }
+
     this.initialized = true;
     console.log(`Clout initialized with identity: ${identity.publicKey.slice(0, 16)}...`);
   }
