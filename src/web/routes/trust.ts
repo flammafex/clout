@@ -4,6 +4,23 @@
 
 import { Router } from 'express';
 import type { Clout } from '../../clout.js';
+import { Crypto } from '../../crypto.js';
+
+/**
+ * Validate a public key from request (body or params)
+ * Returns the validated key or throws with a descriptive error
+ */
+function validatePublicKey(publicKey: unknown, fieldName = 'publicKey'): string {
+  if (!publicKey || typeof publicKey !== 'string') {
+    throw new Error(`${fieldName} is required`);
+  }
+
+  if (!Crypto.isValidPublicKeyHex(publicKey)) {
+    throw new Error(`Invalid ${fieldName}: must be 64 hex characters (32 bytes)`);
+  }
+
+  return publicKey;
+}
 
 export function createTrustRoutes(getClout: () => Clout | undefined, isInitialized: () => boolean): Router {
   const router = Router();
@@ -12,11 +29,11 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
   router.post('/trust', async (req, res) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
-      const { publicKey } = req.body;
+      const publicKey = validatePublicKey(req.body.publicKey);
       await getClout()!.trust(publicKey);
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+      res.status(400).json({ success: false, error: error.message });
     }
   });
 
@@ -65,7 +82,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
 
-      const publicKey = req.params.publicKey;
+      const publicKey = validatePublicKey(req.params.publicKey);
       const reputation = clout.getReputation(publicKey);
 
       res.json({
@@ -127,7 +144,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
-      const publicKey = req.params.publicKey;
+      const publicKey = validatePublicKey(req.params.publicKey);
       const tags = getClout()!.getTagsForUser(publicKey);
 
       res.json({ success: true, data: { publicKey, tags } });
@@ -141,11 +158,12 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
-      const { publicKey, tag } = req.body;
-      if (!publicKey || !tag) {
+      const publicKey = validatePublicKey(req.body.publicKey);
+      const { tag } = req.body;
+      if (!tag) {
         return res.status(400).json({
           success: false,
-          error: 'publicKey and tag are required'
+          error: 'tag is required'
         });
       }
 
@@ -161,11 +179,12 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
-      const { publicKey, tag } = req.body;
-      if (!publicKey || !tag) {
+      const publicKey = validatePublicKey(req.body.publicKey);
+      const { tag } = req.body;
+      if (!tag) {
         return res.status(400).json({
           success: false,
-          error: 'publicKey and tag are required'
+          error: 'tag is required'
         });
       }
 
@@ -204,7 +223,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
 
-      const publicKey = req.params.publicKey;
+      const publicKey = validatePublicKey(req.params.publicKey);
       const nickname = clout.getNickname(publicKey);
       const displayName = clout.getDisplayName(publicKey);
 
@@ -223,13 +242,8 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
 
-      const { publicKey, nickname } = req.body;
-      if (!publicKey) {
-        return res.status(400).json({
-          success: false,
-          error: 'publicKey is required'
-        });
-      }
+      const publicKey = validatePublicKey(req.body.publicKey);
+      const { nickname } = req.body;
 
       clout.setNickname(publicKey, nickname || '');
       const displayName = clout.getDisplayName(publicKey);
@@ -248,7 +262,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
-      const publicKey = req.params.publicKey;
+      const publicKey = validatePublicKey(req.params.publicKey);
       getClout()!.setNickname(publicKey, '');
 
       res.json({ success: true });
@@ -293,7 +307,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
 
-      const publicKey = req.params.publicKey;
+      const publicKey = validatePublicKey(req.params.publicKey);
       const isMuted = clout.isMuted(publicKey);
 
       res.json({
@@ -311,13 +325,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
 
-      const { publicKey } = req.body;
-      if (!publicKey) {
-        return res.status(400).json({
-          success: false,
-          error: 'publicKey is required'
-        });
-      }
+      const publicKey = validatePublicKey(req.body.publicKey);
 
       clout.mute(publicKey);
       res.json({
@@ -335,13 +343,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
 
-      const { publicKey } = req.body;
-      if (!publicKey) {
-        return res.status(400).json({
-          success: false,
-          error: 'publicKey is required'
-        });
-      }
+      const publicKey = validatePublicKey(req.body.publicKey);
 
       clout.unmute(publicKey);
       res.json({

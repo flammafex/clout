@@ -85,8 +85,8 @@ export class CloutPost {
       mentions: config.mentions
     };
 
-    // 7. Hash package for timestamping
-    const pkgHash = Crypto.hashString(JSON.stringify(pkg));
+    // 7. Hash package for timestamping (deterministic)
+    const pkgHash = Crypto.hashObject(pkg);
 
     // 8. Timestamp the post
     const proof = await config.witness.timestamp(pkgHash);

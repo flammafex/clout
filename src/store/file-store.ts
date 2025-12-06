@@ -3,10 +3,20 @@ import { join } from 'path';
 import { homedir } from 'os';
 import type { CloutStore, PostPackage, SlidePackage } from '../clout-types.js';
 
+/**
+ * Persisted trust graph entry: who trusts whom
+ */
+interface TrustGraphEntry {
+  truster: string;
+  trustee: string;
+  timestamp: number;
+}
+
 interface LocalData {
   version: string;
   posts: { [id: string]: PostPackage };
   slides: { [id: string]: SlidePackage };
+  trustGraph?: TrustGraphEntry[];
 }
 
 export class FileSystemStore implements CloutStore {
@@ -68,5 +78,59 @@ export class FileSystemStore implements CloutStore {
   async getInbox(): Promise<SlidePackage[]> {
     return Object.values(this.data.slides)
       .sort((a, b) => b.proof.timestamp - a.proof.timestamp);
+  }
+
+  /**
+   * Save a trust graph edge (who trusts whom)
+   */
+  async saveTrustEdge(truster: string, trustee: string): Promise<void> {
+    if (!this.data.trustGraph) {
+      this.data.trustGraph = [];
+    }
+
+    // Check if edge already exists
+    const exists = this.data.trustGraph.some(
+      e => e.truster === truster && e.trustee === trustee
+    );
+
+    if (!exists) {
+      this.data.trustGraph.push({
+        truster,
+        trustee,
+        timestamp: Date.now()
+      });
+      this.save();
+    }
+  }
+
+  /**
+   * Remove a trust graph edge
+   */
+  async removeTrustEdge(truster: string, trustee: string): Promise<void> {
+    if (!this.data.trustGraph) return;
+
+    this.data.trustGraph = this.data.trustGraph.filter(
+      e => !(e.truster === truster && e.trustee === trustee)
+    );
+    this.save();
+  }
+
+  /**
+   * Get all trust graph edges
+   * Returns Map<truster, Set<trustee>>
+   */
+  async getTrustGraph(): Promise<Map<string, Set<string>>> {
+    const graph = new Map<string, Set<string>>();
+
+    if (this.data.trustGraph) {
+      for (const edge of this.data.trustGraph) {
+        if (!graph.has(edge.truster)) {
+          graph.set(edge.truster, new Set());
+        }
+        graph.get(edge.truster)!.add(edge.trustee);
+      }
+    }
+
+    return graph;
   }
 }
