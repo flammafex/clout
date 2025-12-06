@@ -331,7 +331,6 @@ export class CloutWebServer {
 
     // Load or create identity
     let identity;
-    let isNewIdentity = false;
     try {
       identity = this.identityManager.getIdentity();
     } catch (error) {
@@ -339,12 +338,11 @@ export class CloutWebServer {
       console.log('No identity found, creating default identity...');
       identity = this.identityManager.createIdentity('default', true);
       console.log(`Created new identity: ${identity.publicKey.slice(0, 16)}...`);
-      isNewIdentity = true;
     }
     const secretKey = this.identityManager.getSecretKey();
 
     // Register Self as Freebird owner and bootstrap invitations if needed
-    await this.bootstrapFreebirdOwner(identity.publicKey, isNewIdentity);
+    await this.bootstrapFreebirdOwner(identity.publicKey);
 
     // Initialize infrastructure (Freebird, Witness, Gossip)
     console.log('Initializing Clout infrastructure...');
@@ -372,15 +370,14 @@ export class CloutWebServer {
   }
 
   /**
-   * Register Self as Freebird owner and optionally bootstrap invitations
+   * Register Self as Freebird owner and bootstrap invitations if needed
    *
    * Owner registration runs on every startup (Freebird handles idempotency).
-   * Invitation bootstrap only runs when creating a new identity.
+   * Invitation bootstrap runs if no invitations exist yet.
    *
    * @param selfPublicKey The public key of the Self identity (hex string)
-   * @param isNewIdentity Whether this is a freshly created identity
    */
-  private async bootstrapFreebirdOwner(selfPublicKey: string, isNewIdentity: boolean): Promise<void> {
+  private async bootstrapFreebirdOwner(selfPublicKey: string): Promise<void> {
     const sybilMode = process.env.FREEBIRD_SYBIL_MODE || 'invitation';
 
     if (sybilMode !== 'invitation') {
@@ -404,11 +401,6 @@ export class CloutWebServer {
 
       // Always register Self as the Freebird owner (first registration wins)
       await freebirdAdmin.registerOwner(selfPublicKey);
-
-      // Only bootstrap invitations for new identities
-      if (!isNewIdentity) {
-        return;
-      }
 
       // Check if invitations already exist
       const existingInvites = await freebirdAdmin.listInvitations();
