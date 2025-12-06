@@ -98,9 +98,11 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
       const { content, replyTo, mediaCid, nsfw, contentWarning } = req.body;
 
       // Auto-mint ticket if needed
+      let ticketJustMinted = false;
       if (!clout.hasActiveTicket()) {
         const token = await clout.obtainToken();
         await clout.buyDayPass(token);
+        ticketJustMinted = true;
       }
 
       const options: {
@@ -126,7 +128,17 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
       }
 
       const post = await clout.post(content || '', options);
-      res.json({ success: true, data: post.getPackage() });
+
+      // Include ticket info in response (for UI timer)
+      const ticketInfo = clout.getTicketInfo();
+
+      res.json({
+        success: true,
+        data: {
+          ...post.getPackage(),
+          ticketInfo: ticketJustMinted ? ticketInfo : undefined
+        }
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

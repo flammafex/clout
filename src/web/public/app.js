@@ -97,8 +97,18 @@ function updateStatus(text, active = false) {
 
 // Day pass countdown timer
 function startDayPassTimer(expiryTimestamp) {
-  // Use actual ticket expiry if provided, otherwise default to 24 hours
-  dayPassEndTime = expiryTimestamp || (Date.now() + (24 * 60 * 60 * 1000));
+  // Only show timer if a ticket exists (has an expiry)
+  if (!expiryTimestamp) {
+    // No ticket yet - hide timer
+    $('day-pass-timer').style.display = 'none';
+    if (dayPassInterval) {
+      clearInterval(dayPassInterval);
+      dayPassInterval = null;
+    }
+    return;
+  }
+
+  dayPassEndTime = expiryTimestamp;
 
   // Show the timer
   $('day-pass-timer').style.display = 'flex';
@@ -1179,7 +1189,12 @@ async function createPost() {
       body.contentWarning = contentWarning;
     }
 
-    await apiCall('/post', 'POST', body);
+    const postResult = await apiCall('/post', 'POST', body);
+
+    // If a ticket was just minted, start the timer
+    if (postResult.ticketInfo && postResult.ticketInfo.expiry) {
+      startDayPassTimer(postResult.ticketInfo.expiry);
+    }
 
     const hasMedia = pendingMedia !== null;
     showResult('post-result',

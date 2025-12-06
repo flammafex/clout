@@ -19,6 +19,22 @@ interface TrustGraphEntry {
   timestamp: number;
 }
 
+/**
+ * Serialized ticket for persistence (Uint8Array fields as base64)
+ */
+interface SerializedTicket {
+  owner: string;
+  expiry: number;
+  proof: string;           // base64
+  signature: {             // Attestation serialized
+    timestamp: number;
+    signature: string;     // base64
+    witnessId?: string;
+  };
+  durationHours: number;
+  delegatedFrom?: string;
+}
+
 interface LocalData {
   version: string;
   posts: { [id: string]: PostPackage };
@@ -27,6 +43,7 @@ interface LocalData {
   deletions?: { [postId: string]: PostDeletePackage };
   reactions?: { [reactionId: string]: ReactionPackage };
   bookmarks?: string[];  // Array of bookmarked post IDs
+  ticket?: SerializedTicket;  // Current Freebird day pass (persists across restarts)
 }
 
 export class FileSystemStore implements CloutStore {
@@ -258,5 +275,96 @@ export class FileSystemStore implements CloutStore {
    */
   isBookmarked(postId: string): boolean {
     return !!(this.data.bookmarks && this.data.bookmarks.includes(postId));
+  }
+
+  // =================================================================
+  //  TICKET PERSISTENCE (survives Docker restarts)
+  // =================================================================
+
+  /**
+   * Save a ticket (Freebird day pass)
+   * Serializes Uint8Array fields to base64 for JSON storage
+   */
+  saveTicket(ticket: {
+    owner: string;
+    expiry: number;
+    proof: Uint8Array;
+    signature: { timestamp: number; signature: Uint8Array; witnessId?: string };
+    durationHours: number;
+    delegatedFrom?: string;
+  }): void {
+    // Convert Uint8Array fields to base64 for JSON serialization
+    const serialized: SerializedTicket = {
+      owner: ticket.owner,
+      expiry: ticket.expiry,
+      proof: Buffer.from(ticket.proof).toString('base64'),
+      signature: {
+        timestamp: ticket.signature.timestamp,
+        signature: Buffer.from(ticket.signature.signature).toString('base64'),
+        witnessId: ticket.signature.witnessId
+      },
+      durationHours: ticket.durationHours,
+      delegatedFrom: ticket.delegatedFrom
+    };
+
+    this.data.ticket = serialized;
+    this.save();
+  }
+
+  /**
+   * Get saved ticket (deserializes base64 back to Uint8Array)
+   * Returns null if no ticket or ticket is expired
+   */
+  getTicket(): {
+    owner: string;
+    expiry: number;
+    proof: Uint8Array;
+    signature: { timestamp: number; signature: Uint8Array; witnessId?: string };
+    durationHours: number;
+    delegatedFrom?: string;
+  } | null {
+    if (!this.data.ticket) {
+      return null;
+    }
+
+    const serialized = this.data.ticket;
+
+    // Check if expired
+    if (Date.now() > serialized.expiry) {
+      // Clear expired ticket
+      delete this.data.ticket;
+      this.save();
+      return null;
+    }
+
+    // Deserialize base64 back to Uint8Array
+    return {
+      owner: serialized.owner,
+      expiry: serialized.expiry,
+      proof: new Uint8Array(Buffer.from(serialized.proof, 'base64')),
+      signature: {
+        timestamp: serialized.signature.timestamp,
+        signature: new Uint8Array(Buffer.from(serialized.signature.signature, 'base64')),
+        witnessId: serialized.signature.witnessId
+      },
+      durationHours: serialized.durationHours,
+      delegatedFrom: serialized.delegatedFrom
+    };
+  }
+
+  /**
+   * Clear saved ticket
+   */
+  clearTicket(): void {
+    delete this.data.ticket;
+    this.save();
+  }
+
+  /**
+   * Check if a valid (non-expired) ticket exists
+   */
+  hasValidTicket(): boolean {
+    if (!this.data.ticket) return false;
+    return Date.now() <= this.data.ticket.expiry;
   }
 }
