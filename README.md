@@ -12,6 +12,8 @@ _A mission of [The Carpocratian Church of Commonality and Equality](https://carp
 
 **Clout** is a decentralized social protocol that gives you complete control over your feed through transparent, user-controlled content filtering—not hidden algorithms.
 
+<div align=center><br><img src="screenshot.webp"></div>
+
 ## The Problem with Social Media Today
 
 Modern social platforms share the same fundamental flaws:
