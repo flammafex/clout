@@ -24,6 +24,7 @@ const API_BASE = '/api';
 let initialized = false;
 let replyingTo = null; // Track which post we're replying to
 let pendingMedia = null; // Track uploaded media for post { cid, mimeType, filename, size }
+let editingPost = null; // Track which post we're editing { id, content }
 
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => document.querySelectorAll(selector);
@@ -219,6 +220,15 @@ async function loadFeed() {
         ? `<button class="btn-mute-small" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Mute this user">🔇</button>`
         : '';
 
+      // Edit/Delete buttons (only for your own posts)
+      const authorActions = post.isAuthor
+        ? `<button class="btn-edit-small" onclick="event.stopPropagation(); startEditPost('${post.id}', \`${escapeHtml(post.content).replace(/`/g, '\\`')}\`)" title="Edit post">✏️</button>
+           <button class="btn-delete-small" onclick="event.stopPropagation(); deletePost('${post.id}')" title="Delete post">🗑️</button>`
+        : '';
+
+      // Show "edited" indicator if post is an edit
+      const editedIndicator = post.isEdited ? '<span class="edited-badge" title="This post has been edited">edited</span>' : '';
+
       // Use display name (nickname if set, otherwise truncated key)
       const authorName = post.authorDisplayName || post.author.slice(0, 16) + '...';
       const hasNickname = !!post.authorNickname;
@@ -273,7 +283,7 @@ async function loadFeed() {
                 <div class="feed-content">${renderPostContent(post)}</div>
               `}
               <div class="feed-footer">
-                <div class="feed-timestamp">${formatRelativeTime(post.proof?.timestamp || post.timestamp)}</div>
+                <div class="feed-timestamp">${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
                 <div class="feed-actions">
                   ${reactionsHtml}
                   <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
@@ -281,6 +291,7 @@ async function loadFeed() {
                   </button>
                   <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
                   ${muteBtn}
+                  ${authorActions}
                 </div>
               </div>
             </div>
@@ -335,6 +346,107 @@ async function unmuteUser(publicKey) {
     showResult('trust-result', `Unmuted ${publicKey.slice(0, 8)}...`, true);
   } catch (error) {
     alert(`Could not unmute user: ${error.message}`);
+  }
+}
+
+// =========================================================================
+// 6i. POST EDIT & DELETE
+// =========================================================================
+
+// Delete a post
+async function deletePost(postId) {
+  if (!confirm('Are you sure you want to delete this post?\n\nThis action creates a deletion request that will be gossiped to the network. The original post still exists cryptographically but will be hidden from feeds.')) {
+    return;
+  }
+
+  try {
+    await apiCall(`/post/${postId}`, 'DELETE', { reason: 'retracted' });
+    showResult('feed-list', 'Post deleted successfully', true);
+    // Reload feed to remove the deleted post
+    setTimeout(() => loadFeedWithCurrentFilter(), 500);
+  } catch (error) {
+    alert(`Could not delete post: ${error.message}`);
+  }
+}
+
+// Start editing a post
+function startEditPost(postId, currentContent) {
+  editingPost = { id: postId, content: currentContent };
+
+  // Switch to post tab
+  $$('.tab-btn').forEach(b => b.classList.remove('active'));
+  $$('.tab-btn')[1].classList.add('active'); // Post tab is second
+  $$('.tab-content').forEach(content => content.classList.remove('active'));
+  $('post-tab').classList.add('active');
+
+  // Update UI to show we're editing
+  $('post-content').value = currentContent;
+  $('post-content').placeholder = 'Edit your post...';
+  $('char-count').textContent = currentContent.length;
+  $('post-content').focus();
+
+  // Show edit mode indicator
+  const helpText = document.querySelector('.help-text');
+  helpText.innerHTML = `Editing post ${postId.slice(0, 8)}... <button onclick="cancelEdit()" class="btn btn-small">Cancel</button>`;
+
+  // Change button text
+  $('create-post-btn').textContent = 'Save Edit';
+}
+
+// Cancel edit
+function cancelEdit() {
+  editingPost = null;
+  $('post-content').value = '';
+  $('post-content').placeholder = "What's on your mind?";
+  $('char-count').textContent = '0';
+  const helpText = document.querySelector('.help-text');
+  helpText.textContent = 'Share your thoughts with your trust network';
+  $('create-post-btn').textContent = 'Post';
+}
+
+// Save edit (modified createPost to handle edits)
+async function saveEdit() {
+  if (!editingPost) return;
+
+  const content = $('post-content').value.trim();
+  const nsfw = $('post-nsfw').checked;
+  const cwEnabled = $('post-cw-enabled').checked;
+  const contentWarning = cwEnabled ? $('post-cw-text').value.trim() : null;
+
+  if (!content) {
+    showResult('post-result', 'Please enter some content', false);
+    return;
+  }
+
+  try {
+    $('create-post-btn').disabled = true;
+    $('create-post-btn').textContent = 'Saving...';
+
+    const body = { content, nsfw };
+    if (contentWarning) {
+      body.contentWarning = contentWarning;
+    }
+
+    await apiCall(`/post/${editingPost.id}`, 'PUT', body);
+
+    showResult('post-result', 'Post edited successfully!', true);
+    $('post-content').value = '';
+    $('char-count').textContent = '0';
+    $('post-nsfw').checked = false;
+    $('post-cw-enabled').checked = false;
+    $('post-cw-text').value = '';
+    $('cw-input-wrapper').style.display = 'none';
+
+    // Reset edit state
+    cancelEdit();
+
+    // Refresh feed
+    await loadFeed();
+  } catch (error) {
+    showResult('post-result', `Error: ${error.message}`, false);
+  } finally {
+    $('create-post-btn').disabled = false;
+    $('create-post-btn').textContent = 'Post';
   }
 }
 
@@ -940,8 +1052,14 @@ function cancelReply() {
   helpText.textContent = 'Share your thoughts with your trust network';
 }
 
-// Create Post
+// Create Post (or save edit if editing)
 async function createPost() {
+  // If we're editing, call saveEdit instead
+  if (editingPost) {
+    await saveEdit();
+    return;
+  }
+
   const content = $('post-content').value.trim();
   const nsfw = $('post-nsfw').checked;
   const cwEnabled = $('post-cw-enabled').checked;

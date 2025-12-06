@@ -62,6 +62,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             const reactionData = getReactionsSummary(clout, post.id);
             // Use user's avatar for their own posts, default emoji for others
             const authorAvatar = post.author === userPublicKey ? userAvatar : '👤';
+            const isAuthor = post.author === userPublicKey;
             return {
               ...post,
               authorShort: post.author.slice(0, 8),
@@ -75,7 +76,9 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
               isDirectlyTrusted: clout.isDirectlyTrusted(post.author),
               reactions: reactionData.reactions,
               myReaction: reactionData.myReaction,
-              isBookmarked: clout.isBookmarked(post.id)
+              isBookmarked: clout.isBookmarked(post.id),
+              isAuthor,
+              isEdited: !!post.editOf
             };
           }),
           totalPosts: allPosts.length,
@@ -124,6 +127,55 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
 
       const post = await clout.post(content || '', options);
       res.json({ success: true, data: post.getPackage() });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Delete Post
+  router.delete('/post/:id', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+      const postId = req.params.id;
+      const reason = req.body.reason as 'retracted' | 'edited' | 'mistake' | 'other' | undefined;
+
+      const deletion = await clout.deletePost(postId, reason || 'retracted');
+      res.json({ success: true, data: { postId, deleted: true, reason: deletion.reason } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Edit Post
+  router.put('/post/:id', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+      const originalPostId = req.params.id;
+      const { content, nsfw, contentWarning } = req.body;
+
+      if (!content || content.trim() === '') {
+        return res.status(400).json({ success: false, error: 'Content is required' });
+      }
+
+      const newPost = await clout.editPost(originalPostId, content, {
+        nsfw,
+        contentWarning
+      });
+
+      const pkg = newPost.getPackage();
+      res.json({
+        success: true,
+        data: {
+          originalPostId,
+          newPost: {
+            ...pkg,
+            authorShort: pkg.author.slice(0, 8),
+            authorDisplayName: clout.getDisplayName(pkg.author)
+          }
+        }
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

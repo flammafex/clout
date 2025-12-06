@@ -180,6 +180,45 @@ export interface PostPackage {
    * Extracted from @publicKey patterns in content during post creation
    */
   readonly mentions?: string[];
+
+  /**
+   * Edit reference - if this post is an edit of another post
+   * Points to the original post ID that this supersedes
+   */
+  readonly editOf?: string;
+
+  /**
+   * Edit history - chain of previous versions (oldest first)
+   * Populated by the system when displaying, not stored in gossip
+   */
+  readonly editHistory?: string[];
+}
+
+/**
+ * PostDeletePackage - A signed request to delete/retract a post
+ *
+ * Deletion is "soft" - the original post still exists cryptographically,
+ * but nodes that receive this signal should hide it from feeds.
+ * Only the original author can sign a valid deletion request.
+ */
+export interface PostDeletePackage {
+  /** The post ID to delete */
+  readonly postId: string;
+
+  /** Author's public key (must match original post author) */
+  readonly author: string;
+
+  /** Author's signature over { postId, deletedAt } */
+  readonly signature: Uint8Array;
+
+  /** Witness timestamp proof of deletion request */
+  readonly proof: Attestation;
+
+  /** When the deletion was requested */
+  readonly deletedAt: number;
+
+  /** Optional reason for deletion */
+  readonly reason?: 'retracted' | 'edited' | 'mistake' | 'other';
 }
 
 /**
@@ -351,7 +390,7 @@ export interface SlidePackage {
  * In Clout: ContentGossipMessage spreads posts to propagate content
  */
 export interface ContentGossipMessage {
-  readonly type: 'post' | 'trust' | 'trust-encrypted' | 'revoke' | 'slide' | 'reaction' | 'state-sync' | 'state-request';
+  readonly type: 'post' | 'trust' | 'trust-encrypted' | 'revoke' | 'slide' | 'reaction' | 'post-delete' | 'state-sync' | 'state-request';
 
   /** For posts */
   readonly post?: PostPackage;
@@ -367,6 +406,9 @@ export interface ContentGossipMessage {
 
   /** For encrypted slides */
   readonly slide?: SlidePackage;
+
+  /** For post deletion requests */
+  readonly postDelete?: PostDeletePackage;
 
   /** For CRDT state synchronization */
   readonly stateSync?: {
@@ -457,7 +499,7 @@ export interface Inbox {
  */
 export interface CloutState {
   // --- ADD THIS LINE ---
-  [key: string]: any; 
+  [key: string]: any;
 
   /** Current agent's profile */
   profile?: CloutProfile;
@@ -470,6 +512,9 @@ export interface CloutState {
 
   /** Reactions issued by this agent */
   myReactions: ReactionPackage[];
+
+  /** Post deletions issued by this agent */
+  myPostDeletions: PostDeletePackage[];
 
   /** Last sync timestamp */
   lastSync?: number;

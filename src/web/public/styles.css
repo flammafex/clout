@@ -358,6 +358,54 @@ h2 {
   color: #ef4444;
 }
 
+/* Edit button in feed */
+.btn-edit-small {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all 0.2s;
+}
+
+.btn-edit-small:hover {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary);
+}
+
+/* Delete button in feed */
+.btn-delete-small {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: all 0.2s;
+}
+
+.btn-delete-small:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+/* Edited badge */
+.edited-badge {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  background: rgba(99, 102, 241, 0.1);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  margin-left: 0.5rem;
+}
+
 /* Mute/unmute buttons in trust list */
 .btn-mute, .btn-unmute {
   font-size: 0.9rem;

@@ -499,6 +499,205 @@ export class Clout {
   }
 
   /**
+   * Delete (retract) a post
+   *
+   * Creates a signed deletion request that is gossiped to the network.
+   * The original post still exists cryptographically, but nodes that
+   * receive this signal should hide it from feeds.
+   *
+   * @param postId - ID of the post to delete
+   * @param reason - Optional reason for deletion
+   * @returns The deletion package
+   */
+  async deletePost(postId: string, reason?: 'retracted' | 'edited' | 'mistake' | 'other'): Promise<import('./clout-types.js').PostDeletePackage> {
+    // 1. Verify we own this post
+    const allPosts = this.store ? await this.store.getFeed() : [];
+    const post = allPosts.find(p => p.id === postId);
+
+    if (!post) {
+      throw new Error(`Post ${postId} not found`);
+    }
+
+    if (post.author !== this.publicKeyHex) {
+      throw new Error(`Cannot delete post ${postId}: you are not the author`);
+    }
+
+    // 2. Create deletion payload
+    const deletedAt = Date.now();
+    const deletionPayload = { postId, deletedAt };
+    const payloadHash = Crypto.hashObject(deletionPayload);
+
+    // 3. Sign the deletion
+    const signature = Crypto.hash(JSON.stringify(deletionPayload), this.privateKey);
+
+    // 4. Get Witness attestation for the deletion
+    const proof = await this.witness.timestamp(payloadHash);
+
+    // 5. Create the deletion package
+    const deletion: import('./clout-types.js').PostDeletePackage = {
+      postId,
+      author: this.publicKeyHex,
+      signature,
+      proof,
+      deletedAt,
+      reason
+    };
+
+    // 6. Store deletion locally
+    this.state.addPostDeletion(deletion);
+
+    // 7. Gossip the deletion to the network
+    if (this.gossip) {
+      await this.gossip.publish({
+        type: 'post-delete',
+        postDelete: deletion,
+        timestamp: deletedAt
+      });
+    }
+
+    console.log(`[Clout] 🗑️ Deleted post ${postId.slice(0, 8)}...`);
+    return deletion;
+  }
+
+  /**
+   * Edit a post by creating a new version that supersedes the original
+   *
+   * Since posts are content-addressed (ID = hash of content), editing
+   * creates a new post with new content/ID that references the original.
+   * The original post is automatically soft-deleted with reason 'edited'.
+   *
+   * @param originalPostId - ID of the post to edit
+   * @param newContent - New content for the post
+   * @param options - Optional: media, nsfw, contentWarning
+   * @returns The new post that supersedes the original
+   */
+  async editPost(
+    originalPostId: string,
+    newContent: string,
+    options?: {
+      media?: import('./clout-types.js').MediaInput;
+      nsfw?: boolean;
+      contentWarning?: string;
+    }
+  ): Promise<CloutPost> {
+    // 1. Verify we own the original post
+    const allPosts = this.store ? await this.store.getFeed() : [];
+    const originalPost = allPosts.find(p => p.id === originalPostId);
+
+    if (!originalPost) {
+      throw new Error(`Post ${originalPostId} not found`);
+    }
+
+    if (originalPost.author !== this.publicKeyHex) {
+      throw new Error(`Cannot edit post ${originalPostId}: you are not the author`);
+    }
+
+    // 2. Create the new post with editOf reference
+    const newPost = await this.postInternal(newContent, {
+      replyTo: originalPost.replyTo, // Preserve thread context
+      media: options?.media,
+      nsfw: options?.nsfw ?? originalPost.nsfw,
+      contentWarning: options?.contentWarning ?? originalPost.contentWarning,
+      editOf: originalPostId
+    });
+
+    // 3. Soft-delete the original post with reason 'edited'
+    await this.deletePost(originalPostId, 'edited');
+
+    console.log(`[Clout] ✏️ Edited post ${originalPostId.slice(0, 8)}... → ${newPost.getPackage().id.slice(0, 8)}...`);
+    return newPost;
+  }
+
+  /**
+   * Internal post method that supports editOf field
+   */
+  private async postInternal(
+    content: string,
+    options: {
+      replyTo?: string;
+      media?: import('./clout-types.js').MediaInput;
+      nsfw?: boolean;
+      contentWarning?: string;
+      editOf?: string;
+      useEphemeralKey?: boolean;
+    } = {}
+  ): Promise<CloutPost> {
+    const { replyTo, media, nsfw, contentWarning, editOf, useEphemeralKey = true } = options;
+
+    // Auto-mint ticket if needed
+    if (!this.hasActiveTicket()) {
+      const token = await this.obtainToken();
+      await this.buyDayPass(token);
+    }
+
+    // Extract mentions from content
+    const mentionRegex = /@([a-fA-F0-9]{8,})/g;
+    const mentions: string[] = [];
+    let match;
+    while ((match = mentionRegex.exec(content)) !== null) {
+      mentions.push(match[1]);
+    }
+
+    let finalContent = content;
+    let mediaMetadata: MediaMetadata | undefined;
+
+    // Handle media upload
+    if (media && this.mediaStorageEnabled) {
+      mediaMetadata = await this.storage.store(media.data, media.mimeType, media.filename);
+      const mediaLink = StorageManager.formatMediaLink(mediaMetadata.cid);
+      finalContent = content ? `${content}\n\n${mediaLink}` : mediaLink;
+    }
+
+    // Derive ephemeral key for forward secrecy
+    let ephemeralPublicKey: Uint8Array | undefined;
+    let ephemeralKeyProof: Uint8Array | undefined;
+    let signingKey = this.privateKey;
+
+    if (useEphemeralKey) {
+      const { ephemeralSecret, ephemeralPublic } = Crypto.deriveEphemeralKey(this.privateKey);
+      ephemeralPublicKey = ephemeralPublic;
+      ephemeralKeyProof = Crypto.createEphemeralKeyProof(ephemeralPublic, this.privateKey);
+      signingKey = ephemeralSecret;
+    }
+
+    // Sign content
+    const signature = Crypto.hash(finalContent, signingKey);
+
+    const config: PostConfig = {
+      author: this.publicKeyHex,
+      content: finalContent,
+      signature,
+      freebird: this.freebird,
+      witness: this.witness,
+      replyTo,
+      contentType: media ? media.mimeType : 'text/plain',
+      ephemeralPublicKey,
+      ephemeralKeyProof,
+      media: mediaMetadata,
+      nsfw,
+      contentWarning,
+      mentions: mentions.length > 0 ? mentions : undefined
+    };
+
+    // Create & Gossip Post
+    const post = await CloutPost.post(config, this.currentTicket, this.gossip);
+
+    // Get the package and add editOf if present
+    let pkg = post.getPackage();
+    if (editOf) {
+      pkg = { ...pkg, editOf };
+    }
+
+    // Persist to CRDT State and Local Store
+    this.state.addPost(pkg);
+    if (this.store) {
+      await this.store.addPost(pkg);
+    }
+
+    return post;
+  }
+
+  /**
    * Send an encrypted slide (DM) to another user
    */
   async slide(recipientKey: string, message: string): Promise<SlidePackage> {
@@ -1436,8 +1635,9 @@ export class Clout {
    * @param options.tag - Filter by trust tag
    * @param options.limit - Maximum number of posts
    * @param options.includeNsfw - Override NSFW setting for this call
+   * @param options.includeDeleted - Show deleted posts (default: false)
    */
-  async getFeed(options?: { tag?: string; limit?: number; includeNsfw?: boolean }): Promise<PostPackage[]> {
+  async getFeed(options?: { tag?: string; limit?: number; includeNsfw?: boolean; includeDeleted?: boolean }): Promise<PostPackage[]> {
     if (!this.store) {
       throw new Error('No store configured');
     }
@@ -1450,6 +1650,27 @@ export class Clout {
     } else {
       posts = await this.store.getFeed();
     }
+
+    // Filter out deleted posts (unless includeDeleted is true)
+    if (!options?.includeDeleted) {
+      const deletedPostIds = new Set(
+        this.state.getPostDeletions().map(d => d.postId)
+      );
+      posts = posts.filter(post => !deletedPostIds.has(post.id));
+    }
+
+    // Build a map of edits: originalId -> latestEditId
+    // This allows us to track edit chains and show only the latest version
+    const editMap = new Map<string, string>(); // originalId -> editedPostId
+    for (const post of posts) {
+      if (post.editOf) {
+        editMap.set(post.editOf, post.id);
+      }
+    }
+
+    // Filter out posts that have been superseded by edits
+    // (the original post is hidden, the edit is shown)
+    posts = posts.filter(post => !editMap.has(post.id));
 
     // Apply NSFW filtering
     const settings = this.getProfile().trustSettings;
@@ -1472,6 +1693,20 @@ export class Clout {
     posts = posts.filter(post => !this.localData.isMuted(post.author));
 
     return options?.limit ? posts.slice(0, options.limit) : posts;
+  }
+
+  /**
+   * Check if a post has been deleted
+   */
+  isPostDeleted(postId: string): boolean {
+    return this.state.isPostDeleted(postId);
+  }
+
+  /**
+   * Get all post deletions
+   */
+  getPostDeletions(): import('./clout-types.js').PostDeletePackage[] {
+    return this.state.getPostDeletions();
   }
 
   /**

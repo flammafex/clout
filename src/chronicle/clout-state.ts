@@ -6,13 +6,14 @@
 import * as A from "@automerge/automerge";
 import { Chronicle } from '../vendor/hypertoken/Chronicle.js'; // This is actually ChronicleWasm
 import { Emitter } from './events.js';
-import type { CloutState, PostPackage, TrustSignal, ReactionPackage, CloutProfile } from '../clout-types.js';
+import type { CloutState, PostPackage, TrustSignal, ReactionPackage, CloutProfile, PostDeletePackage } from '../clout-types.js';
 
 // Default empty state
 const INITIAL_STATE: CloutState = {
   myPosts: [],
   myTrustSignals: [],
   myReactions: [],
+  myPostDeletions: [],
   profile: {
     publicKey: '',
     trustGraph: new Set(),
@@ -104,6 +105,39 @@ export class CloutStateManager extends Emitter {
         doc.myReactions.push(cleanReaction);
       }
     });
+  }
+
+  addPostDeletion(deletion: PostDeletePackage): void {
+    this.chronicle.change("add post deletion", (doc: any) => {
+      // Ensure myPostDeletions exists
+      if (!doc.myPostDeletions) doc.myPostDeletions = [];
+
+      // Check if deletion already exists for this post
+      const exists = doc.myPostDeletions.some(
+        (d: any) => d.postId === deletion.postId
+      );
+
+      if (!exists) {
+        const cleanDeletion = JSON.parse(JSON.stringify(deletion));
+        doc.myPostDeletions.push(cleanDeletion);
+      }
+    });
+  }
+
+  /**
+   * Check if a post has been deleted
+   */
+  isPostDeleted(postId: string): boolean {
+    const state = this.getState();
+    return (state.myPostDeletions || []).some((d: any) => d.postId === postId);
+  }
+
+  /**
+   * Get all post deletions
+   */
+  getPostDeletions(): PostDeletePackage[] {
+    const state = this.getState();
+    return state.myPostDeletions || [];
   }
 
   updateProfile(profile: CloutProfile): void {
