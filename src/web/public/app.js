@@ -198,9 +198,9 @@ async function loadFeed() {
       let trustContext = '';
 
       if (isYou) {
-        trustContext = '<span class="trust-context trust-self">Your post</span>';
+        trustContext = '<span class="trust-context trust-self">Self</span>';
       } else if (isDirectTrust) {
-        trustContext = '<span class="trust-context trust-direct">In your circle</span>';
+        trustContext = '<span class="trust-context trust-direct">In Your Circle</span>';
       } else if (trustPath.length > 0) {
         const pathDisplay = trustPath.slice(0, -1).join(' → '); // Show intermediaries
         trustContext = `<span class="trust-context trust-indirect">Via ${pathDisplay}</span>`;
@@ -236,45 +236,53 @@ async function loadFeed() {
       // Mentions highlight
       const hasMentions = post.mentions && post.mentions.length > 0;
 
+      // Author avatar (default to 👤 if not set)
+      const authorAvatar = post.authorAvatar || '👤';
+
       return `
         <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
-          <div class="feed-header">
-            <div class="feed-author">
-              <span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span>
-              <span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
-                ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
-              </span>
-              ${tagsHtml}
-              ${quickTrustBtn}
-            </div>
-            <div class="feed-meta">
-              ${trustContext}
-              ${post.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
-              ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
-            </div>
-          </div>
-          ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
-          ${hasCW ? `
-            <div class="cw-wrapper" id="${cwId}">
-              <button class="cw-reveal-btn" onclick="event.stopPropagation(); toggleCW('${cwId}')">
-                ⚠️ ${escapeHtml(post.contentWarning)} - Click to reveal
-              </button>
-              <div class="cw-content" style="display: none;">
-                <div class="feed-content">${renderPostContent(post)}</div>
+          <div class="feed-item-wrapper">
+            <div class="feed-avatar">${escapeHtml(authorAvatar)}</div>
+            <div class="feed-post-content">
+              <div class="feed-header">
+                <div class="feed-author">
+                  <span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span>
+                  <span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
+                    ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
+                  </span>
+                  ${tagsHtml}
+                  ${quickTrustBtn}
+                </div>
+                <div class="feed-meta">
+                  ${trustContext}
+                  ${post.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
+                  ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
+                </div>
               </div>
-            </div>
-          ` : `
-            <div class="feed-content">${renderPostContent(post)}</div>
-          `}
-          <div class="feed-footer">
-            <div class="feed-timestamp">${formatRelativeTime(post.timestamp)}</div>
-            <div class="feed-actions">
-              ${reactionsHtml}
-              <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
-                ${post.isBookmarked ? '🔖' : '📑'}
-              </button>
-              <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
-              ${muteBtn}
+              ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
+              ${hasCW ? `
+                <div class="cw-wrapper" id="${cwId}">
+                  <button class="cw-reveal-btn" onclick="event.stopPropagation(); toggleCW('${cwId}')">
+                    ⚠️ ${escapeHtml(post.contentWarning)} - Click to reveal
+                  </button>
+                  <div class="cw-content" style="display: none;">
+                    <div class="feed-content">${renderPostContent(post)}</div>
+                  </div>
+                </div>
+              ` : `
+                <div class="feed-content">${renderPostContent(post)}</div>
+              `}
+              <div class="feed-footer">
+                <div class="feed-timestamp">${formatRelativeTime(post.proof?.timestamp || post.timestamp)}</div>
+                <div class="feed-actions">
+                  ${reactionsHtml}
+                  <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+                    ${post.isBookmarked ? '🔖' : '📑'}
+                  </button>
+                  <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+                  ${muteBtn}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -581,42 +589,48 @@ function renderFeedItem(post) {
   const reactionEmojis = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
   const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, reactionEmojis);
   const isYou = rep.distance === 0;
+  const authorAvatar = post.authorAvatar || '👤';
 
   return `
     <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasCW ? 'has-cw' : ''}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
-      <div class="feed-header">
-        <div class="feed-author">
-          <span title="${post.author}">${escapeHtml(authorName)}</span>
-          <span class="reputation-badge" style="background-color: ${repColor}">
-            ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
-          </span>
-        </div>
-        <div class="feed-meta">
-          ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
-        </div>
-      </div>
-      ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
-      ${hasCW ? `
-        <div class="cw-wrapper" id="${cwId}">
-          <button class="cw-reveal-btn" onclick="event.stopPropagation(); toggleCW('${cwId}')">
-            ⚠️ ${escapeHtml(post.contentWarning)} - Click to reveal
-          </button>
-          <div class="cw-content" style="display: none;">
-            <div class="feed-content">${renderPostContent(post)}</div>
+      <div class="feed-item-wrapper">
+        <div class="feed-avatar">${escapeHtml(authorAvatar)}</div>
+        <div class="feed-post-content">
+          <div class="feed-header">
+            <div class="feed-author">
+              <span title="${post.author}">${escapeHtml(authorName)}</span>
+              <span class="reputation-badge" style="background-color: ${repColor}">
+                ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
+              </span>
+            </div>
+            <div class="feed-meta">
+              ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
+            </div>
           </div>
-        </div>
-      ` : `
-        <div class="feed-content">${renderPostContent(post)}</div>
-      `}
-      <div class="feed-footer">
-        <div class="feed-timestamp">${formatRelativeTime(post.timestamp || post.proof?.timestamp)}</div>
-        <div class="feed-actions">
-          ${reactionsHtml}
-          <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')">
-            ${post.isBookmarked ? '🔖' : '📑'}
-          </button>
-          <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
-          ${!isYou ? `<button class="btn-mute-small" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Mute">🔇</button>` : ''}
+          ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}...</div>` : ''}
+          ${hasCW ? `
+            <div class="cw-wrapper" id="${cwId}">
+              <button class="cw-reveal-btn" onclick="event.stopPropagation(); toggleCW('${cwId}')">
+                ⚠️ ${escapeHtml(post.contentWarning)} - Click to reveal
+              </button>
+              <div class="cw-content" style="display: none;">
+                <div class="feed-content">${renderPostContent(post)}</div>
+              </div>
+            </div>
+          ` : `
+            <div class="feed-content">${renderPostContent(post)}</div>
+          `}
+          <div class="feed-footer">
+            <div class="feed-timestamp">${formatRelativeTime(post.proof?.timestamp || post.timestamp)}</div>
+            <div class="feed-actions">
+              ${reactionsHtml}
+              <button class="btn-bookmark ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')">
+                ${post.isBookmarked ? '🔖' : '📑'}
+              </button>
+              <button class="btn-reply" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+              ${!isYou ? `<button class="btn-mute-small" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Mute">🔇</button>` : ''}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -843,14 +857,21 @@ async function viewThread(postId) {
     const parentHasMedia = parent.media && parent.media.cid;
     const parentAuthorName = parent.authorDisplayName || parent.author.slice(0, 16) + '...';
     const parentHasNickname = !!parent.authorNickname;
+    const parentAvatar = parent.authorAvatar || '👤';
+    const parentTimestamp = parent.proof?.timestamp || parent.timestamp;
     $('thread-parent').innerHTML = `
       <div class="feed-item thread-parent-post ${parentHasMedia ? 'has-media' : ''}">
-        <div class="feed-author"><span class="${parentHasNickname ? 'has-nickname' : ''}" title="${parent.author}">${escapeHtml(parentAuthorName)}</span></div>
-        ${parent.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${parent.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); viewThread('${parent.replyTo}')">View parent</a></div>` : ''}
-        <div class="feed-content">${renderPostContent(parent)}</div>
-        <div class="feed-footer">
-          <div class="feed-timestamp">${new Date(parent.timestamp).toLocaleString()}</div>
-          <button class="btn-reply" onclick="startReply('${parent.id}', '${escapeHtml(parentAuthorName)}')">Reply</button>
+        <div class="feed-item-wrapper">
+          <div class="feed-avatar">${escapeHtml(parentAvatar)}</div>
+          <div class="feed-post-content">
+            <div class="feed-author"><span class="${parentHasNickname ? 'has-nickname' : ''}" title="${parent.author}">${escapeHtml(parentAuthorName)}</span></div>
+            ${parent.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${parent.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); viewThread('${parent.replyTo}')">View parent</a></div>` : ''}
+            <div class="feed-content">${renderPostContent(parent)}</div>
+            <div class="feed-footer">
+              <div class="feed-timestamp">${parentTimestamp ? new Date(parentTimestamp).toLocaleString() : 'Unknown'}</div>
+              <button class="btn-reply" onclick="startReply('${parent.id}', '${escapeHtml(parentAuthorName)}')">Reply</button>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -864,13 +885,20 @@ async function viewThread(postId) {
         const replyHasMedia = reply.media && reply.media.cid;
         const replyAuthorName = reply.authorDisplayName || reply.author.slice(0, 16) + '...';
         const replyHasNickname = !!reply.authorNickname;
+        const replyAvatar = reply.authorAvatar || '👤';
+        const replyTimestamp = reply.proof?.timestamp || reply.timestamp;
         return `
           <div class="feed-item ${replyHasMedia ? 'has-media' : ''}" onclick="viewThread('${reply.id}')" style="cursor: pointer;">
-            <div class="feed-author"><span class="${replyHasNickname ? 'has-nickname' : ''}" title="${reply.author}">${escapeHtml(replyAuthorName)}</span></div>
-            <div class="feed-content">${renderPostContent(reply)}</div>
-            <div class="feed-footer">
-              <div class="feed-timestamp">${new Date(reply.timestamp).toLocaleString()}</div>
-              <button class="btn-reply" onclick="event.stopPropagation(); startReply('${reply.id}', '${escapeHtml(replyAuthorName)}')">Reply</button>
+            <div class="feed-item-wrapper">
+              <div class="feed-avatar">${escapeHtml(replyAvatar)}</div>
+              <div class="feed-post-content">
+                <div class="feed-author"><span class="${replyHasNickname ? 'has-nickname' : ''}" title="${reply.author}">${escapeHtml(replyAuthorName)}</span></div>
+                <div class="feed-content">${renderPostContent(reply)}</div>
+                <div class="feed-footer">
+                  <div class="feed-timestamp">${replyTimestamp ? new Date(replyTimestamp).toLocaleString() : 'Unknown'}</div>
+                  <button class="btn-reply" onclick="event.stopPropagation(); startReply('${reply.id}', '${escapeHtml(replyAuthorName)}')">Reply</button>
+                </div>
+              </div>
             </div>
           </div>
         `;

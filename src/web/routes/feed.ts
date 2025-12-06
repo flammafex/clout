@@ -49,17 +49,25 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
       const allPosts = await clout.getFeed({ includeNsfw });
       const posts = allPosts.slice(0, limit);
 
+      // Get current user's profile for avatar lookup
+      const userProfile = clout.getProfile();
+      const userPublicKey = userProfile.publicKey;
+      const userAvatar = userProfile.metadata?.avatar || '👤';
+
       res.json({
         success: true,
         data: {
           posts: posts.map((post: any) => {
             const trustPath = clout.getTrustPath(post.author);
             const reactionData = getReactionsSummary(clout, post.id);
+            // Use user's avatar for their own posts, default emoji for others
+            const authorAvatar = post.author === userPublicKey ? userAvatar : '👤';
             return {
               ...post,
               authorShort: post.author.slice(0, 8),
               authorDisplayName: clout.getDisplayName(post.author),
               authorNickname: clout.getNickname(post.author),
+              authorAvatar,
               reputation: clout.getReputation(post.author),
               authorTags: clout.getTagsForUser(post.author),
               trustPath: trustPath?.path.map(k => clout.getDisplayName(k)) || [],
@@ -139,6 +147,11 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
         .filter((p: any) => p.replyTo === postId)
         .sort((a: any, b: any) => a.proof.timestamp - b.proof.timestamp);
 
+      // Get current user's profile for avatar lookup
+      const userProfile = clout.getProfile();
+      const userPublicKey = userProfile.publicKey;
+      const userAvatar = userProfile.metadata?.avatar || '👤';
+
       res.json({
         success: true,
         data: {
@@ -146,13 +159,15 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             ...parentPost,
             authorShort: parentPost.author.slice(0, 8),
             authorDisplayName: clout.getDisplayName(parentPost.author),
-            authorNickname: clout.getNickname(parentPost.author)
+            authorNickname: clout.getNickname(parentPost.author),
+            authorAvatar: parentPost.author === userPublicKey ? userAvatar : '👤'
           },
           replies: replies.map((post: any) => ({
             ...post,
             authorShort: post.author.slice(0, 8),
             authorDisplayName: clout.getDisplayName(post.author),
-            authorNickname: clout.getNickname(post.author)
+            authorNickname: clout.getNickname(post.author),
+            authorAvatar: post.author === userPublicKey ? userAvatar : '👤'
           }))
         }
       });
@@ -172,6 +187,11 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
 
       const posts = await clout.getFeed({ tag, limit });
 
+      // Get current user's profile for avatar lookup
+      const userProfile = clout.getProfile();
+      const userPublicKey = userProfile.publicKey;
+      const userAvatar = userProfile.metadata?.avatar || '👤';
+
       res.json({
         success: true,
         data: {
@@ -179,7 +199,8 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
           posts: posts.map((post: any) => ({
             ...post,
             authorShort: post.author.slice(0, 8),
-            reputation: clout.getReputation(post.author)
+            reputation: clout.getReputation(post.author),
+            authorAvatar: post.author === userPublicKey ? userAvatar : '👤'
           })),
           totalPosts: posts.length
         }
@@ -290,6 +311,11 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
       const limit = parseInt(req.query.limit as string) || 20;
       const posts = await clout.getMentions({ limit });
 
+      // Get current user's profile for avatar lookup
+      const userProfile = clout.getProfile();
+      const userPublicKey = userProfile.publicKey;
+      const userAvatar = userProfile.metadata?.avatar || '👤';
+
       res.json({
         success: true,
         data: {
@@ -297,6 +323,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             ...post,
             authorShort: post.author.slice(0, 8),
             authorDisplayName: clout.getDisplayName(post.author),
+            authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
             reactions: getReactionsSummary(clout, post.id).reactions
           })),
           count: posts.length
@@ -319,6 +346,11 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
 
       const posts = await clout.getBookmarks();
 
+      // Get current user's profile for avatar lookup
+      const userProfile = clout.getProfile();
+      const userPublicKey = userProfile.publicKey;
+      const userAvatar = userProfile.metadata?.avatar || '👤';
+
       res.json({
         success: true,
         data: {
@@ -326,6 +358,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             ...post,
             authorShort: post.author.slice(0, 8),
             authorDisplayName: clout.getDisplayName(post.author),
+            authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
             reactions: getReactionsSummary(clout, post.id).reactions,
             isBookmarked: true
           })),
@@ -405,6 +438,11 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
                nickname.includes(query);
       }).slice(0, limit);
 
+      // Get current user's profile for avatar lookup
+      const userProfile = clout.getProfile();
+      const userPublicKey = userProfile.publicKey;
+      const userAvatar = userProfile.metadata?.avatar || '👤';
+
       res.json({
         success: true,
         data: {
@@ -412,6 +450,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             ...post,
             authorShort: post.author.slice(0, 8),
             authorDisplayName: clout.getDisplayName(post.author),
+            authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
             reactions: getReactionsSummary(clout, post.id).reactions,
             isBookmarked: clout.isBookmarked(post.id)
           })),
@@ -452,6 +491,11 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
 
       const replies = await clout.getReplies({ limit, unreadOnly });
 
+      // Get current user's profile for avatar lookup
+      const userProfile = clout.getProfile();
+      const userPublicKey = userProfile.publicKey;
+      const userAvatar = userProfile.metadata?.avatar || '👤';
+
       res.json({
         success: true,
         data: {
@@ -459,6 +503,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             ...post,
             authorShort: post.author.slice(0, 8),
             authorDisplayName: clout.getDisplayName(post.author),
+            authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
             reactions: getReactionsSummary(clout, post.id).reactions
           })),
           count: replies.length
