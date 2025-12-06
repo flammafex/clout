@@ -2,10 +2,10 @@
 # Clout - Docker Compose Configuration
 # ============================================
 #
-# Quick Start:
+# Quick Start (includes Freebird + Witness):
 #   docker compose up --build
 #
-# With full stack (Freebird, Witness, HyperToken):
+# With P2P relay (HyperToken):
 #   docker compose --profile full-stack up --build
 #
 # CLI commands:
@@ -45,6 +45,13 @@ services:
       - clout-data:/data
     networks:
       - clout-net
+    depends_on:
+      freebird-issuer:
+        condition: service_healthy
+      freebird-verifier:
+        condition: service_started
+      witness-gateway:
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
@@ -85,8 +92,6 @@ services:
   # Freebird Issuer - Anonymous authorization
   freebird-issuer:
     image: ghcr.io/flammafex/freebird:latest
-    profiles:
-      - full-stack
     container_name: freebird-issuer
     build:
       context: https://github.com/flammafex/freebird.git
@@ -114,8 +119,6 @@ services:
   # Freebird Verifier - Token verification
   freebird-verifier:
     image: ghcr.io/flammafex/freebird:latest
-    profiles:
-      - full-stack
     container_name: freebird-verifier
     build:
       context: https://github.com/flammafex/freebird.git
@@ -139,8 +142,6 @@ services:
   # Redis - For Freebird verifier caching
   redis:
     image: redis:alpine
-    profiles:
-      - full-stack
     container_name: clout-redis
     volumes:
       - redis-data:/data
@@ -151,8 +152,6 @@ services:
   # Witness Gateway - Threshold timestamping
   witness-gateway:
     image: ghcr.io/flammafex/witness:latest
-    profiles:
-      - full-stack
     container_name: witness-gateway
     build:
       context: https://github.com/flammafex/witness.git
