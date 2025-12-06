@@ -3,10 +3,12 @@
  *
  * Provides P2P network connectivity for gossip protocol using HyperToken's
  * HybridPeerManager for WebSocket + WebRTC P2P networking with automatic upgrade.
+ *
+ * This adapter is message-type agnostic - it works with any JSON-serializable
+ * message type (Scarcity GossipMessage, Clout ContentGossipMessage, etc.)
  */
 
 import { HybridPeerManager } from '../vendor/hypertoken/HybridPeerManager.js';
-import type { PeerConnection, GossipMessage } from '../types.js';
 import { Crypto } from '../crypto.js';
 
 export interface HyperTokenAdapterConfig {
@@ -16,43 +18,59 @@ export interface HyperTokenAdapterConfig {
 }
 
 /**
- * Serializable version of GossipMessage for JSON transmission
- * Converts Uint8Arrays to hex strings
+ * Generic PeerConnection interface for any message type
  */
-interface SerializedGossipMessage {
-  readonly type: 'nullifier' | 'ping' | 'pong';
-  readonly nullifier?: string;
-  readonly proof?: any;
-  readonly timestamp: number;
-  readonly ownershipProof?: string;
+export interface GenericPeerConnection<T = any> {
+  readonly id: string;
+  readonly publicKey?: string;
+  send(data: T): Promise<void>;
+  isConnected(): boolean;
+  setMessageHandler?(handler: (data: T) => void): void;
+  disconnect?(): void;
 }
 
 /**
- * Serialize GossipMessage for JSON transmission
- * Converts Uint8Arrays to hex strings
+ * Recursively serialize an object for JSON transmission
+ * Converts Uint8Arrays to { __uint8array: hexString } format
  */
-function serializeGossipMessage(msg: GossipMessage): SerializedGossipMessage {
-  return {
-    type: msg.type,
-    nullifier: msg.nullifier ? Crypto.toHex(msg.nullifier) : undefined,
-    proof: msg.proof,
-    timestamp: msg.timestamp,
-    ownershipProof: msg.ownershipProof ? Crypto.toHex(msg.ownershipProof) : undefined
-  };
+function serializeDeep(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (obj instanceof Uint8Array) {
+    return { __uint8array: Crypto.toHex(obj) };
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(serializeDeep);
+  }
+  if (typeof obj === 'object') {
+    const result: any = {};
+    for (const key of Object.keys(obj)) {
+      result[key] = serializeDeep(obj[key]);
+    }
+    return result;
+  }
+  return obj;
 }
 
 /**
- * Deserialize GossipMessage from JSON transmission
- * Converts hex strings back to Uint8Arrays
+ * Recursively deserialize an object from JSON transmission
+ * Converts { __uint8array: hexString } back to Uint8Array
  */
-function deserializeGossipMessage(serialized: SerializedGossipMessage): GossipMessage {
-  return {
-    type: serialized.type,
-    nullifier: serialized.nullifier ? Crypto.fromHex(serialized.nullifier) : undefined,
-    proof: serialized.proof,
-    timestamp: serialized.timestamp,
-    ownershipProof: serialized.ownershipProof ? Crypto.fromHex(serialized.ownershipProof) : undefined
-  };
+function deserializeDeep(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'object' && '__uint8array' in obj) {
+    return Crypto.fromHex(obj.__uint8array);
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(deserializeDeep);
+  }
+  if (typeof obj === 'object') {
+    const result: any = {};
+    for (const key of Object.keys(obj)) {
+      result[key] = deserializeDeep(obj[key]);
+    }
+    return result;
+  }
+  return obj;
 }
 
 /**
@@ -108,12 +126,12 @@ class LeakyBucket {
 
 /**
  * Wrapper that adapts HyperToken's event-driven HybridPeerManager
- * to Scarcity's PeerConnection interface
+ * to a generic PeerConnection interface (works with any message type)
  */
-class HyperTokenPeerWrapper implements PeerConnection {
+class HyperTokenPeerWrapper implements GenericPeerConnection {
   readonly id: string;
   private htManager: HybridPeerManager;
-  private messageHandler?: (data: GossipMessage) => void;
+  private messageHandler?: (data: any) => void;
   private targetPeerId: string;
   private rateLimiter: LeakyBucket;
   private droppedMessages: number = 0;
@@ -125,13 +143,13 @@ class HyperTokenPeerWrapper implements PeerConnection {
     this.rateLimiter = new LeakyBucket(rateLimitBurst, rateLimitPerSecond);
   }
 
-  async send(data: GossipMessage): Promise<void> {
+  async send(data: any): Promise<void> {
     if (!this.isConnected()) {
       throw new Error(`Peer ${this.id} is not connected`);
     }
 
-    // Serialize GossipMessage to JSON-safe format (Uint8Array -> hex string)
-    const serialized = serializeGossipMessage(data);
+    // Serialize message to JSON-safe format (Uint8Array -> hex string)
+    const serialized = serializeDeep(data);
     // Send message to specific peer using HyperToken's sendToPeer
     // This will use WebRTC if available, otherwise falls back to WebSocket
     this.htManager.sendToPeer(this.targetPeerId, serialized);
@@ -144,9 +162,8 @@ class HyperTokenPeerWrapper implements PeerConnection {
 
   /**
    * Set handler for incoming messages from this peer
-   * Note: This is called by NullifierGossip's internal wiring
    */
-  setMessageHandler(handler: (data: GossipMessage) => void): void {
+  setMessageHandler(handler: (data: any) => void): void {
     this.messageHandler = handler;
   }
 
@@ -163,7 +180,7 @@ class HyperTokenPeerWrapper implements PeerConnection {
 
     if (this.messageHandler) {
       // Deserialize from JSON-safe format (hex string -> Uint8Array)
-      const deserializedMessage = deserializeGossipMessage(data as SerializedGossipMessage);
+      const deserializedMessage = deserializeDeep(data);
       this.messageHandler(deserializedMessage);
     }
   }
@@ -205,7 +222,7 @@ export class HyperTokenAdapter {
   private readyPromise: Promise<void>;
   private readyResolve?: () => void;
   private readyReject?: (error: Error) => void;
-  private peerDiscoveryHandler?: (peer: PeerConnection) => void;
+  private peerDiscoveryHandler?: (peer: GenericPeerConnection) => void;
 
   constructor(config: HyperTokenAdapterConfig = {}) {
     this.relayUrl = config.relayUrl ?? 'ws://localhost:8080';
@@ -222,7 +239,7 @@ export class HyperTokenAdapter {
   /**
    * Set handler for when new peers are discovered
    */
-  setPeerDiscoveryHandler(handler: (peer: PeerConnection) => void): void {
+  setPeerDiscoveryHandler(handler: (peer: GenericPeerConnection) => void): void {
     this.peerDiscoveryHandler = handler;
   }
 
@@ -343,7 +360,7 @@ export class HyperTokenAdapter {
   /**
    * Create a peer connection wrapper for a specific peer
    */
-  createPeer(peerId?: string): PeerConnection {
+  createPeer(peerId?: string): GenericPeerConnection {
     // Generate peer ID if not provided
     const targetPeerId = peerId ?? this.generatePeerId();
 
@@ -351,7 +368,7 @@ export class HyperTokenAdapter {
     if (!this.htManager) {
       return {
         id: targetPeerId,
-        async send(_data: GossipMessage): Promise<void> {
+        async send(_data: any): Promise<void> {
           // No-op in fallback mode
         },
         isConnected(): boolean {
@@ -366,7 +383,7 @@ export class HyperTokenAdapter {
   /**
    * Get all connected peer wrappers
    */
-  getPeers(): PeerConnection[] {
+  getPeers(): GenericPeerConnection[] {
     return Array.from(this.peerWrappers.values());
   }
 
