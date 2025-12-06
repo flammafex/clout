@@ -404,8 +404,8 @@ export class CloutWebServer {
         return;
       }
 
-      // Create the Dunbar pool
-      const invitations = await freebirdAdmin.bootstrapDunbarPool(150);
+      // Create the Dunbar pool (50 invitations - within Freebird's 1-100 limit)
+      const invitations = await freebirdAdmin.bootstrapDunbarPool(50);
 
       // Save invitation codes to a file for admin reference
       const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');

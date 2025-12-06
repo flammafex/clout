@@ -132,10 +132,10 @@ export class FreebirdAdmin {
    * Creates the initial set of invitations for the admin to distribute.
    * This is called on first initialization to seed the network.
    *
-   * @param count Number of invitations (default: 150 - Dunbar's number)
+   * @param count Number of invitations (default: 50, max 100 per Freebird limit)
    * @returns The created invitations
    */
-  async bootstrapDunbarPool(count: number = 150): Promise<Invitation[]> {
+  async bootstrapDunbarPool(count: number = 50): Promise<Invitation[]> {
     console.log(`[FreebirdAdmin] 🎫 Bootstrapping Dunbar pool with ${count} invitations...`);
 
     const invitations = await this.createInvitations(count, 365); // 1 year expiry
