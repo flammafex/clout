@@ -3,11 +3,19 @@
  */
 
 import { sha256 } from '@noble/hashes/sha256';
+import { hkdf } from '@noble/hashes/hkdf';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 import { randomBytes } from 'crypto';
 import { x25519, ed25519 } from '@noble/curves/ed25519';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha';
 import { managedNonce } from '@noble/ciphers/webcrypto';
+
+/**
+ * Domain separation constants for HKDF key derivation
+ * Using unique strings prevents cross-protocol attacks
+ */
+const KDF_SALT_EPHEMERAL = new TextEncoder().encode('CLOUT_EPHEMERAL_KEY_V1');
+const KDF_SALT_ENCRYPTION = new TextEncoder().encode('CLOUT_ENCRYPTION_KEY_V1');
 
 export class Crypto {
   /**
@@ -70,6 +78,33 @@ export class Crypto {
     }
 
     return result === 0;
+  }
+
+  /**
+   * Derive a key using HKDF (HMAC-based Key Derivation Function)
+   *
+   * HKDF provides proper key derivation with:
+   * - Extract phase: Concentrates entropy from input key material
+   * - Expand phase: Produces cryptographically strong output keys
+   * - Domain separation: Salt and info prevent cross-protocol attacks
+   *
+   * @param ikm - Input key material (the secret to derive from)
+   * @param salt - Domain separation salt (use unique value per context)
+   * @param info - Context-specific info (e.g., epoch, purpose)
+   * @param length - Desired output length in bytes (default: 32)
+   * @returns Derived key of specified length
+   */
+  static deriveKey(
+    ikm: Uint8Array,
+    salt: Uint8Array,
+    info: Uint8Array | string,
+    length: number = 32
+  ): Uint8Array {
+    const infoBytes = typeof info === 'string'
+      ? new TextEncoder().encode(info)
+      : info;
+
+    return hkdf(sha256, ikm, salt, infoBytes, length);
   }
   /**
    * Generate a commitment to recipient public key
@@ -178,6 +213,11 @@ export class Crypto {
    * Encrypt a message for a recipient using their public key
    * Uses X25519 key exchange + XChaCha20-Poly1305 AEAD
    *
+   * Key derivation uses HKDF with:
+   * - IKM: ECDH shared secret
+   * - Salt: Domain separation constant
+   * - Info: Both public keys (prevents key reuse attacks)
+   *
    * @param message - The plaintext message to encrypt
    * @param recipientPublicKey - Recipient's 32-byte public key
    * @returns Object with ephemeral public key and ciphertext
@@ -193,8 +233,10 @@ export class Crypto {
     // Perform ECDH to get shared secret
     const sharedSecret = x25519.getSharedSecret(ephemeralSecret, recipientPublicKey);
 
-    // Derive encryption key from shared secret
-    const encryptionKey = this.hash(sharedSecret, 'ENCRYPTION_KEY').slice(0, 32);
+    // Derive encryption key using HKDF
+    // Info includes both public keys to bind the key to this specific exchange
+    const info = concatBytes(ephemeralPublic, recipientPublicKey);
+    const encryptionKey = this.deriveKey(sharedSecret, KDF_SALT_ENCRYPTION, info, 32);
 
     // Encrypt message with XChaCha20-Poly1305
     const plaintext = new TextEncoder().encode(message);
@@ -210,21 +252,28 @@ export class Crypto {
   /**
    * Decrypt a message using our secret key
    *
+   * Uses same HKDF derivation as encrypt() for key consistency.
+   *
    * @param ephemeralPublicKey - Sender's ephemeral public key
    * @param ciphertext - The encrypted message
    * @param secretKey - Our 32-byte secret key
+   * @param ourPublicKey - Our public key (needed for HKDF info)
    * @returns The decrypted plaintext message
    */
   static decrypt(
     ephemeralPublicKey: Uint8Array,
     ciphertext: Uint8Array,
-    secretKey: Uint8Array
+    secretKey: Uint8Array,
+    ourPublicKey?: Uint8Array
   ): string {
     // Perform ECDH to get same shared secret
     const sharedSecret = x25519.getSharedSecret(secretKey, ephemeralPublicKey);
 
-    // Derive same encryption key
-    const encryptionKey = this.hash(sharedSecret, 'ENCRYPTION_KEY').slice(0, 32);
+    // Derive same encryption key using HKDF
+    // Note: If ourPublicKey not provided, derive it from secretKey
+    const recipientPublic = ourPublicKey ?? x25519.getPublicKey(secretKey);
+    const info = concatBytes(ephemeralPublicKey, recipientPublic);
+    const encryptionKey = this.deriveKey(sharedSecret, KDF_SALT_ENCRYPTION, info, 32);
 
     // Decrypt message
     const cipher = managedNonce(xchacha20poly1305)(encryptionKey);
@@ -236,9 +285,12 @@ export class Crypto {
   /**
    * Derive an ephemeral keypair from master key for a specific time window
    *
-   * Uses deterministic key derivation so the same ephemeral key is generated
-   * for a given master key and time window. This enables key rotation without
-   * storing ephemeral keys.
+   * Uses HKDF for proper key derivation with:
+   * - IKM: Master secret key
+   * - Salt: Domain separation constant (CLOUT_EPHEMERAL_KEY_V1)
+   * - Info: Epoch number + rotation period (prevents epoch collision across configs)
+   *
+   * This enables deterministic key rotation without storing ephemeral keys.
    *
    * @param masterKey - Master secret key (32 bytes)
    * @param rotationPeriodMs - Key rotation period in milliseconds (default: 24 hours)
@@ -253,9 +305,16 @@ export class Crypto {
     // Calculate key epoch (which rotation period this timestamp falls into)
     const epoch = Math.floor(timestamp / rotationPeriodMs);
 
-    // Derive ephemeral secret from master key and epoch
-    // Using HKDF-like construction: secret = H(masterKey || "EPHEMERAL_KEY" || epoch)
-    const ephemeralSecret = this.hash(masterKey, 'EPHEMERAL_KEY', epoch);
+    // Create info that includes epoch and rotation period
+    // This prevents accidental key reuse if rotation period changes
+    const infoBuffer = new ArrayBuffer(16);
+    const infoView = new DataView(infoBuffer);
+    infoView.setBigUint64(0, BigInt(epoch), false);
+    infoView.setBigUint64(8, BigInt(rotationPeriodMs), false);
+    const info = new Uint8Array(infoBuffer);
+
+    // Derive ephemeral secret using proper HKDF
+    const ephemeralSecret = this.deriveKey(masterKey, KDF_SALT_EPHEMERAL, info, 32);
 
     // Derive public key from secret
     const ephemeralPublic = x25519.getPublicKey(ephemeralSecret);
@@ -266,42 +325,62 @@ export class Crypto {
   /**
    * Create a proof linking an ephemeral key to a master key
    *
-   * The proof is a signature of the ephemeral public key by the master key.
-   * This allows verifiers to confirm that the ephemeral key was derived from
-   * the claimed master key.
+   * Uses Ed25519 signature over a structured message containing:
+   * - Domain separator to prevent cross-protocol attacks
+   * - The ephemeral public key being proven
    *
    * @param ephemeralPublicKey - Ephemeral public key to sign
-   * @param masterPrivateKey - Master private key for signing
-   * @returns Signature proving ephemeral key ownership
+   * @param masterPrivateKey - Master Ed25519 private key for signing
+   * @returns 64-byte Ed25519 signature proving ephemeral key ownership
    */
   static createEphemeralKeyProof(
     ephemeralPublicKey: Uint8Array,
     masterPrivateKey: Uint8Array
   ): Uint8Array {
-    // Sign ephemeral public key with master key
-    // In production, use Ed25519 signature
-    // For MVP, use hash-based signature
-    return this.hash(masterPrivateKey, ephemeralPublicKey, 'EPHEMERAL_KEY_PROOF');
+    // Create structured message for signing
+    // Domain separator prevents signature reuse in other contexts
+    const domainSeparator = new TextEncoder().encode('CLOUT_EPHEMERAL_KEY_PROOF_V1:');
+    const message = concatBytes(domainSeparator, ephemeralPublicKey);
+
+    // Sign with Ed25519
+    return ed25519.sign(message, masterPrivateKey);
   }
 
   /**
    * Verify that an ephemeral key proof is valid
    *
+   * Verifies that the ephemeral key was signed by the claimed master key.
+   *
    * @param ephemeralPublicKey - Ephemeral public key
-   * @param proof - Signature linking ephemeral key to master key
-   * @param masterPublicKey - Master public key (hex string)
+   * @param proof - 64-byte Ed25519 signature
+   * @param masterPublicKey - Master public key (hex string or Uint8Array)
    * @returns true if proof is valid
    */
   static verifyEphemeralKeyProof(
     ephemeralPublicKey: Uint8Array,
     proof: Uint8Array,
-    masterPublicKey: string
+    masterPublicKey: string | Uint8Array
   ): boolean {
-    // For MVP, we just verify the proof format is correct
-    // In production, verify Ed25519 signature
-    // Since we don't have the master private key, we can't re-derive the proof
-    // This is a placeholder - in production you'd verify the signature
-    return proof.length === 32; // Basic sanity check
+    try {
+      // Verify signature length
+      if (proof.length !== 64) {
+        return false;
+      }
+
+      // Convert master public key if needed
+      const masterPubBytes = typeof masterPublicKey === 'string'
+        ? this.fromHex(masterPublicKey)
+        : masterPublicKey;
+
+      // Reconstruct the signed message
+      const domainSeparator = new TextEncoder().encode('CLOUT_EPHEMERAL_KEY_PROOF_V1:');
+      const message = concatBytes(domainSeparator, ephemeralPublicKey);
+
+      // Verify Ed25519 signature
+      return ed25519.verify(proof, message, masterPubBytes);
+    } catch {
+      return false;
+    }
   }
 
   /**
