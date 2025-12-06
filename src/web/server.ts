@@ -348,7 +348,7 @@ export class CloutWebServer {
 // CLI entry point
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = parseInt(process.env.PORT || '3000', 10);
-  const requireAuth = process.env.CLOUT_AUTH !== 'false'; // Auth enabled by default
+  const requireAuth = process.env.CLOUT_AUTH === 'true'; // Auth disabled by default for local use
   const server = new CloutWebServer({ port, requireAuth });
   server.start().catch(console.error);
 }
