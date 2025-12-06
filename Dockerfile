@@ -65,6 +65,7 @@ ENV WITNESS_GATEWAY_URL=http://localhost:8080
 ENV WITNESS_NETWORK_ID=clout-testnet
 ENV FREEBIRD_ISSUER_URL=http://localhost:8081
 ENV FREEBIRD_VERIFIER_URL=http://localhost:8082
+ENV HYPERTOKEN_RELAY_URL=ws://localhost:3000
 
 # Tor configuration (disabled by default)
 ENV TOR_ENABLED=false
@@ -119,6 +120,7 @@ ENV WITNESS_GATEWAY_URL=http://localhost:8080
 ENV WITNESS_NETWORK_ID=clout-testnet
 ENV FREEBIRD_ISSUER_URL=http://localhost:8081
 ENV FREEBIRD_VERIFIER_URL=http://localhost:8082
+ENV HYPERTOKEN_RELAY_URL=ws://localhost:3000
 
 # Volume for persistent data
 VOLUME ["/data"]
