@@ -76,7 +76,8 @@ export class ChronicleWasm extends Emitter {
         const emptyState: CloutState = {
           myPosts: [],
           myTrustSignals: [],
-          myReactions: []
+          myReactions: [],
+          myPostDeletions: []
         };
         this._wasmChronicle.setState(JSON.stringify(emptyState));
       }
