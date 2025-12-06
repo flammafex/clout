@@ -329,7 +329,8 @@ export class FreebirdAdapter implements FreebirdClient {
             // Token format: [ A (33) | B (33) | Proof (64) ]
             const tokenBytes = this.base64UrlToBytes(data.token);
             if (tokenBytes.length !== 130) {
-              console.warn(`[Freebird] Invalid token length from ${url}`);
+              console.warn(`[Freebird] Invalid token length from ${url}: got ${tokenBytes.length}, expected 130`);
+              console.warn(`[Freebird] Response data:`, JSON.stringify(data, null, 2));
               return { success: false, url, index };
             }
 
