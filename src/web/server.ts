@@ -287,8 +287,16 @@ export class CloutWebServer {
   private async initializeClout(): Promise<void> {
     if (this.initialized) return;
 
-    // Load identity
-    const identity = this.identityManager.getIdentity();
+    // Load or create identity
+    let identity;
+    try {
+      identity = this.identityManager.getIdentity();
+    } catch (error) {
+      // No identity exists - create a default one
+      console.log('No identity found, creating default identity...');
+      identity = this.identityManager.createIdentity('default', true);
+      console.log(`Created new identity: ${identity.publicKey.slice(0, 16)}...`);
+    }
     const secretKey = this.identityManager.getSecretKey();
 
     // Initialize infrastructure (Freebird, Witness, Gossip)
