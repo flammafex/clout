@@ -93,11 +93,7 @@ services:
   # FREEBIRD CLUSTER
   # ============================================================================
   freebird-issuer:
-    build:
-      context: https://github.com/flammafex/freebird.git
-      dockerfile: issuer/Dockerfile
-    image: freebird-issuer:latest
-    container_name: freebird-issuer
+    image: ghcr.io/flammafex/freebird-issuer:latest
     ports:
       - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
     environment:
@@ -120,10 +116,7 @@ services:
       retries: 3
 
   freebird-verifier:
-    build:
-      context: https://github.com/flammafex/freebird.git
-      dockerfile: verifier/Dockerfile
-    image: freebird-verifier:latest
+    image: ghcr.io/flammafex/freebird-verifier:latest
     container_name: freebird-verifier
     ports:
       - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
@@ -247,7 +240,6 @@ services:
   witness-gateway:
     build:
       context: https://github.com/flammafex/witness.git
-      dockerfile: gateway/Dockerfile
     image: witness-gateway:latest
     container_name: witness-gateway
     ports:
@@ -274,14 +266,15 @@ services:
   hypertoken-relay:
     build:
       context: https://github.com/flammafex/hypertoken.git
-      dockerfile: relay/Dockerfile
     image: hypertoken-relay:latest
     container_name: hypertoken-relay
+    command: ["node", "start-relay.js", "3000"]
     ports:
       - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
     networks:
       - clout-net
     restart: unless-stopped
+    
 
 # ----------------------------------------
 # Networks
