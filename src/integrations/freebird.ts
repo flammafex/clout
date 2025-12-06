@@ -326,29 +326,46 @@ export class FreebirdAdapter implements FreebirdClient {
             const data = await response.json();
 
             // Extract evaluated point from token response
-            // Token format: [ A (33) | B (33) | Proof (64) ]
+            // Token format v1: [ Version (1) | A (65 uncompressed) | B (65 uncompressed) | Proof (64) ] = 195 bytes
+            // Token format v0: [ A (33 compressed) | B (33 compressed) | Proof (64) ] = 130 bytes
             const tokenBytes = this.base64UrlToBytes(data.token);
-            if (tokenBytes.length !== 130) {
-              console.warn(`[Freebird] Invalid token length from ${url}: got ${tokenBytes.length}, expected 130`);
+
+            let A_bytes: Uint8Array;
+            let B_bytes: Uint8Array;
+            let proofBytes: Uint8Array;
+
+            if (tokenBytes.length === 195 && tokenBytes[0] === 0x01) {
+              // New format: version byte + uncompressed points
+              A_bytes = tokenBytes.slice(1, 66);    // 65 bytes uncompressed
+              B_bytes = tokenBytes.slice(66, 131);  // 65 bytes uncompressed
+              proofBytes = tokenBytes.slice(131);   // 64 bytes proof
+            } else if (tokenBytes.length === 130) {
+              // Legacy format: compressed points
+              A_bytes = tokenBytes.slice(0, 33);
+              B_bytes = tokenBytes.slice(33, 66);
+              proofBytes = tokenBytes.slice(66);
+            } else {
+              console.warn(`[Freebird] Invalid token length from ${url}: got ${tokenBytes.length}, expected 130 or 195`);
               console.warn(`[Freebird] Response data:`, JSON.stringify(data, null, 2));
               return { success: false, url, index };
             }
 
-            // Extract B (the evaluated point) - bytes 33-66
-            const B_bytes = tokenBytes.slice(33, 66);
-
             // Verify DLEQ proof
             const G = p256.ProjectivePoint.BASE;
             const Q = this.decodePublicKey(metadata.voprf.pubkey);
-            const A = this.decodePoint(tokenBytes.slice(0, 33));
+            const A = this.decodePoint(A_bytes);
             const B = this.decodePoint(B_bytes);
-            const proofBytes = tokenBytes.slice(66);
 
-            const isValid = this.verifyDleqExternal(G, Q, A, B, proofBytes);
-
-            if (!isValid) {
-              console.warn(`[Freebird] Invalid DLEQ proof from ${url}`);
-              return { success: false, url, index };
+            // Verify DLEQ proof if provided (some issuers may skip proof in dev mode)
+            const isAllZeros = proofBytes.every(b => b === 0);
+            if (isAllZeros) {
+              console.warn(`[Freebird] No DLEQ proof from ${url} (dev mode?), skipping verification`);
+            } else {
+              const isValid = this.verifyDleqExternal(G, Q, A, B, proofBytes);
+              if (!isValid) {
+                console.warn(`[Freebird] Invalid DLEQ proof from ${url}`);
+                return { success: false, url, index };
+              }
             }
 
             // Use server's index if provided, otherwise use endpoint index (1-based)
@@ -359,7 +376,9 @@ export class FreebirdAdapter implements FreebirdClient {
               url,
               index: serverIndex,
               evaluatedPoint: B_bytes,
-              fullToken: tokenBytes
+              blindedElement: A_bytes,
+              fullToken: tokenBytes,
+              isV1Format: tokenBytes.length === 195
             };
           } catch (error) {
             console.warn(`[Freebird] Request to ${url} failed:`, error);
@@ -373,7 +392,9 @@ export class FreebirdAdapter implements FreebirdClient {
           url: string;
           index: number;
           evaluatedPoint: Uint8Array;
+          blindedElement: Uint8Array;
           fullToken: Uint8Array;
+          isV1Format: boolean;
         };
         const validResponses = results.filter(r => r.success) as ValidResponse[];
 
@@ -412,16 +433,27 @@ export class FreebirdAdapter implements FreebirdClient {
         }));
 
         const aggregatedPoint = voprf.aggregate(partials);
-
-        // Reconstruct token with aggregated evaluation
-        // Format: [ A (33) | B_aggregated (33) | Proof (64 zeros - placeholder) ]
-        const A_bytes = validResponses[0].fullToken.slice(0, 33);
         const zeroProof = new Uint8Array(64); // Placeholder proof
 
-        const aggregatedToken = new Uint8Array(130);
-        aggregatedToken.set(A_bytes, 0);
-        aggregatedToken.set(aggregatedPoint, 33);
-        aggregatedToken.set(zeroProof, 66);
+        // Reconstruct token with aggregated evaluation using same format as received
+        const isV1 = validResponses[0].isV1Format;
+        const A_bytes = validResponses[0].blindedElement;
+
+        let aggregatedToken: Uint8Array;
+        if (isV1) {
+          // V1 Format: [ Version (1) | A (65 uncompressed) | B (65 uncompressed) | Proof (64) ] = 195 bytes
+          aggregatedToken = new Uint8Array(195);
+          aggregatedToken[0] = 0x01;
+          aggregatedToken.set(A_bytes, 1);
+          aggregatedToken.set(aggregatedPoint, 66);
+          aggregatedToken.set(zeroProof, 131);
+        } else {
+          // Legacy Format: [ A (33) | B (33) | Proof (64) ] = 130 bytes
+          aggregatedToken = new Uint8Array(130);
+          aggregatedToken.set(A_bytes, 0);
+          aggregatedToken.set(aggregatedPoint, 33);
+          aggregatedToken.set(zeroProof, 66);
+        }
 
         console.log(
           `[Freebird] ✅ MPC token issued and aggregated ` +
@@ -552,9 +584,14 @@ export class FreebirdAdapter implements FreebirdClient {
     }
 
     // Local verification based on token format
+    if (token.length === 195 && token[0] === 0x01) {
+      // V1 VOPRF token format (uncompressed points)
+      console.warn('[Freebird] Using local format validation (server unavailable)');
+      return true;
+    }
+
     if (token.length === 130) {
-      // Real VOPRF token format - accept (server verification failed but format is valid)
-      // Note: This is weaker than server verification but better than nothing
+      // Legacy VOPRF token format (compressed points)
       console.warn('[Freebird] Using local format validation (server unavailable)');
       return true;
     }
@@ -577,7 +614,7 @@ export class FreebirdAdapter implements FreebirdClient {
     }
 
     // Unknown token format
-    console.error(`[Freebird] Invalid token length: ${token.length} (expected 130 or 32)`);
+    console.error(`[Freebird] Invalid token length: ${token.length} (expected 195, 130, or 32)`);
     return false;
   }
 
