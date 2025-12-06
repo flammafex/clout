@@ -5,7 +5,7 @@
  * Now with rich media support via WNFS-based storage
  */
 
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -13,8 +13,10 @@ import { dirname } from 'path';
 import { IdentityManager } from '../cli/identity-manager.js';
 import { InfrastructureManager } from '../cli/infrastructure.js';
 import { Clout } from '../clout.js';
+import { Crypto } from '../crypto.js';
 import { tryLoadWasm } from '../vendor/hypertoken/WasmBridge.js';
 import { FileSystemStore } from '../store/file-store.js';
+import { AuthManager, isPublicRoute } from './auth.js';
 import {
   createFeedRoutes,
   createTrustRoutes,
@@ -27,17 +29,29 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+export interface WebServerConfig {
+  port?: number;
+  /** Require authentication for API endpoints (default: true in production) */
+  requireAuth?: boolean;
+}
+
 export class CloutWebServer {
   private app: express.Application;
   private identityManager: IdentityManager;
   private infraManager: InfrastructureManager;
+  private authManager: AuthManager;
   private clout?: Clout;
   private initialized = false;
+  private port: number;
 
-  constructor(private port = 3000) {
+  constructor(config: WebServerConfig = {}) {
+    this.port = config.port ?? 3000;
     this.app = express();
     this.identityManager = new IdentityManager();
     this.infraManager = new InfrastructureManager();
+    this.authManager = new AuthManager({
+      requireAuth: config.requireAuth
+    });
 
     this.setupMiddleware();
     this.setupRoutes();
@@ -56,6 +70,15 @@ export class CloutWebServer {
     }));
     this.app.use(express.static(join(__dirname, 'public')));
 
+    // Authentication middleware - skip public routes
+    this.app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+      const fullPath = '/api' + req.path;
+      if (isPublicRoute(fullPath)) {
+        return next();
+      }
+      return this.authManager.createMiddleware()(req, res, next);
+    });
+
     // Error handler
     this.app.use((err: Error, req: Request, res: Response, next: any) => {
       console.error('Error:', err);
@@ -73,9 +96,112 @@ export class CloutWebServer {
    * Setup API routes
    */
   private setupRoutes(): void {
-    // Health check
+    // Health check (public)
     this.app.get('/api/health', (req, res) => {
       res.json({ success: true, status: 'online' });
+    });
+
+    // Auth status (public) - check if auth is required
+    this.app.get('/api/auth/status', (req, res) => {
+      res.json({
+        success: true,
+        data: {
+          authRequired: this.authManager.isAuthRequired(),
+          activeSessions: this.authManager.getActiveSessionCount()
+        }
+      });
+    });
+
+    // Login with identity signature (public)
+    // User proves they control the private key by signing a challenge
+    this.app.post('/api/auth/login', (req, res) => {
+      try {
+        const { challenge, signature, publicKey } = req.body;
+
+        // If not initialized, allow login without signature (will init with default identity)
+        if (!this.initialized) {
+          // Just create a session - identity will be verified on init
+          const token = this.authManager.createSession();
+          return res.json({
+            success: true,
+            data: {
+              token,
+              message: 'Session created. Call /api/init to initialize Clout.'
+            }
+          });
+        }
+
+        // Verify the signature matches the current identity
+        const identity = this.identityManager.getIdentity();
+
+        // If no signature provided, require it
+        if (!signature || !challenge) {
+          // Generate a new challenge for the client to sign
+          const newChallenge = Crypto.toHex(Crypto.randomBytes(32));
+          return res.status(401).json({
+            success: false,
+            error: 'Signature required',
+            challenge: newChallenge,
+            expectedPublicKey: identity.publicKey
+          });
+        }
+
+        // Verify the signature
+        const challengeBytes = Crypto.fromHex(challenge);
+        const signatureBytes = Crypto.fromHex(signature);
+        const publicKeyBytes = Crypto.fromHex(publicKey || identity.publicKey);
+
+        if (!Crypto.verify(challengeBytes, signatureBytes, publicKeyBytes)) {
+          return res.status(401).json({
+            success: false,
+            error: 'Invalid signature'
+          });
+        }
+
+        // Verify this is the same identity
+        if (publicKey && publicKey !== identity.publicKey) {
+          return res.status(401).json({
+            success: false,
+            error: 'Public key does not match current identity'
+          });
+        }
+
+        // Create session
+        const token = this.authManager.createSession();
+        res.json({
+          success: true,
+          data: {
+            token,
+            publicKey: identity.publicKey
+          }
+        });
+      } catch (error: any) {
+        res.status(400).json({ success: false, error: error.message });
+      }
+    });
+
+    // Logout - revoke current session
+    this.app.post('/api/auth/logout', (req, res) => {
+      try {
+        const authHeader = req.headers.authorization;
+        if (authHeader?.startsWith('Bearer ')) {
+          const token = authHeader.slice(7);
+          this.authManager.revokeToken(token);
+        }
+        res.json({ success: true });
+      } catch (error: any) {
+        res.status(400).json({ success: false, error: error.message });
+      }
+    });
+
+    // Revoke all sessions (requires auth)
+    this.app.post('/api/auth/revoke-all', (req, res) => {
+      try {
+        this.authManager.revokeAllSessions();
+        res.json({ success: true, message: 'All sessions revoked' });
+      } catch (error: any) {
+        res.status(400).json({ success: false, error: error.message });
+      }
     });
 
     // Initialize Clout
@@ -221,6 +347,8 @@ export class CloutWebServer {
 
 // CLI entry point
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const server = new CloutWebServer();
+  const port = parseInt(process.env.PORT || '3000', 10);
+  const requireAuth = process.env.CLOUT_AUTH !== 'false'; // Auth enabled by default
+  const server = new CloutWebServer({ port, requireAuth });
   server.start().catch(console.error);
 }
