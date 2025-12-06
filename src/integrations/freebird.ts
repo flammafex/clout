@@ -598,7 +598,8 @@ export class FreebirdAdapter implements FreebirdClient {
             token_b64: voprf.bytesToBase64Url(token),
             issuer_id: firstMetadata.issuer_id,
             exp: Math.floor(Date.now() / 1000) + 3600,
-            epoch: firstMetadata.epoch || 0  // Key rotation epoch
+            // Epoch is days since Unix epoch (matches Freebird's epoch_duration_sec = 86400)
+            epoch: firstMetadata.epoch ?? Math.floor(Date.now() / 1000 / 86400)
           })
         });
 
