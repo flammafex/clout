@@ -4,525 +4,344 @@
 _A mission of [The Carpocratian Church of Commonality and Equality](https://carpocratian.org/en/church/)_.</div>
 <div align=center><img src="mission.png" width=256 height=200></div></div>
 
-# START SPREADING THE NEWS
+# Clout: Uncensorable Social Networking
 
-**Clout** is an uncensorable reputation protocol that inverts the logic of [Scarcity](https://github.com/flammafex/Scarcity):
+**Clout** is a decentralized social protocol that gives you complete control over your feed through transparent, user-controlled content filtering—not hidden algorithms.
 
-- **Scarcity uses gossip to STOP data** (prevent double-spends)
-- **Clout uses gossip to SPREAD data** (posts and trust signals)
+## The Problem with Social Media Today
 
-By leveraging the same cryptographic primitives (Freebird, Witness, HyperToken) used in Scarcity, Clout creates a censorship-resistant social protocol where your feed is determined by **your** web of trust, not by centralized algorithms.
+Modern social platforms share the same fundamental flaws:
 
-## The Key Inversion
+| Problem | How Platforms Fail You |
+|---------|----------------------|
+| **Invisible Censorship** | Algorithms shadowban content with no transparency or appeal |
+| **Algorithmic Radicalization** | Engagement-driven feeds amplify extreme content for clicks |
+| **Privacy Exploitation** | Your social graph is mapped, sold, and weaponized against you |
+| **Spam & Bot Armies** | Creating fake accounts is free and instant |
+| **Cognitive Overload** | Feeds exceed human processing limits, requiring algorithmic curation |
+| **Data Hostage** | Your content and connections are locked in corporate silos |
 
-### Scarcity (Money Protocol)
-- **Primitive**: Value (tokens)
-- **Operation**: Transfer value, prevent double-spend
-- **Gossip Logic**: "I've seen this spend, REJECT it"
-- **Validator**: Checks if money is fake
-
-### Clout (Reputation Protocol)
-- **Primitive**: Trust (follow relationships)
-- **Operation**: Post content, propagate to trusted network
-- **Gossip Logic**: "I trust this author, ACCEPT and propagate it"
-- **Validator**: Checks if author is trusted (graph distance)
-
-## Features
-
-### ⭐ Enhanced Trust & Privacy (New!)
-
-Clout now includes advanced features that strengthen its mission of trust-based, privacy-preserving social networking at village scale:
-
-#### 🎯 Weighted Trust Scores
-Assign custom trust weights when following users, enabling nuanced relationships:
-
-```typescript
-// Full trust (default)
-await clout.trust(publicKey, 1.0);
-
-// Partial trust (e.g., acquaintances)
-await clout.trust(publicKey, 0.5);
-
-// Minimal trust
-await clout.trust(publicKey, 0.1);
-```
-
-Trust weights multiply through paths: if you trust Alice (0.8) and Alice trusts Bob (0.7), your effective trust in Bob is 0.8 × 0.7 = 0.56.
-
-#### ⏳ Temporal Decay
-Trust relationships naturally decay over time (default: 1-year half-life), keeping your network agile and reflecting active relationships:
-
-- Fresh trust (0 days): 1.0× multiplier
-- 1 year old: 0.5× multiplier
-- 2 years old: 0.25× multiplier
-
-Configure decay rate:
-```typescript
-const clout = new Clout({
-  // ...
-  trustDecayDays: 365  // Half-life in days (0 = no decay)
-});
-```
-
-#### 📋 Fine-Grained Content Filtering
-Set different trust thresholds per content type:
-
-```typescript
-const clout = new Clout({
-  // ...
-  maxHops: 3,           // Default: 3 hops for all content
-  minReputation: 0.3,   // Default: 0.3 score minimum
-  contentTypeFilters: {
-    'slide': { maxHops: 5, minReputation: 0.2 },  // More permissive for DMs
-    'image/png': { maxHops: 2, minReputation: 0.5 }  // Stricter for images
-  }
-});
-```
-
-#### 🔒 Enhanced Tor Integration
-Full privacy with circuit isolation:
-
-- Separate Tor circuits per destination (prevents correlation)
-- Full WebSocket over SOCKS5 support
-- Methods: `clearCircuit(destination)`, `getStats()`
-
-```typescript
-import { TorProxy } from 'clout';
-
-const torProxy = new TorProxy({
-  proxyHost: 'localhost',
-  proxyPort: 9050,
-  circuitIsolation: true  // Enabled by default
-});
-
-// Check status
-const stats = torProxy.getStats();
-console.log(`Active circuits: ${stats.isolatedCircuits}`);
-```
-
-#### 🔑 Ephemeral Public Keys for Posts
-Posts now use rotating ephemeral keys (24-hour rotation) for forward secrecy:
-
-```typescript
-// Enable ephemeral keys (default: true)
-await clout.post('Hello world', undefined, true);
-
-// Disable for permanent signature
-await clout.post('Permanent record', undefined, false);
-```
-
-Ephemeral keys provide forward secrecy similar to DMs, making it harder to track long-term posting activity if a key is compromised.
-
-#### 🏷️ Local Trust Tags
-Organize your trust network with private tags:
-
-```typescript
-// Tag users (tags are local-only, never synced)
-clout.addTrustTag(publicKey, 'friends');
-clout.addTrustTag(publicKey, 'work');
-
-// Filter feed by tag
-const workPosts = await clout.getFeed({ tag: 'work', limit: 20 });
-
-// View all tags
-const tags = clout.getAllTags();  // Map<string, number>
-console.log(`Friends: ${tags.get('friends')} members`);
-
-// Get tags for a user
-const userTags = clout.getTagsForUser(publicKey);
-```
-
-#### 🎟️ Reputation-Linked Day Pass Duration
-Pass duration adapts to your reputation:
-
-- **High reputation (≥0.9)**: 7 days
-- **Medium reputation (≥0.7)**: 3 days
-- **Low reputation (≥0.5)**: 2 days
-- **New users (<0.5)**: 1 day
-
-This adaptive friction eases the burden on trusted members while maintaining high cost for unvetted actors.
-
-#### 🎁 Delegated Pass System
-High-reputation users can vouch for newcomers:
-
-```typescript
-// Delegate a pass (requires reputation ≥0.7)
-await clout.delegatePass(newUserPublicKey, 24);  // 24-hour pass
-
-// Accept a delegated pass (no Freebird token needed)
-await clout.acceptDelegatedPass();
-
-// Check delegation limits
-const reputation = clout.getReputation(myPublicKey);
-console.log(`Can delegate ${clout.ticketBooth.getMaxDelegations(reputation.score)} passes/week`);
-```
-
-Delegation limits by reputation:
-- Reputation ≥0.9: 10 delegations per week
-- Reputation ≥0.7: 5 delegations per week
+**Clout solves all of these.**
 
 ---
 
-### 🔐 Encrypted DMs (Slides)
-End-to-end encrypted direct messages that propagate through the gossip network while remaining readable only by sender and recipient.
+## The Auto-Shadowban: Transparent Content Filtering
 
-- **X25519 key exchange** with **XChaCha20-Poly1305 AEAD** encryption
-- Messages called "slides" - encrypted DMs that slide through your network
+Clout's core innovation is the **auto-shadowban**—content filtering that's transparent, user-controlled, and impossible to weaponize against you.
+
+### How It Works
+
+When your node receives content from the network:
+
+```
+1. TRUST CHECK: Is the author within your trust graph?
+   ├─ YES → Accept post, add to feed, propagate to peers
+   └─ NO  → Silently drop (auto-shadowban)
+
+2. REPUTATION CHECK: Does author meet your minimum trust score?
+   ├─ YES → Continue processing
+   └─ NO  → Auto-shadowban
+
+3. VERIFICATION: Valid timestamp? Content hash matches? Signature valid?
+   ├─ YES → Display in feed
+   └─ NO  → Reject as invalid
+```
+
+### Why This Changes Everything
+
+| Traditional Shadowban | Clout Auto-Shadowban |
+|----------------------|---------------------|
+| Hidden, arbitrary, centralized | Transparent, rule-based, personal |
+| Platform decides who you see | **You** decide who you see |
+| No appeal, no explanation | Rules are visible and configurable |
+| Weaponized for censorship | Impossible to censor—only you control your graph |
+
+**The key insight**: On Clout, "shadowbanning" isn't censorship—it's your personal spam filter. You define the rules. No central authority can silence anyone; they can only choose not to listen.
+
+---
+
+## Trust Graph: Your Personal Algorithm
+
+Instead of a black-box algorithm, your feed is determined by your **trust graph**—people you trust, and people they trust.
+
+```
+Distance 0: You (trust score: 1.0)
+    │
+Distance 1: People you directly trust (score: 0.9)
+    │
+Distance 2: Friends of friends (score: 0.6)
+    │
+Distance 3: Extended network (score: 0.3)
+    │
+Distance 4+: Auto-shadowbanned (not in your reality)
+```
+
+### Weighted Trust
+
+Not all relationships are equal. Assign trust weights from 0.1 to 1.0:
+
+```typescript
+await clout.trust(aliceKey, 1.0);   // Close friend: full trust
+await clout.trust(bobKey, 0.5);     // Acquaintance: half trust
+await clout.trust(carolKey, 0.1);   // New contact: minimal trust
+```
+
+Trust multiplies through paths: if you trust Alice (0.8) and Alice trusts Bob (0.7), your effective trust in Bob is 0.56.
+
+### Temporal Decay
+
+Trust naturally fades over time, reflecting real relationships:
+
+- Fresh trust: 1.0× multiplier
+- 1 year old: 0.5× multiplier
+- 2 years old: 0.25× multiplier
+
+Inactive connections gradually drop out of your feed. Active relationships stay strong.
+
+---
+
+## Village-Scale Networking
+
+Clout respects **Dunbar's number** (~150)—the cognitive limit for stable social relationships.
+
+### The Math
+
+With `maxHops: 3` (default):
+
+| Distance | Reach | Trust Score |
+|----------|-------|-------------|
+| 1 hop | ~50-150 people | 0.9 |
+| 2 hops | ~2,500-22,500 people | 0.6 |
+| 3 hops | ~125k-3.3M people | 0.3 |
+
+Your feed stays cognitively manageable while your network provides content diversity.
+
+### Contrast with Legacy Platforms
+
+| Platform | Approach | Result |
+|----------|----------|--------|
+| Facebook | 338 average "friends" (2× Dunbar) | Algorithmic curation required |
+| Twitter/X | Unlimited follows | Information firehose, algorithmic sorting |
+| **Clout** | Trust graph with natural limits | No algorithm needed—trust itself is the filter |
+
+---
+
+## Privacy by Default
+
+### Encrypted Trust Signals
+
+When you trust someone, only they know. Third parties cannot map your social graph.
+
+### Tor Integration
+
+Full anonymity with circuit isolation per destination:
+
+```typescript
+const torProxy = new TorProxy({
+  proxyHost: 'localhost',
+  proxyPort: 9050,
+  circuitIsolation: true  // Prevents correlation attacks
+});
+```
+
+### Ephemeral Keys
+
+Posts use rotating keys (24-hour rotation) for forward secrecy. Even if a key is compromised, historical posts remain protected.
+
+---
+
+## Spam Resistance: Economic Friction for Bad Actors
+
+### Day Pass System
+
+Posting requires a **Day Pass**, obtained through Freebird tokens (proof-of-work or invitation):
+
+| Reputation | Pass Duration | Rationale |
+|------------|---------------|-----------|
+| ≥0.9 | 7 days | Highly trusted: minimal friction |
+| ≥0.7 | 3 days | Established: light friction |
+| ≥0.5 | 2 days | Building trust: moderate friction |
+| <0.5 | 1 day | New/unvetted: high friction |
+
+### Delegated Passes
+
+High-reputation users can vouch for newcomers:
+
+```typescript
+// Sponsor a new user (requires reputation ≥0.7)
+await clout.delegatePass(newUserKey, 24);  // 24-hour pass
+```
+
+Delegation limits prevent abuse:
+- Reputation ≥0.9: 10 passes/week
+- Reputation ≥0.7: 5 passes/week
+
+Spammers must continuously solve proof-of-work or infiltrate trust networks—both expensive at scale.
+
+---
+
+## Encrypted Direct Messages (Slides)
+
+End-to-end encrypted DMs that propagate through the gossip network:
+
+- **X25519 key exchange** + **XChaCha20-Poly1305 AEAD**
 - Ephemeral keypairs for forward secrecy
-- No day pass required for sending slides
+- No day pass required
+- Only sender and recipient can read content
 
 ```bash
-# Send an encrypted slide
-clout slide <recipientPublicKey> "Your private message here"
-
-# View your inbox
-clout slides
+clout slide <recipientKey> "Your private message"
+clout slides  # View inbox
 ```
 
-### 💬 Replies & Threading
-Flat thread model (Twitter/X style) with clickable posts and reply chains.
+---
 
-- Reply to any post with `replyTo` field
-- View entire thread with parent post and all replies
-- Navigate thread hierarchies with "View parent" links
-- CLI: `clout reply <postId> "Your reply"` and `clout thread <postId>`
+## Your Data, Your Control
 
-### 🌐 Web UI
-Complete web interface for managing your Clout identity and interacting with the network.
+### P2P State Sync
+
+Profiles sync via CRDT (Conflict-free Replicated Data Types). No central database. You own your data.
+
+### Portable Identity
+
+Your identity is a cryptographic keypair stored locally:
 
 ```bash
-# Start the web server
-npm run web
-
-# Open http://localhost:3000 in your browser
+clout identity create    # Generate new identity
+clout identity list      # View all identities
+clout id                 # Show current identity
 ```
 
-Features:
-- **Feed tab**: View posts from your trust network
-- **Post tab**: Create posts and replies
-- **Trust tab**: Manage your web of trust
-- **Slides tab**: Send/receive encrypted DMs
-- **Thread tab**: Navigate conversation threads
-- **Identity tab**: View your public key and identity info
-- **Stats tab**: Network statistics
+Export and import your complete state:
 
-### 🆔 Identity Management
-Cryptographic identity system for managing keypairs.
-
-```bash
-# Create a new identity
-clout identity create
-
-# List all identities
-clout identity list
-
-# Show your identity
-clout id
+```typescript
+const backup = clout.exportState();
+// ... later ...
+clout.importState(backup);
 ```
 
-Each identity consists of:
-- **Public Key**: Your visible address (like a username)
-- **Identity Name**: Local label for the keypair (only on your device)
-- **Secret Key**: Stored securely in `~/.clout/identities.json`
+---
 
-## Architecture
+## Quick Start
 
-Clout is built in 5 phases by refactoring Scarcity's core components:
-
-### Phase 1: Trust (Identity)
-- **Scarcity**: `createOwnershipProof` (proves you own money)
-- **Clout**: `signContent` (proves you authored content)
-- Uses Freebird for anonymous authorship proofs
-
-### Phase 2: Post (Content)
-- **Scarcity**: `ScarbuckToken` (value that can be spent)
-- **Clout**: `CloutPost` (content that can only be read)
-- Posts are content-addressable and immutable
-
-### Phase 3: ContentGossip (Propagation)
-- **Scarcity**: `NullifierGossip` (rejects if seen)
-- **Clout**: `ContentGossip` (accepts if trusted)
-- The "Shadowban" effect: untrusted content vanishes from your reality
-
-### Phase 4: Reputation (Validation)
-- **Scarcity**: `TransferValidator` (prevents double-spends)
-- **Clout**: `ReputationValidator` (filters by graph distance)
-- Scores based on trust paths with enhancements:
-  - **Base scores**: self=1.0, 1-hop=0.9, 2-hop=0.6, 3-hop=0.3
-  - **Custom weights**: Multiply by trust weights (0.1-1.0)
-  - **Temporal decay**: Exponential decay over time (configurable half-life)
-  - **Path diversity bonus**: Multiple paths increase trust (+0.05 per path, max +0.2)
-
-### Phase 5: State Sync (CRDT)
-- Uses Chronicle (from HyperToken) for conflict-free state merging
-- Your profile is a CRDT that syncs P2P
-- Follow someone = merge their Chronicle into your view
-
-## BE A PART OF IT
+### Installation
 
 ```bash
 npm install
 npm run build
 ```
 
-## Quick Start
-
 ### CLI Usage
 
 ```bash
-# Create your identity
+# Create identity
 clout identity create
 
-# Post a message
+# Post content
 clout post "Hello, decentralized world!"
 
-# Reply to a post
-clout reply <postId> "Great post!"
-
-# Trust/follow someone
+# Trust someone
 clout follow <publicKey>
 
 # View your feed
 clout feed
 
-# View a conversation thread
+# Reply to a post
+clout reply <postId> "Great point!"
+
+# View thread
 clout thread <postId>
 
-# Send an encrypted slide (DM)
+# Send encrypted DM
 clout slide <publicKey> "Private message"
-
-# View your slides inbox
-clout slides
 ```
+
+### Web Interface
+
+```bash
+npm run web
+# Open http://localhost:3000
+```
+
+Features: Feed, Post, Trust management, Slides (DMs), Threads, Identity, Stats
 
 ### Programmatic Usage
 
 ```typescript
 import { Clout, Crypto, FreebirdAdapter, WitnessAdapter } from 'clout';
 
-// Set up infrastructure
 const keypair = Crypto.generateKeyPair();
-const freebird = new FreebirdAdapter({
-  issuerEndpoints: ['http://localhost:3000'],
-  verifierUrl: 'http://localhost:3000'
-});
-const witness = new WitnessAdapter({
-  endpoints: ['http://localhost:4000']
-});
-
-// Create Clout instance
 const clout = new Clout({
   publicKey: keypair.publicKey,
   privateKey: keypair.privateKey.bytes,
-  freebird,
-  witness,
-  maxHops: 3  // Show posts up to 3 degrees away
+  freebird: new FreebirdAdapter({ /* config */ }),
+  witness: new WitnessAdapter({ /* config */ }),
+  maxHops: 3,
+  minReputation: 0.3
 });
 
-// Trust someone (like "following")
-await clout.trust('0x1234...');        // Full trust (1.0)
-await clout.trust('0xabcd...', 0.5);   // Partial trust (0.5)
+// Build your trust network
+await clout.trust(aliceKey, 1.0);
+clout.addTrustTag(aliceKey, 'friends');
 
-// Organize your network with tags
-clout.addTrustTag('0x1234...', 'friends');
-clout.addTrustTag('0xabcd...', 'work');
+// Post content
+const post = await clout.post('Hello world!');
 
-// Post content (uses ephemeral keys by default)
-const post = await clout.post('Hello, decentralized world!');
-
-// Reply to a post
-const reply = await clout.post('Great point!', post.id);
-
-// Send encrypted slide (DM)
-const slide = await clout.slide('0x1234...', 'Private message');
-
-// Get your feed (returns PostPackage[])
-const allPosts = await clout.getFeed();
-console.log(`Feed: ${allPosts.length} posts`);
-
-// Filter feed by tag
-const workPosts = await clout.getFeed({ tag: 'work', limit: 20 });
-
-// Get your inbox (decrypted slides)
-const inbox = await clout.store?.getInbox();
-for (const slide of inbox || []) {
-  // Slides are automatically decrypted if you're the recipient
-  console.log(`Received slide from ${slide.sender.slice(0, 8)}`);
-}
-
-// Get reputation of a user
-const reputation = clout.getReputation('0x1234...');
-console.log(reputation.distance); // Graph distance
-console.log(reputation.score);    // Trust score (0-1)
+// Get your personalized feed
+const feed = await clout.getFeed();
+const friendsPosts = await clout.getFeed({ tag: 'friends' });
 ```
 
-## How It Works
+---
 
-### The "Shadowban" Effect
+## Content-Type Filtering
 
-When you receive a post from the network:
+Set different trust thresholds per content type:
 
-1. **Trust Check**: Is the author within `maxHops` of your trust graph?
-   - Yes → Accept and propagate to your peers
-   - No → **Silently drop** (the "shadowban")
+```typescript
+const clout = new Clout({
+  // ...
+  contentTypeFilters: {
+    'slide': { maxHops: 5, minReputation: 0.2 },      // DMs: permissive
+    'image/png': { maxHops: 2, minReputation: 0.7 },  // Images: strict
+    'text/plain': { maxHops: 3, minReputation: 0.4 }  // Text: moderate
+  }
+});
+```
 
-2. **Witness Verification**: Is the timestamp proof valid?
+---
 
-3. **Content Verification**: Does the content hash match the ID?
+## Architecture
 
-4. **Authorship Proof**: (Optional) Is the Freebird proof valid?
-
-Posts from untrusted sources **vanish from your reality**. They never enter your feed, never get propagated by you. This creates **subjective, uncensorable feeds** where each user sees their own web of trust.
-
-### Trust Graph
-
-- **Distance 0**: You
-- **Distance 1**: People you directly follow
-- **Distance 2**: Friends of friends
-- **Distance 3**: 3 degrees of separation
-- **Distance 4+**: Too far (filtered out)
-
-Each user computes their own feed based on their unique trust graph. There is no global feed, no centralized algorithm. Your reality is defined by who **you** trust.
-
-### The Dunbar Number and Network Scale
-
-Clout's architecture is designed around **Dunbar's number** (~150) - the cognitive limit to the number of people with whom one can maintain stable social relationships.
-
-#### Why 3 Hops?
-
-The default `maxHops: 3` setting creates natural network boundaries that align with human cognitive limits:
-
-- **Distance 1** (Direct trust): ~50-150 people you personally trust
-- **Distance 2** (Friends of friends): ~2,500-22,500 people (50² to 150²)
-- **Distance 3** (Extended network): ~125,000-3,375,000 people (50³ to 150³)
-
-This creates a **self-regulating network size** where:
-1. Your feed remains **cognitively manageable** (not millions of posts)
-2. The network is **large enough** for content diversity
-3. **Trust degrades naturally** with distance (0.9 → 0.6 → 0.3)
-
-#### Contrast with Traditional Social Networks
-
-Traditional platforms try to **exceed cognitive limits**:
-- Facebook: Average 338 friends (>2× Dunbar's number)
-- Twitter: No limit on follows (easily 1000+ for active users)
-- Result: **Algorithmic curation becomes necessary** because humans can't process that much
-
-Clout instead **respects cognitive limits**:
-- Your direct trust list stays manageable (~150 or less)
-- Extended network grows naturally through transitive trust
-- No algorithmic feed curation needed - the trust graph itself provides natural filtering
-- You maintain **meaningful relationships** rather than parasocial ones
-
-#### The "Village Scale" Network
-
-Think of Clout as creating **village-scale social networks**:
-- **Distance 1**: Your village (~150 people)
-- **Distance 2**: Neighboring villages you know through your villagers
-- **Distance 3**: The extended region - far enough to be diverse, close enough to be trustworthy
-
-This mirrors how humans **evolved to socialize** - in small, interconnected groups with transitive trust, not in massive anonymous crowds requiring algorithmic oversight.
-
-#### Implications for Content Moderation
-
-Because each user's feed is limited by their trust graph:
-- **No global moderation needed** - you only see content from your extended network
-- **Natural spam resistance** - spammers must infiltrate trust networks, not just create accounts
-- **Subjective reality** - different trust graphs see entirely different "internets"
-- **Cultural diversity** - isolated trust networks can maintain different norms without conflict
-
-Clout's design acknowledges that **human social cognition doesn't scale infinitely**, and builds a protocol that works **with** our cognitive limits rather than against them.
-
-## Comparison to Scarcity
+Clout inverts [Scarcity](https://github.com/flammafex/Scarcity)'s money protocol into a reputation protocol:
 
 | Component | Scarcity (Money) | Clout (Reputation) |
 |-----------|------------------|-------------------|
 | Primitive | Token (value) | Post (content) |
 | Operation | transfer() | post() |
+| Gossip Logic | "Seen this? REJECT" | "Trust author? ACCEPT" |
 | Validation | Prevent double-spend | Check trust distance |
-| Gossip | Broadcast nullifiers | Broadcast posts |
-| Success Metric | Money not duplicated | Content reaches trusted network |
-| Failure Mode | Double-spend detected | Post from untrusted source |
 
-## Protocol Components
+### Core Components
 
-- **IdentityManager**: Manages keypairs and cryptographic identities
-- **CloutPost**: Creates immutable, timestamped posts with reply support
-- **ContentGossip**: Propagates posts, slides, and trust signals through web of trust
-- **ReputationValidator**: Filters content by graph distance
-- **Crypto**: Encryption primitives (X25519 + XChaCha20-Poly1305)
-- **TicketBooth**: Day pass system for spam prevention
+- **IdentityManager**: Cryptographic keypair management
+- **ContentGossip**: Trust-based P2P propagation
+- **ReputationValidator**: Graph distance filtering
+- **TicketBooth**: Day pass economics
+- **Crypto**: X25519 + XChaCha20-Poly1305 encryption
 
-## Advanced Usage
-
-### Custom Reputation & Privacy Configuration
-
-```typescript
-const clout = new Clout({
-  publicKey: keypair.publicKey,
-  privateKey: keypair.privateKey.bytes,
-  freebird,
-  witness,
-  gossip,
-
-  // Trust filtering
-  maxHops: 2,           // Only show up to 2 degrees (default: 3)
-  minReputation: 0.5,   // Minimum score of 0.5 required (default: 0.3)
-  trustDecayDays: 365,  // 1-year half-life for trust decay (default: 365, 0 = no decay)
-
-  // Content-type-specific filtering
-  contentTypeFilters: {
-    'slide': { maxHops: 5, minReputation: 0.2 },      // More permissive for DMs
-    'image/png': { maxHops: 2, minReputation: 0.7 },  // Stricter for images
-    'text/plain': { maxHops: 3, minReputation: 0.4 }  // Custom for text posts
-  }
-});
-
-// Use weighted trust
-await clout.trust(publicKey, 0.8);  // 80% trust weight
-
-// Use trust tags for organization
-clout.addTrustTag(publicKey, 'close-friends');
-clout.addTrustTag(publicKey, 'family');
-
-// Filter feed by tag
-const familyPosts = await clout.getFeed({ tag: 'family', limit: 10 });
-
-// Delegate pass to newcomer (if you have reputation ≥0.7)
-await clout.delegatePass(newcomerKey, 48);  // 48-hour pass
-```
-
-### State Export/Import
-
-```typescript
-// Export state for backup
-const state = clout.exportState();
-localStorage.setItem('clout-state', state);
-
-// Import state
-const savedState = localStorage.getItem('clout-state');
-clout.importState(savedState);
-```
-
-### P2P Mesh Networking
-
-```typescript
-// Add peer connection
-clout.addPeer({
-  id: 'peer-1',
-  send: async (msg) => { /* send to peer */ },
-  isConnected: () => true
-});
-```
+---
 
 ## Dependencies
 
-Clout reuses Scarcity's infrastructure:
+Built on Scarcity's infrastructure:
 
-- **Freebird**: Anonymous authorization using P-256 VOPRF
-- **Witness**: Threshold timestamping for proof-of-order
-- **HyperToken**: P2P networking and CRDT state sync
+- **Freebird**: Anonymous authorization (P-256 VOPRF)
+- **Witness**: Threshold timestamping
+- **HyperToken**: P2P networking and CRDT sync
 - **@noble/curves** & **@noble/hashes**: Cryptographic primitives
+
+---
 
 ## License
 
@@ -530,9 +349,7 @@ Apache-2.0
 
 ## Credits
 
-Built by refactoring [Scarcity](https://github.com/flammafex/Scarcity), which itself builds on:
-- [Freebird](https://github.com/flammafex/Freebird)
-- [Witness](https://github.com/flammafex/Witness)
-- [HyperToken](https://github.com/flammafex/Hypertoken)
+Built by refactoring [Scarcity](https://github.com/flammafex/Scarcity), with:
+- [Freebird](https://github.com/flammafex/Freebird) | [Witness](https://github.com/flammafex/Witness) | [HyperToken](https://github.com/flammafex/Hypertoken)
 
-The architecture inverts Scarcity's "Conservation of Value" into Clout's "Propagation of Signal."
+*The architecture inverts Scarcity's "Conservation of Value" into Clout's "Propagation of Signal."*
