@@ -66,6 +66,18 @@ export interface ContentGossipConfig {
    * Used to determine if encrypted trust signals are addressed to us
    */
   readonly ourPublicKey?: string;
+
+  /**
+   * Optional callback to persist trust graph edges
+   * Called when new trust signals are received and validated
+   */
+  readonly onTrustEdge?: (truster: string, trustee: string) => void;
+
+  /**
+   * Optional initial trust graph from persistence
+   * Map of truster -> Set of trustees
+   */
+  readonly persistedTrustGraph?: Map<string, Set<string>>;
 }
 
 export interface PeerConnection {
@@ -150,6 +162,9 @@ export class ContentGossip {
   private readonly trustAdjacencyList = new Map<string, Set<string>>();
   private readonly hopDistanceCache = new Map<string, number>();
 
+  // Trust graph persistence callback
+  private readonly onTrustEdge?: (truster: string, trustee: string) => void;
+
   constructor(config: ContentGossipConfig) {
     this.witness = config.witness;
     this.freebird = config.freebird;
@@ -162,10 +177,21 @@ export class ContentGossip {
     this.requireSignatures = config.requireSignatures ?? false;
     this.encryptionKey = config.encryptionKey;
     this.ourPublicKey = config.ourPublicKey;
+    this.onTrustEdge = config.onTrustEdge;
 
     // Initialize adjacency list from initial trust graph (distance 1)
     for (const trustedKey of this.trustGraph) {
       this.hopDistanceCache.set(trustedKey, 1);
+    }
+
+    // Load persisted trust graph if provided
+    if (config.persistedTrustGraph) {
+      for (const [truster, trustees] of config.persistedTrustGraph) {
+        for (const trustee of trustees) {
+          this.updateGraphCaches(truster, trustee);
+        }
+      }
+      console.log(`[ContentGossip] Loaded ${config.persistedTrustGraph.size} persisted trust graph entries`);
     }
 
     this.startPruning();
@@ -658,7 +684,14 @@ export class ContentGossip {
     if (!this.trustAdjacencyList.has(truster)) {
       this.trustAdjacencyList.set(truster, new Set());
     }
+
+    const isNewEdge = !this.trustAdjacencyList.get(truster)!.has(trustee);
     this.trustAdjacencyList.get(truster)!.add(trustee);
+
+    // Persist new trust edge
+    if (isNewEdge && this.onTrustEdge) {
+      this.onTrustEdge(truster, trustee);
+    }
 
     // Calculate hop distance for trustee based on truster's distance
     const trusterDistance = this.hopDistanceCache.get(truster);

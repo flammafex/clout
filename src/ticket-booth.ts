@@ -16,16 +16,32 @@ export interface DelegatedPass {
   expiry: number;         // When this delegation expires
   signature: Uint8Array;  // Delegator's signature
   proof: Attestation;     // Witness timestamp
+  requiredReputation: number; // Minimum reputation delegator must maintain
 }
+
+/**
+ * Reputation getter function type
+ * Returns reputation score (0-1) for a public key
+ */
+export type ReputationGetter = (publicKey: string) => number;
 
 export class TicketBooth {
   private freebird: FreebirdClient;
   private witness: WitnessClient;
   private readonly delegations = new Map<string, DelegatedPass>(); // recipient -> delegation
+  private reputationGetter?: ReputationGetter;
 
   constructor(freebird: FreebirdClient, witness: WitnessClient) {
     this.freebird = freebird;
     this.witness = witness;
+  }
+
+  /**
+   * Set the reputation getter function
+   * This allows the TicketBooth to verify delegator reputation at mint time
+   */
+  setReputationGetter(getter: ReputationGetter): void {
+    this.reputationGetter = getter;
   }
 
   /**
@@ -69,7 +85,7 @@ export class TicketBooth {
     };
 
     // 4. Timestamp it with Witness (The "Notary")
-    const payloadHash = Crypto.hashString(JSON.stringify(ticketPayload));
+    const payloadHash = Crypto.hashObject(ticketPayload);
     const signature = await this.witness.timestamp(payloadHash);
 
     console.log(
@@ -171,7 +187,7 @@ export class TicketBooth {
     };
 
     // Sign delegation with delegator's key
-    const payloadHash = Crypto.hashString(JSON.stringify(delegationPayload));
+    const payloadHash = Crypto.hashObject(delegationPayload);
     const signature = Crypto.hash(payloadHash, delegator.privateKey.bytes);
 
     // Timestamp with Witness
@@ -182,7 +198,8 @@ export class TicketBooth {
       recipient,
       expiry,
       signature,
-      proof
+      proof,
+      requiredReputation: 0.7 // Minimum reputation delegator must maintain
     };
 
     // Store delegation
@@ -220,6 +237,18 @@ export class TicketBooth {
       throw new Error('Invalid delegation proof');
     }
 
+    // Verify delegator still has sufficient reputation
+    if (this.reputationGetter) {
+      const currentReputation = this.reputationGetter(delegation.delegator);
+      if (currentReputation < delegation.requiredReputation) {
+        this.delegations.delete(userKey);
+        throw new Error(
+          `Delegator reputation dropped below threshold: ` +
+          `${currentReputation.toFixed(2)} < ${delegation.requiredReputation}`
+        );
+      }
+    }
+
     // Calculate ticket duration (same as delegation)
     const remainingMs = delegation.expiry - Date.now();
     const durationHours = Math.floor(remainingMs / (60 * 60 * 1000));
@@ -232,7 +261,7 @@ export class TicketBooth {
       delegatedFrom: delegation.delegator
     };
 
-    const payloadHash = Crypto.hashString(JSON.stringify(ticketPayload));
+    const payloadHash = Crypto.hashObject(ticketPayload);
     const signature = await this.witness.timestamp(payloadHash);
 
     // Consume delegation (one-time use)

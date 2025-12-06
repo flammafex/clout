@@ -54,6 +54,66 @@ export class Crypto {
   static fromHex(hex: string): Uint8Array {
     return hexToBytes(hex);
   }
+
+  /**
+   * Validate a hex-encoded public key
+   *
+   * Checks:
+   * - Is a valid hex string (lowercase or uppercase)
+   * - Is exactly 64 characters (32 bytes)
+   * - Contains only valid hex characters
+   *
+   * @param publicKeyHex - Hex-encoded public key
+   * @returns true if valid, false otherwise
+   */
+  static isValidPublicKeyHex(publicKeyHex: string): boolean {
+    if (typeof publicKeyHex !== 'string') {
+      return false;
+    }
+
+    // Must be 64 hex characters (32 bytes)
+    if (publicKeyHex.length !== 64) {
+      return false;
+    }
+
+    // Must contain only valid hex characters
+    return /^[0-9a-fA-F]{64}$/.test(publicKeyHex);
+  }
+
+  /**
+   * Validate a public key as Uint8Array
+   *
+   * @param publicKey - Public key bytes
+   * @returns true if valid length, false otherwise
+   */
+  static isValidPublicKeyBytes(publicKey: Uint8Array): boolean {
+    if (!(publicKey instanceof Uint8Array)) {
+      return false;
+    }
+
+    // Ed25519 and X25519 public keys are 32 bytes
+    return publicKey.length === 32;
+  }
+
+  /**
+   * Validate and parse a hex-encoded public key
+   *
+   * @param publicKeyHex - Hex-encoded public key
+   * @returns Uint8Array if valid
+   * @throws Error if invalid
+   */
+  static parsePublicKey(publicKeyHex: string): Uint8Array {
+    if (!this.isValidPublicKeyHex(publicKeyHex)) {
+      throw new Error(
+        `Invalid public key: expected 64 hex characters, got ${
+          typeof publicKeyHex === 'string' ? publicKeyHex.length : typeof publicKeyHex
+        }`
+      );
+    }
+
+    return this.fromHex(publicKeyHex);
+  }
+
   /**
    * Generate nullifier from secret, token ID, and timestamp
    * Nullifier = H(secret || tokenId || timestamp)
@@ -138,6 +198,53 @@ export class Crypto {
   static hashString(input: string): string {
     const hash = this.hash(input);
     return this.toHex(hash);
+  }
+
+  /**
+   * Deterministic JSON stringify with sorted keys
+   *
+   * Standard JSON.stringify() does not guarantee key ordering, which can cause
+   * different hashes for semantically identical objects across JavaScript engines.
+   * This function recursively sorts object keys to ensure deterministic output.
+   *
+   * @param obj - Any JSON-serializable value
+   * @returns Deterministic JSON string
+   */
+  static stableStringify(obj: unknown): string {
+    if (obj === null || obj === undefined) {
+      return JSON.stringify(obj);
+    }
+
+    if (typeof obj !== 'object') {
+      return JSON.stringify(obj);
+    }
+
+    if (Array.isArray(obj)) {
+      const items = obj.map(item => this.stableStringify(item));
+      return '[' + items.join(',') + ']';
+    }
+
+    // Sort keys and recursively stringify values
+    const sortedKeys = Object.keys(obj as Record<string, unknown>).sort();
+    const pairs = sortedKeys.map(key => {
+      const value = (obj as Record<string, unknown>)[key];
+      return JSON.stringify(key) + ':' + this.stableStringify(value);
+    });
+
+    return '{' + pairs.join(',') + '}';
+  }
+
+  /**
+   * Hash an object deterministically
+   *
+   * Uses stableStringify to ensure consistent hashing regardless of
+   * object key insertion order.
+   *
+   * @param obj - Any JSON-serializable object
+   * @returns Hex-encoded hash
+   */
+  static hashObject(obj: unknown): string {
+    return this.hashString(this.stableStringify(obj));
   }
 
   /**

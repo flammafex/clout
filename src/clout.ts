@@ -107,6 +107,7 @@ export class Clout {
 
     // 1. Initialize TicketBooth (Anti-Sybil)
     this.ticketBooth = new TicketBooth(config.freebird, config.witness);
+    // Reputation getter will be set after ReputationValidator is initialized
 
     // 2. Initialize Trust Graph (Bootstrap with self)
     this.trustGraph = new Set<string>([this.publicKeyHex]);
@@ -120,6 +121,12 @@ export class Clout {
       witness: this.witness,
       maxHops: config.maxHops ?? 3,
       minReputation: config.minReputation ?? 0.3
+    });
+
+    // 4b. Connect TicketBooth to reputation system
+    // This ensures delegated passes are revoked if delegator loses reputation
+    this.ticketBooth.setReputationGetter((publicKey: string) => {
+      return this.reputationValidator.computeReputation(publicKey).score;
     });
 
     // 5. Initialize State Manager (CRDT / Phase 5)
@@ -649,7 +656,7 @@ export class Clout {
           timestamp
         };
 
-        const payloadHash = Crypto.hashString(JSON.stringify(signalPayload));
+        const payloadHash = Crypto.hashObject(signalPayload);
         const signature = Crypto.hash(payloadHash, this.privateKey); // Placeholder signature
         const proof = await this.witness.timestamp(payloadHash);
 
@@ -1177,7 +1184,7 @@ export class Clout {
       emoji,
       timestamp: Date.now()
     };
-    const payloadHash = Crypto.hashString(JSON.stringify(reactionPayload));
+    const payloadHash = Crypto.hashObject(reactionPayload);
     const signature = Crypto.hash(payloadHash, this.privateKey);
     const proof = await this.witness.timestamp(payloadHash);
 
@@ -1213,7 +1220,7 @@ export class Clout {
     const reactionId = Crypto.hashString(`${postId}:${this.publicKeyHex}:${emoji}`);
 
     // Create removal signal
-    const payloadHash = Crypto.hashString(JSON.stringify({ id: reactionId, removed: true }));
+    const payloadHash = Crypto.hashObject({ id: reactionId, removed: true });
     const signature = Crypto.hash(payloadHash, this.privateKey);
     const proof = await this.witness.timestamp(payloadHash);
 

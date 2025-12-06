@@ -103,9 +103,9 @@ export class InvitationManager {
       timestamp: Date.now()
     };
 
-    // Timestamp invitation with Witness
+    // Timestamp invitation with Witness (deterministic hash)
     const proof = await this.witness.timestamp(
-      Crypto.hashString(JSON.stringify(invitationData))
+      Crypto.hashObject(invitationData)
     );
 
     // Generate invitation code (base64 URL-safe)
