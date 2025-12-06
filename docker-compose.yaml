@@ -35,6 +35,7 @@ services:
       - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
       - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
       - FREEBIRD_SYBIL_MODE=${FREEBIRD_SYBIL_MODE:-invitation}
+      - FREEBIRD_ADMIN_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
       - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
       # Tor (optional)
       - TOR_ENABLED=${TOR_ENABLED:-false}
