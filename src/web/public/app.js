@@ -242,7 +242,7 @@ async function loadFeed() {
       return `
         <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
           <div class="feed-item-wrapper">
-            <div class="feed-avatar">${escapeHtml(authorAvatar)}</div>
+            <div class="feed-avatar">${renderAvatar(authorAvatar)}</div>
             <div class="feed-post-content">
               <div class="feed-header">
                 <div class="feed-author">
@@ -594,7 +594,7 @@ function renderFeedItem(post) {
   return `
     <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasCW ? 'has-cw' : ''}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
       <div class="feed-item-wrapper">
-        <div class="feed-avatar">${escapeHtml(authorAvatar)}</div>
+        <div class="feed-avatar">${renderAvatar(authorAvatar)}</div>
         <div class="feed-post-content">
           <div class="feed-header">
             <div class="feed-author">
@@ -862,7 +862,7 @@ async function viewThread(postId) {
     $('thread-parent').innerHTML = `
       <div class="feed-item thread-parent-post ${parentHasMedia ? 'has-media' : ''}">
         <div class="feed-item-wrapper">
-          <div class="feed-avatar">${escapeHtml(parentAvatar)}</div>
+          <div class="feed-avatar">${renderAvatar(parentAvatar)}</div>
           <div class="feed-post-content">
             <div class="feed-author"><span class="${parentHasNickname ? 'has-nickname' : ''}" title="${parent.author}">${escapeHtml(parentAuthorName)}</span></div>
             ${parent.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${parent.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); viewThread('${parent.replyTo}')">View parent</a></div>` : ''}
@@ -890,7 +890,7 @@ async function viewThread(postId) {
         return `
           <div class="feed-item ${replyHasMedia ? 'has-media' : ''}" onclick="viewThread('${reply.id}')" style="cursor: pointer;">
             <div class="feed-item-wrapper">
-              <div class="feed-avatar">${escapeHtml(replyAvatar)}</div>
+              <div class="feed-avatar">${renderAvatar(replyAvatar)}</div>
               <div class="feed-post-content">
                 <div class="feed-author"><span class="${replyHasNickname ? 'has-nickname' : ''}" title="${reply.author}">${escapeHtml(replyAuthorName)}</span></div>
                 <div class="feed-content">${renderPostContent(reply)}</div>
@@ -1235,6 +1235,17 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Render avatar - handles both URLs (as <img>) and emojis (as text)
+function renderAvatar(avatar) {
+  if (!avatar) return '👤';
+  // Check if it's a URL
+  if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
+    return `<img src="${escapeHtml(avatar)}" alt="avatar" class="avatar-img" onerror="this.outerHTML='👤'">`;
+  }
+  // Otherwise treat as emoji/text
+  return escapeHtml(avatar);
+}
+
 // =========================================================================
 // 12. MEDIA UPLOAD
 // =========================================================================
@@ -1494,7 +1505,7 @@ async function loadProfile() {
     // Update display
     $('profile-name-display').textContent = profile.metadata?.displayName || '(No name set)';
     $('profile-bio-display').textContent = profile.metadata?.bio || '';
-    $('profile-avatar-display').textContent = profile.metadata?.avatar || '👤';
+    $('profile-avatar-display').innerHTML = renderAvatar(profile.metadata?.avatar);
     $('profile-key-display').textContent = profile.publicKey.slice(0, 16) + '...';
 
     // Show bio only if it exists
