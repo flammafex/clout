@@ -937,9 +937,16 @@ export class Clout {
   }
 
   /**
-   * Get display name for a user - nickname if set, otherwise truncated public key
+   * Get display name for a user - checks profile name (for self), nickname, then truncated key
    */
   getDisplayName(publicKey: string): string {
+    // For the current user, use their profile display name if set
+    if (publicKey === this.publicKeyHex) {
+      const profile = this.getProfile();
+      if (profile.metadata?.displayName) {
+        return profile.metadata.displayName;
+      }
+    }
     return this.localData.getDisplayName(publicKey);
   }
 
