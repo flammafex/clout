@@ -53,6 +53,7 @@ export type {
   TrustSettings,
   Feed,
   ContentGossipMessage,
+  SignedContentGossipMessage,
   ReputationScore,
   CloutState,
   MediaMetadata,

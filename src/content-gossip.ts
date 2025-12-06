@@ -14,6 +14,7 @@ import { Crypto } from './crypto.js';
 import type { WitnessClient, FreebirdClient } from './types.js';
 import type {
   ContentGossipMessage,
+  SignedContentGossipMessage,
   PostPackage,
   TrustSignal,
   CloutProfile,
@@ -28,6 +29,23 @@ export interface ContentGossipConfig {
   readonly pruneInterval?: number;
   readonly maxPostAge?: number;
   readonly maxHops?: number; // Maximum graph distance to accept
+
+  /**
+   * Signing key for gossip message authentication
+   * If provided, all outgoing messages will be signed and
+   * incoming messages will be verified before processing.
+   */
+  readonly signingKey?: {
+    readonly publicKey: Uint8Array;
+    readonly privateKey: Uint8Array;
+  };
+
+  /**
+   * Whether to require signatures on incoming messages (default: false)
+   * When true, unsigned messages are rejected.
+   * When false, unsigned messages are accepted (backward compatibility).
+   */
+  readonly requireSignatures?: boolean;
 }
 
 export interface PeerConnection {
@@ -86,6 +104,13 @@ export class ContentGossip {
   private stateSyncHandler?: (publicKey: string, stateBinary: Uint8Array) => Promise<void>;
   private stateRequestHandler?: (publicKey: string) => Promise<Uint8Array | null>;
 
+  // Signing configuration for gossip message authentication
+  private readonly signingKey?: {
+    readonly publicKey: Uint8Array;
+    readonly privateKey: Uint8Array;
+  };
+  private readonly requireSignatures: boolean;
+
   // OPTIMIZATION: Cached adjacency list for O(1) hop distance lookups
   private readonly trustAdjacencyList = new Map<string, Set<string>>();
   private readonly hopDistanceCache = new Map<string, number>();
@@ -98,6 +123,8 @@ export class ContentGossip {
     this.pruneInterval = config.pruneInterval ?? 3600_000; // 1 hour
     this.maxPostAge = config.maxPostAge ?? (30 * 24 * 3600 * 1000); // 30 days
     this.maxHops = config.maxHops ?? 3; // Up to 3 degrees of separation
+    this.signingKey = config.signingKey;
+    this.requireSignatures = config.requireSignatures ?? false;
 
     // Initialize adjacency list from initial trust graph (distance 1)
     for (const trustedKey of this.trustGraph) {
@@ -190,18 +217,28 @@ export class ContentGossip {
    * - If author is not in your trust graph, the post vanishes from YOUR reality
    * - It never enters your feed, never gets propagated by you
    * - This creates subjective, uncensorable feeds
+   *
+   * Security: Messages are verified for sender authenticity if signed.
+   * When requireSignatures=true, unsigned messages are rejected.
    */
-  async onReceive(data: ContentGossipMessage, peerId?: string): Promise<void> {
-    if (data.type === 'post' && data.post) {
-      await this.handlePostMessage(data.post, peerId);
-    } else if (data.type === 'trust' && data.trustSignal) {
-      await this.handleTrustMessage(data.trustSignal, peerId);
-    } else if (data.type === 'slide' && data.slide) {
-      await this.handleSlideMessage(data.slide, peerId);
-    } else if (data.type === 'state-sync' && data.stateSync) {
-      await this.handleStateSyncMessage(data.stateSync, peerId);
-    } else if (data.type === 'state-request' && data.stateRequest) {
-      await this.handleStateRequestMessage(data.stateRequest, peerId);
+  async onReceive(data: ContentGossipMessage | SignedContentGossipMessage, peerId?: string): Promise<void> {
+    // Verify signature and unwrap message
+    const message = this.verifyMessage(data);
+    if (!message) {
+      // Invalid signature or unsigned when signatures required
+      return;
+    }
+
+    if (message.type === 'post' && message.post) {
+      await this.handlePostMessage(message.post, peerId);
+    } else if (message.type === 'trust' && message.trustSignal) {
+      await this.handleTrustMessage(message.trustSignal, peerId);
+    } else if (message.type === 'slide' && message.slide) {
+      await this.handleSlideMessage(message.slide, peerId);
+    } else if (message.type === 'state-sync' && message.stateSync) {
+      await this.handleStateSyncMessage(message.stateSync, peerId);
+    } else if (message.type === 'state-request' && message.stateRequest) {
+      await this.handleStateRequestMessage(message.stateRequest, peerId);
     }
   }
 
@@ -655,8 +692,10 @@ export class ContentGossip {
    */
   addPeer(peer: PeerConnection): void {
     if (peer.setMessageHandler) {
+      // Handler accepts both signed and unsigned messages
       peer.setMessageHandler(async (data: ContentGossipMessage) => {
-        await this.onReceive(data, peer.id);
+        // Cast to allow SignedContentGossipMessage - the type union is handled in onReceive
+        await this.onReceive(data as ContentGossipMessage | SignedContentGossipMessage, peer.id);
       });
     }
 
@@ -696,14 +735,88 @@ export class ContentGossip {
   }
 
   /**
+   * Sign a gossip message for authentication
+   *
+   * @param message - The message to sign
+   * @returns Signed message wrapper, or original message if no signing key
+   */
+  private signMessage(message: ContentGossipMessage): ContentGossipMessage | SignedContentGossipMessage {
+    if (!this.signingKey) {
+      return message;
+    }
+
+    // Serialize message to bytes for signing
+    const messageBytes = new TextEncoder().encode(JSON.stringify(message));
+
+    // Sign with Ed25519
+    const signature = Crypto.sign(messageBytes, this.signingKey.privateKey);
+
+    const signedMessage: SignedContentGossipMessage = {
+      message,
+      senderPublicKey: Crypto.toHex(this.signingKey.publicKey),
+      signature: Crypto.toHex(signature)
+    };
+
+    return signedMessage;
+  }
+
+  /**
+   * Verify a signed gossip message
+   *
+   * @param data - The incoming message (may be signed or unsigned)
+   * @returns The unwrapped message if valid, or null if invalid
+   */
+  private verifyMessage(data: ContentGossipMessage | SignedContentGossipMessage): ContentGossipMessage | null {
+    // Check if this is a signed message
+    if ('message' in data && 'senderPublicKey' in data && 'signature' in data) {
+      const signedData = data as SignedContentGossipMessage;
+
+      try {
+        // Deserialize public key and signature
+        const publicKey = Crypto.fromHex(signedData.senderPublicKey);
+        const signature = Crypto.fromHex(signedData.signature);
+
+        // Serialize the inner message for verification
+        const messageBytes = new TextEncoder().encode(JSON.stringify(signedData.message));
+
+        // Verify signature
+        if (!Crypto.verify(messageBytes, signature, publicKey)) {
+          console.warn(`[ContentGossip] ⚠️ Invalid signature from ${signedData.senderPublicKey.slice(0, 8)}`);
+          return null;
+        }
+
+        console.log(`[ContentGossip] ✓ Verified signature from ${signedData.senderPublicKey.slice(0, 8)}`);
+        return signedData.message;
+      } catch (error) {
+        console.warn('[ContentGossip] Failed to verify message signature:', error);
+        return null;
+      }
+    }
+
+    // Unsigned message
+    if (this.requireSignatures) {
+      console.warn('[ContentGossip] ⚠️ Rejecting unsigned message (requireSignatures=true)');
+      return null;
+    }
+
+    // Accept unsigned message (backward compatibility)
+    return data as ContentGossipMessage;
+  }
+
+  /**
    * Broadcast message to all peers
    */
   private async broadcast(message: ContentGossipMessage, skipFailed = false): Promise<void> {
+    // Sign the message if we have a signing key
+    const outgoingMessage = this.signMessage(message);
+
     const promises = this.peerConnections
       .filter(peer => peer.isConnected())
       .map(async (peer) => {
         try {
-          await peer.send(message);
+          // Note: PeerConnection.send() accepts ContentGossipMessage,
+          // but SignedContentGossipMessage is a superset, so this works.
+          await peer.send(outgoingMessage as ContentGossipMessage);
         } catch (error) {
           if (!skipFailed) {
             throw error;
