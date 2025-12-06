@@ -59,7 +59,7 @@ ENV CLOUT_DATA_DIR=/data
 
 # External service URLs (override for Docker networking)
 ENV WITNESS_GATEWAY_URL=http://localhost:8080
-ENV WITNESS_NETWORK_ID=scarcity-testnet
+ENV WITNESS_NETWORK_ID=clout-testnet
 ENV FREEBIRD_ISSUER_URL=http://localhost:8081
 ENV FREEBIRD_VERIFIER_URL=http://localhost:8082
 ENV HYPERTOKEN_RELAY_URL=ws://localhost:3000
@@ -114,7 +114,7 @@ ENV CLOUT_DATA_DIR=/data
 
 # External service URLs
 ENV WITNESS_GATEWAY_URL=http://localhost:8080
-ENV WITNESS_NETWORK_ID=scarcity-testnet
+ENV WITNESS_NETWORK_ID=clout-testnet
 ENV FREEBIRD_ISSUER_URL=http://localhost:8081
 ENV FREEBIRD_VERIFIER_URL=http://localhost:8082
 ENV HYPERTOKEN_RELAY_URL=ws://localhost:3000

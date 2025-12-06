@@ -15,7 +15,7 @@ function getCloutDataDir(): string {
   return process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
 }
 
-export interface ScarcityConfig {
+export interface CloutConfig {
   version: string;
   witness: {
     gatewayUrl: string;
@@ -35,11 +35,11 @@ export interface ScarcityConfig {
   };
 }
 
-export const DEFAULT_CONFIG: ScarcityConfig = {
+export const DEFAULT_CONFIG: CloutConfig = {
   version: '1.0',
   witness: {
     gatewayUrl: 'http://localhost:8080',
-    networkId: 'scarcity-testnet'
+    networkId: 'clout-testnet'
   },
   freebird: {
     issuerEndpoints: ['http://localhost:8081'],
@@ -57,7 +57,7 @@ export const DEFAULT_CONFIG: ScarcityConfig = {
 
 export class ConfigManager {
   private configPath: string;
-  private config: ScarcityConfig;
+  private config: CloutConfig;
 
   constructor(customPath?: string) {
     this.configPath = customPath || join(getCloutDataDir(), 'config.json');
@@ -78,8 +78,8 @@ export class ConfigManager {
   /**
    * Load config from disk and apply environment overrides
    */
-  private loadConfig(): ScarcityConfig {
-    let loadedConfig: Partial<ScarcityConfig> = {};
+  private loadConfig(): CloutConfig {
+    let loadedConfig: Partial<CloutConfig> = {};
 
     // 1. Load from file if exists
     if (existsSync(this.configPath)) {
@@ -154,7 +154,7 @@ export class ConfigManager {
   /**
    * Get entire config
    */
-  getAll(): ScarcityConfig {
+  getAll(): CloutConfig {
     return { ...this.config };
   }
 

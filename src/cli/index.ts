@@ -8,7 +8,6 @@
 import { Command } from './command.js';
 import { IdentityCommand } from './commands/identity.js';
 import { ConfigCommand } from './commands/config.js';
-import { InteractiveCommand } from './commands/interactive.js';
 import { CloutCommand } from './commands/clout.js';
 import { tryLoadWasm } from '../vendor/hypertoken/WasmBridge.js';
 
@@ -57,8 +56,6 @@ async function main() {
   const commands: { [key: string]: Command } = {
     identity: new IdentityCommand(),
     config: new ConfigCommand(),
-    interactive: new InteractiveCommand(),
-    repl: new InteractiveCommand(), // Alias
   };
 
   const command = commands[commandName];
@@ -103,7 +100,6 @@ CORE COMMANDS:
 MANAGEMENT:
   identity       Manage identities and keys
   config         Configuration management
-  interactive    Interactive REPL mode
 
 OPTIONS:
   -h, --help     Show this help message
