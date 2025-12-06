@@ -5,10 +5,17 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { Crypto } from '../crypto.js';
 import type { PublicKey } from '../types.js';
+
+/**
+ * Get Scarcity data directory from environment or default
+ */
+function getScarcityDataDir(): string {
+  return process.env.SCARCITY_DATA_DIR || join(homedir(), '.scarcity');
+}
 
 export interface WalletData {
   name: string;
@@ -28,7 +35,7 @@ export class WalletManager {
   private store: WalletStore;
 
   constructor(customPath?: string) {
-    this.walletPath = customPath || join(homedir(), '.scarcity', 'wallets.json');
+    this.walletPath = customPath || join(getScarcityDataDir(), 'wallets.json');
     this.ensureWalletDir();
     this.store = this.loadStore();
   }
@@ -37,7 +44,7 @@ export class WalletManager {
    * Ensure wallet directory exists
    */
   private ensureWalletDir(): void {
-    const dir = join(homedir(), '.scarcity');
+    const dir = dirname(this.walletPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }

@@ -10,12 +10,10 @@
   },
   "scripts": {
     "build": "tsc && npm run copy-static",
-    "copy-static": "mkdir -p dist/src/web && mkdir -p dist/src/explorer && mkdir -p dist/src/vendor/hypertoken && cp -r src/web/public dist/src/web/ 2>/dev/null || true && cp -r src/explorer/public dist/src/explorer/ 2>/dev/null || true && cp -r src/vendor/hypertoken/pkg dist/src/vendor/hypertoken/ 2>/dev/null || true",
+    "copy-static": "mkdir -p dist/src/web && mkdir -p dist/src/vendor/hypertoken && cp -r src/web/public dist/src/web/ 2>/dev/null || true && cp -r src/vendor/hypertoken/pkg dist/src/vendor/hypertoken/ 2>/dev/null || true",
     "dev": "tsc --watch",
     "web": "npm run build && node dist/src/web/server.js",
     "web:dev": "tsc && npm run copy-static && node dist/src/web/server.js",
-    "explorer": "npm run build && node dist/src/explorer/server.js",
-    "explorer:dev": "tsc && npm run copy-static && node dist/src/explorer/server.js",
     "test": "npm run test:integration",
     "test:integration": "npm run build && node dist/test/run-integration-tests.js",
     "test:basic": "npm run build && node dist/test/integration/01-basic-transfer.test.js",

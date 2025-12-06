@@ -5,8 +5,15 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
+
+/**
+ * Get Scarcity data directory from environment or default
+ */
+function getScarcityDataDir(): string {
+  return process.env.SCARCITY_DATA_DIR || join(homedir(), '.scarcity');
+}
 
 export interface ScarcityConfig {
   version: string;
@@ -53,7 +60,7 @@ export class ConfigManager {
   private config: ScarcityConfig;
 
   constructor(customPath?: string) {
-    this.configPath = customPath || join(homedir(), '.scarcity', 'config.json');
+    this.configPath = customPath || join(getScarcityDataDir(), 'config.json');
     this.ensureConfigDir();
     this.config = this.loadConfig();
   }
@@ -62,7 +69,7 @@ export class ConfigManager {
    * Ensure config directory exists
    */
   private ensureConfigDir(): void {
-    const dir = join(homedir(), '.scarcity');
+    const dir = dirname(this.configPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }

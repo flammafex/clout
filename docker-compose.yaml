@@ -1,0 +1,207 @@
+# ============================================
+# Clout - Docker Compose Configuration
+# ============================================
+#
+# Quick Start:
+#   docker compose up --build
+#
+# With full stack (Freebird, Witness, HyperToken):
+#   docker compose --profile full-stack up --build
+#
+# CLI commands:
+#   docker compose run --rm cli identity
+#   docker compose run --rm cli post "Hello world"
+#   docker compose run --rm cli feed
+#
+# ============================================
+
+services:
+  # ----------------------------------------
+  # Clout Web UI - Main service
+  # ----------------------------------------
+  clout:
+    build:
+      context: .
+      target: runtime
+    image: clout:latest
+    container_name: clout
+    ports:
+      - "${CLOUT_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - CLOUT_AUTH=${CLOUT_AUTH:-false}
+      - CLOUT_DATA_DIR=/data/clout
+      - SCARCITY_DATA_DIR=/data/scarcity
+      # External services - use Docker service names when running full stack
+      - WITNESS_GATEWAY_URL=${WITNESS_GATEWAY_URL:-http://witness-gateway:8080}
+      - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-scarcity-testnet}
+      - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
+      - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
+      - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
+      # Tor (optional)
+      - TOR_ENABLED=${TOR_ENABLED:-false}
+      - TOR_PROXY=${TOR_PROXY:-socks5://tor:9050}
+    volumes:
+      - clout-data:/data
+    networks:
+      - clout-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ----------------------------------------
+  # Clout CLI - Interactive commands
+  # ----------------------------------------
+  cli:
+    build:
+      context: .
+      target: cli
+    image: clout-cli:latest
+    profiles:
+      - cli
+    environment:
+      - CLOUT_DATA_DIR=/data/clout
+      - SCARCITY_DATA_DIR=/data/scarcity
+      - WITNESS_GATEWAY_URL=${WITNESS_GATEWAY_URL:-http://witness-gateway:8080}
+      - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-scarcity-testnet}
+      - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
+      - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
+      - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
+    volumes:
+      - clout-data:/data
+    networks:
+      - clout-net
+    stdin_open: true
+    tty: true
+
+  # ----------------------------------------
+  # Full Stack Services (optional)
+  # Run with: docker compose --profile full-stack up
+  # ----------------------------------------
+
+  # Freebird Issuer - Anonymous authorization
+  freebird-issuer:
+    image: ghcr.io/flammafex/freebird:latest
+    profiles:
+      - full-stack
+    container_name: freebird-issuer
+    build:
+      context: https://github.com/flammafex/freebird.git
+      target: issuer
+    ports:
+      - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
+    environment:
+      - RUST_LOG=info,freebird=debug
+      - BIND_ADDR=0.0.0.0:8081
+      - ISSUER_ID=clout-issuer
+      - TOKEN_TTL_MIN=60
+      - SYBIL_RESISTANCE=invitation
+      - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
+    volumes:
+      - freebird-issuer-data:/data
+    networks:
+      - clout-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/.well-known/issuer"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Freebird Verifier - Token verification
+  freebird-verifier:
+    image: ghcr.io/flammafex/freebird:latest
+    profiles:
+      - full-stack
+    container_name: freebird-verifier
+    build:
+      context: https://github.com/flammafex/freebird.git
+      target: verifier
+    ports:
+      - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
+    environment:
+      - RUST_LOG=info
+      - BIND_ADDR=0.0.0.0:8082
+      - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      freebird-issuer:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - clout-net
+    restart: unless-stopped
+
+  # Redis - For Freebird verifier caching
+  redis:
+    image: redis:alpine
+    profiles:
+      - full-stack
+    container_name: clout-redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - clout-net
+    restart: unless-stopped
+
+  # Witness Gateway - Threshold timestamping
+  witness-gateway:
+    image: ghcr.io/flammafex/witness:latest
+    profiles:
+      - full-stack
+    container_name: witness-gateway
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-gateway
+    ports:
+      - "${WITNESS_GATEWAY_PORT:-8080}:8080"
+    environment:
+      - RUST_LOG=info
+    volumes:
+      - witness-config:/config:ro
+      - witness-gateway-data:/data
+    networks:
+      - clout-net
+    restart: unless-stopped
+
+  # HyperToken Relay - P2P synchronization
+  hypertoken-relay:
+    image: ghcr.io/flammafex/hypertoken:latest
+    profiles:
+      - full-stack
+    container_name: hypertoken-relay
+    build:
+      context: https://github.com/flammafex/hypertoken.git
+    ports:
+      - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
+    networks:
+      - clout-net
+    restart: unless-stopped
+
+# ----------------------------------------
+# Networks
+# ----------------------------------------
+networks:
+  clout-net:
+    driver: bridge
+
+# ----------------------------------------
+# Volumes
+# ----------------------------------------
+volumes:
+  clout-data:
+    name: clout-data
+  freebird-issuer-data:
+    name: freebird-issuer-data
+  redis-data:
+    name: clout-redis-data
+  witness-config:
+    name: witness-config
+  witness-gateway-data:
+    name: witness-gateway-data

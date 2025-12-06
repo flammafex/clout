@@ -18,6 +18,13 @@ import * as raw from 'multiformats/codecs/raw';
 import { sha256 as multiformatsSha256 } from 'multiformats/hashes/sha2';
 
 /**
+ * Get Clout data directory from environment or default
+ */
+function getCloutDataDir(): string {
+  return process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+}
+
+/**
  * Media metadata stored alongside the CID reference in posts
  */
 export interface MediaMetadata {
@@ -59,7 +66,7 @@ export class FileBlockStore implements BlockStore {
   private metadata: Map<string, { storedAt: number; size: number }>;
 
   constructor(customPath?: string) {
-    const baseDir = customPath || join(homedir(), '.clout', 'wnfs');
+    const baseDir = customPath || join(getCloutDataDir(), 'wnfs');
     this.blocksDir = join(baseDir, 'blocks');
     this.metadataPath = join(baseDir, 'block-metadata.json');
     this.metadata = new Map();
@@ -237,7 +244,7 @@ export class StorageManager {
   private initialized: boolean = false;
 
   constructor(config: StorageManagerConfig = {}) {
-    const baseDir = config.storagePath || join(homedir(), '.clout', 'wnfs');
+    const baseDir = config.storagePath || join(getCloutDataDir(), 'wnfs');
     this.blockStore = new FileBlockStore(baseDir);
     this.maxFileSize = config.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
     this.allowedMimeTypes = new Set(config.allowedMimeTypes ?? DEFAULT_ALLOWED_MIME_TYPES);

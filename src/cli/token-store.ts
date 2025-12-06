@@ -5,8 +5,15 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
+
+/**
+ * Get Scarcity data directory from environment or default
+ */
+function getScarcityDataDir(): string {
+  return process.env.SCARCITY_DATA_DIR || join(homedir(), '.scarcity');
+}
 
 export interface StoredToken {
   id: string;
@@ -33,7 +40,7 @@ export class TokenStorage {
   private store: TokenStore;
 
   constructor(customPath?: string) {
-    this.storePath = customPath || join(homedir(), '.scarcity', 'tokens.json');
+    this.storePath = customPath || join(getScarcityDataDir(), 'tokens.json');
     this.ensureStoreDir();
     this.store = this.loadStore();
   }
@@ -42,7 +49,7 @@ export class TokenStorage {
    * Ensure storage directory exists
    */
   private ensureStoreDir(): void {
-    const dir = join(homedir(), '.scarcity');
+    const dir = dirname(this.storePath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }

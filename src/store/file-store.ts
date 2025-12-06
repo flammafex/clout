@@ -1,7 +1,14 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 import type { CloutStore, PostPackage, SlidePackage } from '../clout-types.js';
+
+/**
+ * Get Clout data directory from environment or default
+ */
+function getCloutDataDir(): string {
+  return process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+}
 
 /**
  * Persisted trust graph entry: who trusts whom
@@ -24,7 +31,7 @@ export class FileSystemStore implements CloutStore {
   private data: LocalData;
 
   constructor(customPath?: string) {
-    this.path = customPath || join(homedir(), '.clout', 'local-data.json');
+    this.path = customPath || join(getCloutDataDir(), 'local-data.json');
     this.data = { version: '1.0', posts: {}, slides: {} };
   }
 
@@ -34,7 +41,7 @@ export class FileSystemStore implements CloutStore {
   }
 
   private ensureDir(): void {
-    const dir = join(homedir(), '.clout');
+    const dir = dirname(this.path);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
