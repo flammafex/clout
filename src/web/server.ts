@@ -25,6 +25,9 @@ import {
   createSettingsRoutes,
   createDataRoutes
 } from './routes/index.js';
+import { createFreebirdAdminFromEnv } from '../integrations/freebird-admin.js';
+import { existsSync, writeFileSync } from 'fs';
+import { homedir } from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -204,6 +207,39 @@ export class CloutWebServer {
       }
     });
 
+    // Redeem an invitation code
+    this.app.post('/api/invitation/redeem', async (req, res) => {
+      try {
+        const { code } = req.body;
+
+        if (!code) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invitation code is required'
+          });
+        }
+
+        // Get the Freebird adapter and set the invitation code
+        const infra = this.infraManager.getInfrastructure();
+        if (!infra) {
+          return res.status(400).json({
+            success: false,
+            error: 'Clout not initialized'
+          });
+        }
+
+        // Store the invitation code in the Freebird adapter
+        infra.freebird.setInvitationCode(code);
+
+        res.json({
+          success: true,
+          data: { message: 'Invitation code set successfully' }
+        });
+      } catch (error: any) {
+        res.status(400).json({ success: false, error: error.message });
+      }
+    });
+
     // Initialize Clout
     this.app.post('/api/init', async (req, res) => {
       try {
@@ -302,6 +338,9 @@ export class CloutWebServer {
       console.log('No identity found, creating default identity...');
       identity = this.identityManager.createIdentity('default', true);
       console.log(`Created new identity: ${identity.publicKey.slice(0, 16)}...`);
+
+      // Bootstrap Dunbar pool on first init (invitation mode only)
+      await this.bootstrapDunbarPool();
     }
     const secretKey = this.identityManager.getSecretKey();
 
@@ -328,6 +367,65 @@ export class CloutWebServer {
 
     this.initialized = true;
     console.log(`Clout initialized with identity: ${identity.publicKey.slice(0, 16)}...`);
+  }
+
+  /**
+   * Bootstrap the Dunbar pool with initial invitations
+   *
+   * Called on first initialization when running in 'invitation' mode.
+   * Creates 150 invitation codes (Dunbar's number) for the admin to distribute.
+   */
+  private async bootstrapDunbarPool(): Promise<void> {
+    const sybilMode = process.env.FREEBIRD_SYBIL_MODE || 'invitation';
+
+    if (sybilMode !== 'invitation') {
+      console.log('[Bootstrap] Skipping Dunbar pool (not in invitation mode)');
+      return;
+    }
+
+    const freebirdAdmin = createFreebirdAdminFromEnv();
+    if (!freebirdAdmin) {
+      console.warn('[Bootstrap] Cannot bootstrap Dunbar pool: no admin key configured');
+      return;
+    }
+
+    try {
+      // Check if Freebird is accessible
+      const isHealthy = await freebirdAdmin.healthCheck();
+      if (!isHealthy) {
+        console.warn('[Bootstrap] Freebird admin API not accessible, skipping bootstrap');
+        return;
+      }
+
+      // Check if invitations already exist
+      const existingInvites = await freebirdAdmin.listInvitations();
+      if (existingInvites.length > 0) {
+        console.log(`[Bootstrap] ${existingInvites.length} invitations already exist, skipping bootstrap`);
+        return;
+      }
+
+      // Create the Dunbar pool
+      const invitations = await freebirdAdmin.bootstrapDunbarPool(150);
+
+      // Save invitation codes to a file for admin reference
+      const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+      const invitesFile = join(dataDir, 'invitations.json');
+
+      writeFileSync(invitesFile, JSON.stringify({
+        created: new Date().toISOString(),
+        count: invitations.length,
+        codes: invitations.map(i => i.code),
+        adminUrl: freebirdAdmin.getAdminUiUrl()
+      }, null, 2));
+
+      console.log(`[Bootstrap] ✅ Dunbar pool created!`);
+      console.log(`[Bootstrap] 📝 ${invitations.length} invitation codes saved to: ${invitesFile}`);
+      console.log(`[Bootstrap] 🔧 Admin UI: ${freebirdAdmin.getAdminUiUrl()}`);
+
+    } catch (error: any) {
+      console.warn(`[Bootstrap] Failed to create Dunbar pool: ${error.message}`);
+      console.warn('[Bootstrap] You can create invitations manually via the Freebird Admin UI');
+    }
   }
 
   /**

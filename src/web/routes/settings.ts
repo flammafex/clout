@@ -15,11 +15,22 @@ export function createSettingsRoutes(getClout: () => Clout | undefined, isInitia
       const clout = getClout()!;
 
       const profile = clout.getProfile();
+
+      // Check if admin features are available
+      const adminKey = process.env.FREEBIRD_ADMIN_KEY;
+      const issuerUrl = process.env.FREEBIRD_ISSUER_URL || 'http://localhost:8081';
+      const isAdmin = !!adminKey;
+
       res.json({
         success: true,
         data: {
           trustSettings: profile.trustSettings,
-          nsfwEnabled: clout.isNsfwEnabled()
+          nsfwEnabled: clout.isNsfwEnabled(),
+          admin: isAdmin ? {
+            enabled: true,
+            freebirdUrl: `${issuerUrl}/admin`,
+            sybilMode: process.env.FREEBIRD_SYBIL_MODE || 'invitation'
+          } : null
         }
       });
     } catch (error: any) {

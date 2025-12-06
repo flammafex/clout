@@ -2009,3 +2009,92 @@ h2 {
   min-width: 1.2rem;
   text-align: center;
 }
+
+/* =========================================================================
+   INVITE POPOVER
+   ========================================================================= */
+
+.popover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.popover-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 2rem;
+  max-width: 450px;
+  width: 90%;
+  position: relative;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.popover-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.popover-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
+.popover-content h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
+}
+
+.popover-content > p {
+  color: var(--text-dim);
+  margin-bottom: 1.5rem;
+}
+
+.invite-section {
+  background: var(--bg-tertiary);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.invite-section:last-child {
+  margin-bottom: 0;
+}
+
+.invite-section h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+}
+
+.invite-input-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.invite-input-group .input {
+  flex: 1;
+}
+
+.invite-section .help-text {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
