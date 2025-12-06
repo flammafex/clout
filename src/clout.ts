@@ -380,6 +380,18 @@ export class Clout {
   }
 
   /**
+   * Get current ticket info (for UI display)
+   */
+  getTicketInfo(): { expiry: number; durationHours: number; delegatedFrom?: string } | null {
+    if (!this.currentTicket) return null;
+    return {
+      expiry: this.currentTicket.expiry,
+      durationHours: this.currentTicket.durationHours,
+      delegatedFrom: this.currentTicket.delegatedFrom
+    };
+  }
+
+  /**
    * Delegate a day pass to another user (requires high reputation ≥0.7)
    *
    * Allows trusted users to vouch for newcomers.

@@ -96,9 +96,9 @@ function updateStatus(text, active = false) {
 }
 
 // Day pass countdown timer
-function startDayPassTimer() {
-  // Set day pass to expire 24 hours from now
-  dayPassEndTime = Date.now() + (24 * 60 * 60 * 1000);
+function startDayPassTimer(expiryTimestamp) {
+  // Use actual ticket expiry if provided, otherwise default to 24 hours
+  dayPassEndTime = expiryTimestamp || (Date.now() + (24 * 60 * 60 * 1000));
 
   // Show the timer
   $('day-pass-timer').style.display = 'flex';
@@ -169,15 +169,16 @@ async function initializeClout() {
     $('init-btn').textContent = 'Initializing...';
     updateStatus('Initializing...', false);
 
-    await apiCall('/init', 'POST');
+    const initResponse = await apiCall('/init', 'POST');
 
     initialized = true;
     $('init-section').style.display = 'none';
     $('main-app').style.display = 'block';
     updateStatus('Connected', true);
 
-    // Start day pass countdown timer
-    startDayPassTimer();
+    // Start day pass countdown timer with actual ticket expiry
+    const ticketExpiry = initResponse?.ticketInfo?.expiry;
+    startDayPassTimer(ticketExpiry);
 
     // Load initial data
     await loadFeed();

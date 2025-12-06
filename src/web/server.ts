@@ -208,7 +208,13 @@ export class CloutWebServer {
     this.app.post('/api/init', async (req, res) => {
       try {
         await this.initializeClout();
-        res.json({ success: true });
+        const ticketInfo = this.clout?.getTicketInfo();
+        res.json({
+          success: true,
+          data: {
+            ticketInfo: ticketInfo || null
+          }
+        });
       } catch (error: any) {
         res.status(500).json({ success: false, error: error.message });
       }
