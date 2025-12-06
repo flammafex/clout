@@ -4,7 +4,6 @@
 
 # Dependencies (will be installed fresh in container)
 node_modules/
-package-lock.json
 
 # Build output (will be built in container)
 dist/
