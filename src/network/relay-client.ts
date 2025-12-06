@@ -137,7 +137,7 @@ export class RelayClient implements PeerDiscovery {
         : {};
 
       this.ws = new WebSocket(this.config.relayUrl, wsOptions);
-      this.usingTor = shouldUseTor && Object.keys(wsOptions).length > 0;
+      this.usingTor = Boolean(shouldUseTor) && Object.keys(wsOptions).length > 0;
 
       this.ws.on('open', () => {
         const torStatus = this.usingTor ? ' (via Tor)' : '';
