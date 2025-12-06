@@ -3,6 +3,7 @@
 
 _A mission of [The Carpocratian Church of Commonality and Equality](https://carpocratian.org/en/church/)_.</div>
 <div align=center><img src="mission.png" width=256 height=200></div></div>
+<h1 align=center>START SPREADING THE NEWS</h1>
 
 # Clout: Uncensorable Social Networking
 
@@ -222,7 +223,7 @@ clout.importState(backup);
 
 ---
 
-## Quick Start
+## BE A PART OF IT - Quick Start
 
 ### Installation
 
