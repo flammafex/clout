@@ -4,6 +4,7 @@ import { Crypto } from './crypto.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
 import { StorageManager, type MediaMetadata } from './storage/wnfs-manager.js';
+import { ProfileStore } from './store/profile-store.js';
 import { CloutLocalData } from './clout/local-data.js';
 import { CloutMessaging } from './clout/messaging.js';
 import { CloutStateSync } from './clout/state-sync.js';
@@ -84,6 +85,7 @@ export class Clout {
   private readonly reputationValidator: ReputationValidator;
   public readonly state: CloutStateManager;
   public readonly storage: StorageManager;
+  private readonly profileStore: ProfileStore;
   private readonly localData: CloutLocalData;
   private readonly messaging: CloutMessaging;
   private readonly stateSync: CloutStateSync;
@@ -149,6 +151,9 @@ export class Clout {
       maxFileSize: config.maxMediaSize
     });
 
+    // 6b. Initialize Profile Store (local persistence for profile data)
+    this.profileStore = new ProfileStore();
+
     // 7. Initialize Messaging (Slides/DMs)
     this.messaging = new CloutMessaging({
       publicKey: this.publicKeyHex,
@@ -183,6 +188,10 @@ export class Clout {
       await this.storage.init();
     }
 
+    // Initialize profile store and load saved profile
+    await this.profileStore.init();
+    await this.loadSavedProfile();
+
     // Subscribe to gossip to populate local store
     if (this.gossip) {
       this.gossip.subscribe(async (msg: ContentGossipMessage) => {
@@ -191,6 +200,28 @@ export class Clout {
 
       // Initialize CRDT state synchronization
       this.stateSync.initialize();
+    }
+  }
+
+  /**
+   * Load saved profile from local storage and merge into Chronicle state
+   */
+  private async loadSavedProfile(): Promise<void> {
+    const savedProfile = this.profileStore.getProfile();
+    if (savedProfile && savedProfile.publicKey === this.publicKeyHex) {
+      console.log('[Clout] 📂 Restoring saved profile from local storage');
+
+      // Restore profile metadata to Chronicle state
+      const currentProfile = this.getProfile();
+      this.state.updateProfile({
+        publicKey: this.publicKeyHex,
+        trustGraph: this.trustGraph,
+        trustSettings: {
+          ...currentProfile.trustSettings,
+          ...savedProfile.trustSettings
+        },
+        metadata: savedProfile.metadata
+      });
     }
   }
 
@@ -745,7 +776,7 @@ export class Clout {
 
   /**
    * Update profile metadata (display name, bio, avatar)
-   * Changes sync automatically via Chronicle CRDT
+   * Changes sync automatically via Chronicle CRDT and are persisted locally
    */
   async setProfileMetadata(metadata: {
     displayName?: string;
@@ -770,6 +801,20 @@ export class Clout {
       trustSettings: currentProfile.trustSettings,
       metadata: updatedMetadata
     });
+
+    // Also save to local storage for persistence across restarts
+    this.profileStore.saveProfile(
+      this.publicKeyHex,
+      updatedMetadata,
+      currentProfile.trustSettings
+    );
+
+    // If avatar is a URL, cache it locally
+    if (metadata.avatar?.startsWith('http://') || metadata.avatar?.startsWith('https://')) {
+      this.profileStore.cacheAvatar(metadata.avatar).catch(err => {
+        console.warn('[Clout] Failed to cache avatar:', err);
+      });
+    }
   }
 
   /**
@@ -806,6 +851,13 @@ export class Clout {
     if (settings.showNsfw !== undefined) {
       console.log(`[Clout] NSFW content: ${settings.showNsfw ? 'enabled' : 'disabled'}`);
     }
+
+    // Also save to local storage for persistence across restarts
+    this.profileStore.saveProfile(
+      this.publicKeyHex,
+      currentProfile.metadata || {},
+      updatedSettings
+    );
   }
 
   /**
