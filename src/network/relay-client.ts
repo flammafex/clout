@@ -6,6 +6,10 @@
  * 2. Discover peers
  * 3. Perform WebRTC signaling
  * 4. Forward messages when direct connection unavailable
+ *
+ * Security:
+ * - Completes challenge-response authentication before registration
+ * - Signs auth challenge with Ed25519 to prove identity
  */
 
 /// <reference types="node" />
@@ -13,11 +17,19 @@
 import { WebSocket } from 'ws';
 import type { RelayMessage, PeerDiscovery, PeerInfo, NodeType } from '../network-types.js';
 import { NodeType as NT, RelayMessageType } from '../network-types.js';
+import { Crypto } from '../crypto.js';
 
 export interface RelayClientConfig {
   readonly publicKey: string;
   readonly nodeType: NodeType;
   readonly relayUrl: string;
+
+  /**
+   * Ed25519 private key for signing authentication challenges.
+   * Required for connecting to relays that require authentication.
+   * The key should correspond to the publicKey.
+   */
+  readonly privateKey?: Uint8Array;
 }
 
 type MessageHandler = (message: RelayMessage) => void;
@@ -29,8 +41,11 @@ export class RelayClient implements PeerDiscovery {
   private readonly config: RelayClientConfig;
   private ws?: WebSocket;
   private connected = false;
+  private authenticated = false;
   private messageHandlers: MessageHandler[] = [];
   private reconnectTimer?: NodeJS.Timeout;
+  private authResolve?: () => void;
+  private authReject?: (error: Error) => void;
 
   constructor(config: RelayClientConfig) {
     this.config = config;
@@ -38,6 +53,13 @@ export class RelayClient implements PeerDiscovery {
 
   /**
    * Connect to relay server
+   *
+   * Handles authentication flow:
+   * 1. Connect WebSocket
+   * 2. Receive auth challenge from server
+   * 3. Sign challenge and respond
+   * 4. Wait for auth success
+   * 5. Register with relay
    */
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -46,17 +68,14 @@ export class RelayClient implements PeerDiscovery {
       this.ws.on('open', () => {
         console.log(`[RelayClient] Connected to ${this.config.relayUrl}`);
         this.connected = true;
-
-        // Register with relay
-        this.register();
-
-        resolve();
+        // Don't register yet - wait for auth challenge
+        // If no auth required, server won't send challenge and we can register immediately
       });
 
       this.ws.on('message', (data: Buffer) => {
         try {
           const message = JSON.parse(data.toString()) as RelayMessage;
-          this.handleMessage(message);
+          this.handleMessage(message, resolve, reject);
         } catch (error) {
           console.warn('[RelayClient] Invalid message:', error);
         }
@@ -65,6 +84,7 @@ export class RelayClient implements PeerDiscovery {
       this.ws.on('close', () => {
         console.log('[RelayClient] Disconnected from relay');
         this.connected = false;
+        this.authenticated = false;
         this.scheduleReconnect();
       });
 
@@ -72,6 +92,16 @@ export class RelayClient implements PeerDiscovery {
         console.warn('[RelayClient] Error:', error);
         reject(error);
       });
+
+      // Timeout for initial connection + auth
+      setTimeout(() => {
+        if (!this.authenticated && this.connected) {
+          // No auth challenge received - server doesn't require auth
+          console.log('[RelayClient] No auth challenge received - server may not require auth');
+          this.register();
+          resolve();
+        }
+      }, 2000);
     });
   }
 
@@ -92,10 +122,121 @@ export class RelayClient implements PeerDiscovery {
   /**
    * Handle incoming message from relay
    */
-  private handleMessage(message: RelayMessage): void {
+  private handleMessage(
+    message: RelayMessage,
+    connectResolve?: () => void,
+    connectReject?: (error: Error) => void
+  ): void {
+    // Handle authentication flow
+    if (message.type === RelayMessageType.AUTH_CHALLENGE) {
+      this.handleAuthChallenge(message, connectResolve, connectReject);
+      return;
+    }
+
+    if (message.type === RelayMessageType.AUTH_RESPONSE) {
+      this.handleAuthSuccess(message, connectResolve);
+      return;
+    }
+
+    if (message.type === RelayMessageType.ERROR) {
+      console.error('[RelayClient] Error from relay:', message.payload.error);
+      if (connectReject && !this.authenticated) {
+        connectReject(new Error(message.payload.error));
+      }
+      return;
+    }
+
     // Notify all handlers
     for (const handler of this.messageHandlers) {
       handler(message);
+    }
+  }
+
+  /**
+   * Handle authentication challenge from server
+   */
+  private handleAuthChallenge(
+    message: RelayMessage,
+    connectResolve?: () => void,
+    connectReject?: (error: Error) => void
+  ): void {
+    const { nonce } = message.payload;
+
+    if (!nonce) {
+      console.error('[RelayClient] Invalid auth challenge - missing nonce');
+      if (connectReject) {
+        connectReject(new Error('Invalid auth challenge'));
+      }
+      return;
+    }
+
+    console.log('[RelayClient] Received auth challenge');
+
+    // Check if we have a private key for signing
+    if (!this.config.privateKey) {
+      console.error('[RelayClient] Cannot authenticate - no privateKey configured');
+      if (connectReject) {
+        connectReject(new Error('Authentication required but no privateKey provided'));
+      }
+      return;
+    }
+
+    try {
+      // Sign: nonce + publicKey
+      const signedData = nonce + this.config.publicKey;
+      const signedBytes = new TextEncoder().encode(signedData);
+      const signature = Crypto.sign(signedBytes, this.config.privateKey);
+
+      // Send auth response
+      this.send({
+        type: RelayMessageType.AUTH_RESPONSE,
+        from: this.config.publicKey,
+        payload: {
+          publicKey: this.config.publicKey,
+          signature: Crypto.toHex(signature)
+        }
+      });
+
+      console.log('[RelayClient] Sent auth response');
+
+      // Store resolve/reject for when we get success/failure
+      this.authResolve = connectResolve;
+      this.authReject = connectReject;
+
+    } catch (error) {
+      console.error('[RelayClient] Failed to sign auth challenge:', error);
+      if (connectReject) {
+        connectReject(error as Error);
+      }
+    }
+  }
+
+  /**
+   * Handle successful authentication response
+   */
+  private handleAuthSuccess(message: RelayMessage, connectResolve?: () => void): void {
+    if (message.payload.success) {
+      console.log('[RelayClient] ✓ Authentication successful');
+      this.authenticated = true;
+
+      // Now register with relay
+      this.register();
+
+      // Resolve connect promise
+      if (this.authResolve) {
+        this.authResolve();
+        this.authResolve = undefined;
+        this.authReject = undefined;
+      } else if (connectResolve) {
+        connectResolve();
+      }
+    } else {
+      console.error('[RelayClient] Authentication failed');
+      if (this.authReject) {
+        this.authReject(new Error('Authentication failed'));
+        this.authResolve = undefined;
+        this.authReject = undefined;
+      }
     }
   }
 
@@ -221,6 +362,13 @@ export class RelayClient implements PeerDiscovery {
   }
 
   /**
+   * Check if authenticated with relay
+   */
+  isAuthenticated(): boolean {
+    return this.authenticated;
+  }
+
+  /**
    * Disconnect from relay
    */
   async disconnect(): Promise<void> {
@@ -235,6 +383,7 @@ export class RelayClient implements PeerDiscovery {
     }
 
     this.connected = false;
+    this.authenticated = false;
     console.log('[RelayClient] Disconnected');
   }
 }

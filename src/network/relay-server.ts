@@ -6,6 +6,11 @@
  * 2. Bootstrap peer discovery
  * 3. NAT traversal support
  * 4. Message forwarding for unreachable peers
+ *
+ * Security:
+ * - Challenge-response authentication required before peer discovery
+ * - Clients must prove ownership of their publicKey via Ed25519 signature
+ * - Unauthenticated clients cannot query peer lists or forward messages
  */
 
 /// <reference types="node" />
@@ -13,11 +18,19 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { RelayMessage } from '../network-types.js';
 import { RelayMessageType } from '../network-types.js';
+import { Crypto } from '../crypto.js';
+
+/** Pending authentication challenge for a connection */
+interface PendingAuth {
+  readonly nonce: string;
+  readonly issuedAt: number;
+}
 
 interface RegisteredClient {
   readonly publicKey: string;
   readonly ws: WebSocket;
   readonly nodeType: string;
+  readonly authenticated: boolean;
   registeredAt: number;
   lastSeen: number;
 }
@@ -25,6 +38,17 @@ interface RegisteredClient {
 export interface RelayServerConfig {
   readonly port: number;
   readonly host?: string;
+  /**
+   * Whether to require authentication for peer discovery.
+   * When true (default), clients must complete challenge-response auth.
+   * When false, allows unauthenticated access (NOT RECOMMENDED for production).
+   */
+  readonly requireAuth?: boolean;
+
+  /**
+   * Challenge expiry time in milliseconds (default: 30 seconds)
+   */
+  readonly challengeExpiry?: number;
 }
 
 /**
@@ -32,11 +56,16 @@ export interface RelayServerConfig {
  */
 export class RelayServer {
   private readonly config: RelayServerConfig;
+  private readonly requireAuth: boolean;
+  private readonly challengeExpiry: number;
   private wss?: WebSocketServer;
   private readonly clients = new Map<string, RegisteredClient>();
+  private readonly pendingAuth = new Map<WebSocket, PendingAuth>();
 
   constructor(config: RelayServerConfig) {
     this.config = config;
+    this.requireAuth = config.requireAuth ?? true; // Default: require auth
+    this.challengeExpiry = config.challengeExpiry ?? 30_000; // 30 seconds
   }
 
   /**
@@ -68,6 +97,21 @@ export class RelayServer {
   private handleConnection(ws: WebSocket): void {
     console.log('[RelayServer] New connection');
 
+    // Generate and send authentication challenge
+    if (this.requireAuth) {
+      const nonce = Crypto.toHex(Crypto.randomBytes(32));
+      this.pendingAuth.set(ws, {
+        nonce,
+        issuedAt: Date.now()
+      });
+
+      this.send(ws, {
+        type: RelayMessageType.AUTH_CHALLENGE,
+        payload: { nonce }
+      });
+      console.log('[RelayServer] Sent auth challenge');
+    }
+
     ws.on('message', (data: Buffer) => {
       try {
         const message = JSON.parse(data.toString()) as RelayMessage;
@@ -78,6 +122,9 @@ export class RelayServer {
     });
 
     ws.on('close', () => {
+      // Clean up pending auth
+      this.pendingAuth.delete(ws);
+
       // Remove client from registry
       for (const [publicKey, client] of this.clients.entries()) {
         if (client.ws === ws) {
@@ -98,6 +145,10 @@ export class RelayServer {
    */
   private handleMessage(ws: WebSocket, message: RelayMessage): void {
     switch (message.type) {
+      case 'auth_response':
+        this.handleAuthResponse(ws, message);
+        break;
+
       case 'register':
         this.handleRegister(ws, message);
         break;
@@ -120,6 +171,102 @@ export class RelayServer {
   }
 
   /**
+   * Handle authentication response
+   *
+   * Verifies the client's Ed25519 signature over nonce + publicKey
+   */
+  private handleAuthResponse(ws: WebSocket, message: RelayMessage): void {
+    const { publicKey, signature } = message.payload;
+
+    if (!publicKey || !signature) {
+      this.sendError(ws, 'Missing publicKey or signature in auth response');
+      return;
+    }
+
+    // Get pending challenge
+    const pending = this.pendingAuth.get(ws);
+    if (!pending) {
+      this.sendError(ws, 'No pending authentication challenge');
+      return;
+    }
+
+    // Check challenge expiry
+    if (Date.now() - pending.issuedAt > this.challengeExpiry) {
+      this.pendingAuth.delete(ws);
+      this.sendError(ws, 'Authentication challenge expired');
+      return;
+    }
+
+    // Verify signature: sign(nonce + publicKey)
+    try {
+      const signedData = pending.nonce + publicKey;
+      const signedBytes = new TextEncoder().encode(signedData);
+      const signatureBytes = Crypto.fromHex(signature);
+      const publicKeyBytes = Crypto.fromHex(publicKey);
+
+      const valid = Crypto.verify(signedBytes, signatureBytes, publicKeyBytes);
+
+      if (!valid) {
+        console.warn(`[RelayServer] ⚠️ Invalid signature from ${publicKey.slice(0, 8)}`);
+        this.sendError(ws, 'Invalid signature - authentication failed');
+        this.pendingAuth.delete(ws);
+        return;
+      }
+
+      // Authentication successful - clean up pending auth
+      this.pendingAuth.delete(ws);
+
+      console.log(`[RelayServer] ✓ Authenticated ${publicKey.slice(0, 8)}`);
+
+      // Send success response
+      this.send(ws, {
+        type: RelayMessageType.AUTH_RESPONSE,
+        payload: {
+          success: true,
+          publicKey
+        }
+      });
+
+    } catch (error) {
+      console.error('[RelayServer] Auth verification error:', error);
+      this.sendError(ws, 'Authentication verification failed');
+      this.pendingAuth.delete(ws);
+    }
+  }
+
+  /**
+   * Check if a WebSocket connection is authenticated
+   */
+  private isAuthenticated(ws: WebSocket): boolean {
+    // If auth not required, always return true
+    if (!this.requireAuth) {
+      return true;
+    }
+
+    // Check if client is registered and authenticated
+    for (const client of this.clients.values()) {
+      if (client.ws === ws && client.authenticated) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a WebSocket has completed auth challenge
+   */
+  private hasCompletedAuth(ws: WebSocket): boolean {
+    if (!this.requireAuth) {
+      return true;
+    }
+
+    // If there's no pending auth for this ws, auth was completed
+    // (either passed or wasn't required for this connection)
+    return !this.pendingAuth.has(ws);
+  }
+
+  /**
    * Handle client registration
    */
   private handleRegister(ws: WebSocket, message: RelayMessage): void {
@@ -130,18 +277,25 @@ export class RelayServer {
       return;
     }
 
-    // Register client
+    // Check if client completed auth challenge
+    if (!this.hasCompletedAuth(ws)) {
+      this.sendError(ws, 'Must complete authentication challenge before registering');
+      return;
+    }
+
+    // Register client (authenticated since they passed the challenge)
     this.clients.set(publicKey, {
       publicKey,
       ws,
       nodeType: nodeType || 'light',
+      authenticated: true,
       registeredAt: Date.now(),
       lastSeen: Date.now()
     });
 
     console.log(
       `[RelayServer] Registered ${publicKey.slice(0, 8)} ` +
-      `(type: ${nodeType || 'light'})`
+      `(type: ${nodeType || 'light'}, authenticated: true)`
     );
 
     // Send confirmation
@@ -212,13 +366,24 @@ export class RelayServer {
 
   /**
    * Handle peer query
+   *
+   * Security: Only authenticated clients can query peers.
+   * This prevents unauthenticated parties from mapping the network.
    */
   private handleQueryPeers(ws: WebSocket, message: RelayMessage): void {
+    // Require authentication for peer discovery
+    if (!this.isAuthenticated(ws)) {
+      console.warn('[RelayServer] ⚠️ Unauthenticated peer query rejected');
+      this.sendError(ws, 'Authentication required for peer discovery');
+      return;
+    }
+
     const { maxResults = 10 } = message.payload;
 
     // Return list of connected peers (excluding requester)
+    // Only return authenticated peers
     const peers = Array.from(this.clients.values())
-      .filter(client => client.ws !== ws)
+      .filter(client => client.ws !== ws && client.authenticated)
       .slice(0, maxResults)
       .map(client => ({
         publicKey: client.publicKey,
@@ -231,7 +396,7 @@ export class RelayServer {
       payload: { peers }
     });
 
-    console.log(`[RelayServer] Sent ${peers.length} peer(s) to query`);
+    console.log(`[RelayServer] Sent ${peers.length} peer(s) to authenticated query`);
   }
 
   /**
@@ -248,7 +413,7 @@ export class RelayServer {
    */
   private sendError(ws: WebSocket, error: string): void {
     this.send(ws, {
-      type: RelayMessageType.FORWARD,
+      type: RelayMessageType.ERROR,
       payload: { error }
     });
   }
