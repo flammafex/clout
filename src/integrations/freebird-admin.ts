@@ -92,15 +92,16 @@ export class FreebirdAdmin {
   /**
    * Create invitation codes
    *
+   * @param inviterId The public key of the user creating the invitations
    * @param count Number of invitations to create (default: 1)
    * @param expiresInDays Days until expiration (default: 30)
    * @returns Array of created invitation codes
    */
-  async createInvitations(count: number = 1, expiresInDays: number = 30): Promise<Invitation[]> {
+  async createInvitations(inviterId: string, count: number = 1, expiresInDays: number = 30): Promise<Invitation[]> {
     const response = await this.request<{ invitations: Invitation[] }>(
       '/admin/invitations/create',
       'POST',
-      { count, expires_in_days: expiresInDays }
+      { inviter_id: inviterId, count, expires_in_days: expiresInDays }
     );
     return response.invitations || [];
   }
@@ -142,13 +143,14 @@ export class FreebirdAdmin {
    * Creates the initial set of invitations for the admin to distribute.
    * This is called on first initialization to seed the network.
    *
+   * @param inviterId The public key of the owner creating the invitations
    * @param count Number of invitations (default: 50, max 100 per Freebird limit)
    * @returns The created invitations
    */
-  async bootstrapDunbarPool(count: number = 50): Promise<Invitation[]> {
+  async bootstrapDunbarPool(inviterId: string, count: number = 50): Promise<Invitation[]> {
     console.log(`[FreebirdAdmin] 🎫 Bootstrapping Dunbar pool with ${count} invitations...`);
 
-    const invitations = await this.createInvitations(count, 365); // 1 year expiry
+    const invitations = await this.createInvitations(inviterId, count, 365); // 1 year expiry
 
     console.log(`[FreebirdAdmin] ✅ Created ${invitations.length} invitation codes`);
     return invitations;
