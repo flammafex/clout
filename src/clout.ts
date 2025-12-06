@@ -192,8 +192,10 @@ export class Clout {
     await this.profileStore.init();
     await this.loadSavedProfile();
 
-    // Load saved deletions from file store
+    // Load saved data from file store
     await this.loadSavedDeletions();
+    await this.loadSavedReactions();
+    await this.loadSavedBookmarks();
 
     // Subscribe to gossip to populate local store
     if (this.gossip) {
@@ -242,6 +244,42 @@ export class Clout {
 
       for (const deletion of savedDeletions) {
         this.state.addPostDeletion(deletion);
+      }
+    }
+  }
+
+  /**
+   * Load saved reactions from file store and merge into Chronicle state
+   */
+  private async loadSavedReactions(): Promise<void> {
+    if (!this.store || !('getReactions' in this.store)) {
+      return;
+    }
+
+    const savedReactions = await (this.store as any).getReactions();
+    if (savedReactions && savedReactions.length > 0) {
+      console.log(`[Clout] 📂 Restoring ${savedReactions.length} saved reactions from local storage`);
+
+      for (const reaction of savedReactions) {
+        this.state.addReaction(reaction);
+      }
+    }
+  }
+
+  /**
+   * Load saved bookmarks from file store and merge into local data
+   */
+  private async loadSavedBookmarks(): Promise<void> {
+    if (!this.store || !('getBookmarks' in this.store)) {
+      return;
+    }
+
+    const savedBookmarks = await (this.store as any).getBookmarks();
+    if (savedBookmarks && savedBookmarks.length > 0) {
+      console.log(`[Clout] 📂 Restoring ${savedBookmarks.length} saved bookmarks from local storage`);
+
+      for (const postId of savedBookmarks) {
+        this.localData.bookmark(postId);
       }
     }
   }
@@ -1285,15 +1323,25 @@ export class Clout {
    *
    * Bookmarks are local-only and never synced to the network.
    */
-  bookmark(postId: string): void {
+  async bookmark(postId: string): Promise<void> {
     this.localData.bookmark(postId);
+
+    // Persist to file store for cross-restart persistence
+    if (this.store && 'addBookmark' in this.store) {
+      await (this.store as any).addBookmark(postId);
+    }
   }
 
   /**
    * Remove a bookmark from a post
    */
-  unbookmark(postId: string): void {
+  async unbookmark(postId: string): Promise<void> {
     this.localData.unbookmark(postId);
+
+    // Remove from file store for cross-restart persistence
+    if (this.store && 'removeBookmark' in this.store) {
+      await (this.store as any).removeBookmark(postId);
+    }
   }
 
   /**
@@ -1484,6 +1532,11 @@ export class Clout {
     // Store in Chronicle state
     this.state.addReaction(reaction);
 
+    // Persist to file store for cross-restart persistence
+    if (this.store && 'addReaction' in this.store) {
+      await (this.store as any).addReaction(reaction);
+    }
+
     // Broadcast via gossip
     if (this.gossip) {
       await this.gossip.publish({
@@ -1520,6 +1573,11 @@ export class Clout {
 
     // Update state (addReaction handles removal)
     this.state.addReaction(removal);
+
+    // Remove from file store for cross-restart persistence
+    if (this.store && 'removeReaction' in this.store) {
+      await (this.store as any).removeReaction(reactionId);
+    }
 
     // Broadcast removal
     if (this.gossip) {

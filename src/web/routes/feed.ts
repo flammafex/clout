@@ -423,7 +423,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
   });
 
   // Bookmark a post
-  router.post('/bookmark', (req, res) => {
+  router.post('/bookmark', async (req, res) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -433,7 +433,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
         return res.status(400).json({ success: false, error: 'postId is required' });
       }
 
-      clout.bookmark(postId);
+      await clout.bookmark(postId);
       res.json({ success: true, data: { postId, bookmarked: true } });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -441,7 +441,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
   });
 
   // Remove bookmark from a post
-  router.post('/unbookmark', (req, res) => {
+  router.post('/unbookmark', async (req, res) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -451,7 +451,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
         return res.status(400).json({ success: false, error: 'postId is required' });
       }
 
-      clout.unbookmark(postId);
+      await clout.unbookmark(postId);
       res.json({ success: true, data: { postId, bookmarked: false } });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
