@@ -89,11 +89,8 @@ services:
 
   # Freebird Issuer - Anonymous authorization
   freebird-issuer:
-    image: ghcr.io/flammafex/freebird:latest
+    image: ghcr.io/flammafex/freebird-issuer:latest
     container_name: freebird-issuer
-    build:
-      context: https://github.com/flammafex/freebird.git
-      target: issuer
     ports:
       - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
     environment:
@@ -116,11 +113,8 @@ services:
 
   # Freebird Verifier - Token verification
   freebird-verifier:
-    image: ghcr.io/flammafex/freebird:latest
+    image: ghcr.io/flammafex/freebird-verifier:latest
     container_name: freebird-verifier
-    build:
-      context: https://github.com/flammafex/freebird.git
-      target: verifier
     ports:
       - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
     environment:
@@ -149,11 +143,8 @@ services:
 
   # Witness Gateway - Threshold timestamping
   witness-gateway:
-    image: ghcr.io/flammafex/witness:latest
+    image: ghcr.io/flammafex/witness-gateway:latest
     container_name: witness-gateway
-    build:
-      context: https://github.com/flammafex/witness.git
-      target: witness-gateway
     ports:
       - "${WITNESS_GATEWAY_PORT:-8080}:8080"
     environment:
@@ -167,10 +158,8 @@ services:
 
   # HyperToken Relay - P2P gossip coordination
   hypertoken-relay:
-    image: ghcr.io/flammafex/hypertoken:latest
+    image: ghcr.io/flammafex/hypertoken-relay:latest
     container_name: hypertoken-relay
-    build:
-      context: https://github.com/flammafex/hypertoken.git
     ports:
       - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
     networks:
