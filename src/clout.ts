@@ -10,6 +10,7 @@ import { CloutStateSync } from './clout/state-sync.js';
 import type { FreebirdClient, WitnessClient } from './types.js';
 import {
   type TrustSignal,
+  type EncryptedTrustSignal,
   type ReputationScore,
   type Feed,
   type PostPackage,
@@ -46,6 +47,21 @@ export interface CloutConfig {
   maxHops?: number;
   minReputation?: number;
 
+  /**
+   * Use encrypted trust signals for privacy (default: true)
+   *
+   * When enabled:
+   * - Trustee identity is encrypted and only visible to the trustee
+   * - Third parties cannot map your social graph
+   * - Slightly larger signal size due to encryption overhead
+   *
+   * When disabled (legacy mode):
+   * - Trust signals are plaintext (truster -> trustee visible to all)
+   * - Your social graph is publicly visible
+   * - Use only for debugging or backwards compatibility
+   */
+  useEncryptedTrustSignals?: boolean;
+
   // Media Storage Settings
   /** Enable WNFS-based media storage (default: true) */
   enableMediaStorage?: boolean;
@@ -76,6 +92,7 @@ export class Clout {
   private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
   private mediaStorageEnabled: boolean;
+  private readonly useEncryptedTrustSignals: boolean;
 
   constructor(config: CloutConfig) {
     this.publicKeyHex = config.publicKey;
@@ -84,6 +101,9 @@ export class Clout {
     this.witness = config.witness;
     this.gossip = config.gossip;
     this.store = config.store;
+
+    // Privacy: Default to encrypted trust signals
+    this.useEncryptedTrustSignals = config.useEncryptedTrustSignals ?? true;
 
     // 1. Initialize TicketBooth (Anti-Sybil)
     this.ticketBooth = new TicketBooth(config.freebird, config.witness);
@@ -578,34 +598,79 @@ export class Clout {
 
     // 2. Propagate Trust Signal
     if (this.gossip) {
-      const signalPayload = {
-        truster: this.publicKeyHex,
-        trustee: trusteeKey,
-        weight,
-        timestamp: Date.now()
-      };
+      const timestamp = Date.now();
 
-      const payloadHash = Crypto.hashString(JSON.stringify(signalPayload));
-      const signature = Crypto.hash(payloadHash, this.privateKey); // Placeholder signature
-      const proof = await this.witness.timestamp(payloadHash);
+      if (this.useEncryptedTrustSignals) {
+        // Privacy-preserving encrypted trust signal
+        const encrypted = Crypto.createEncryptedTrustSignal(
+          this.privateKey,
+          this.publicKeyHex,
+          trusteeKey,
+          weight,
+          timestamp
+        );
 
-      const signal: TrustSignal = {
-        truster: this.publicKeyHex,
-        trustee: trusteeKey,
-        signature,
-        proof,
-        weight
-      };
+        // Get witness proof for the commitment (not the trustee identity)
+        const proof = await this.witness.timestamp(encrypted.trusteeCommitment);
 
-      await this.gossip.publish({
-        type: 'trust',
-        trustSignal: signal,
-        timestamp: Date.now()
-      });
+        const encryptedSignal: EncryptedTrustSignal = {
+          truster: this.publicKeyHex,
+          trusteeCommitment: encrypted.trusteeCommitment,
+          encryptedTrustee: encrypted.encryptedTrustee,
+          signature: encrypted.signature,
+          proof,
+          weight,
+          version: 'encrypted-v1'
+        };
 
-      // 3. Persist to CRDT State
-      this.state.addTrustSignal(signal);
-      
+        await this.gossip.publish({
+          type: 'trust-encrypted',
+          encryptedTrustSignal: encryptedSignal,
+          timestamp
+        });
+
+        // Store locally with decrypted trustee (we know who we trusted)
+        const localSignal: TrustSignal = {
+          truster: this.publicKeyHex,
+          trustee: trusteeKey,
+          signature: encrypted.signature,
+          proof,
+          weight
+        };
+        this.state.addTrustSignal(localSignal);
+
+        console.log(`[Clout] 🔐 Trusted ${trusteeKey.slice(0, 8)} (encrypted signal)`);
+      } else {
+        // Legacy plaintext trust signal
+        const signalPayload = {
+          truster: this.publicKeyHex,
+          trustee: trusteeKey,
+          weight,
+          timestamp
+        };
+
+        const payloadHash = Crypto.hashString(JSON.stringify(signalPayload));
+        const signature = Crypto.hash(payloadHash, this.privateKey); // Placeholder signature
+        const proof = await this.witness.timestamp(payloadHash);
+
+        const signal: TrustSignal = {
+          truster: this.publicKeyHex,
+          trustee: trusteeKey,
+          signature,
+          proof,
+          weight
+        };
+
+        await this.gossip.publish({
+          type: 'trust',
+          trustSignal: signal,
+          timestamp
+        });
+
+        this.state.addTrustSignal(signal);
+        console.log(`[Clout] 🤝 Trusted ${trusteeKey.slice(0, 8)} (plaintext signal)`);
+      }
+
       // Update the profile in the state to reflect the new trust graph
       this.state.updateProfile({
         publicKey: this.publicKeyHex,
@@ -613,8 +678,6 @@ export class Clout {
         trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
       });
     }
-    
-    console.log(`[Clout] 🤝 Trusted ${trusteeKey.slice(0, 8)}`);
   }
 
   /**
