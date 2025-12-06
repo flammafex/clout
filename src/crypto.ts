@@ -5,7 +5,7 @@
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 import { randomBytes } from 'crypto';
-import { x25519 } from '@noble/curves/ed25519';
+import { x25519, ed25519 } from '@noble/curves/ed25519';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha';
 import { managedNonce } from '@noble/ciphers/webcrypto';
 
@@ -302,5 +302,42 @@ export class Crypto {
     // Since we don't have the master private key, we can't re-derive the proof
     // This is a placeholder - in production you'd verify the signature
     return proof.length === 32; // Basic sanity check
+  }
+
+  /**
+   * Sign a message using Ed25519
+   *
+   * @param message - The message bytes to sign
+   * @param privateKey - 32-byte Ed25519 private key
+   * @returns 64-byte Ed25519 signature
+   */
+  static sign(message: Uint8Array, privateKey: Uint8Array): Uint8Array {
+    return ed25519.sign(message, privateKey);
+  }
+
+  /**
+   * Verify an Ed25519 signature
+   *
+   * @param message - The original message bytes
+   * @param signature - 64-byte Ed25519 signature
+   * @param publicKey - 32-byte Ed25519 public key
+   * @returns true if signature is valid
+   */
+  static verify(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
+    try {
+      return ed25519.verify(signature, message, publicKey);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get Ed25519 public key from private key
+   *
+   * @param privateKey - 32-byte Ed25519 private key
+   * @returns 32-byte Ed25519 public key
+   */
+  static getPublicKey(privateKey: Uint8Array): Uint8Array {
+    return ed25519.getPublicKey(privateKey);
   }
 }

@@ -321,6 +321,28 @@ export interface ContentGossipMessage {
 }
 
 /**
+ * SignedContentGossipMessage - Gossip message with sender authentication
+ *
+ * This wrapper ensures that all gossip messages are signed by their sender,
+ * preventing relay impersonation and message injection attacks.
+ *
+ * Security guarantees:
+ * - Sender identity verification: The message is signed by the sender's Ed25519 key
+ * - Tamper detection: Any modification invalidates the signature
+ * - Replay mitigation: Timestamp + sender combo can be tracked
+ */
+export interface SignedContentGossipMessage {
+  /** The original gossip message */
+  readonly message: ContentGossipMessage;
+
+  /** Sender's public key (Ed25519, hex-encoded) */
+  readonly senderPublicKey: string;
+
+  /** Ed25519 signature over the serialized message (hex-encoded) */
+  readonly signature: string;
+}
+
+/**
  * ReputationScore - Computed reputation for a user
  *
  * In Scarcity: Validator computes confidence score for transfers
