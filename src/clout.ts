@@ -680,7 +680,7 @@ export class Clout {
     };
 
     // Create & Gossip Post
-    const post = await CloutPost.post(config, this.currentTicket, this.gossip);
+    const post = await CloutPost.post(config, this.currentTicket!, this.gossip);
 
     // Get the package and add editOf if present
     let pkg = post.getPackage();
