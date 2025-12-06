@@ -1,9 +1,12 @@
 [<div align=center><img src="clout.webp">](https://carpocratian.org/en/church/)
+
+<h2 align=center>THE DARK SOCIAL NETWORK</h2>
+
 [<div align=center><br><img src="church.png" width=72 height=72>](https://carpocratian.org/en/church/)
 
 _A mission of [The Carpocratian Church of Commonality and Equality](https://carpocratian.org/en/church/)_.</div>
 <div align=center><img src="mission.png" width=256 height=200></div></div>
-<h1 align=center>START SPREADING THE NEWS</h1>
+<h2 align=center>START SPREADING THE NEWS</h2>
 
 # Clout: Uncensorable Social Networking
 
