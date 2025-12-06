@@ -192,6 +192,9 @@ export class Clout {
     await this.profileStore.init();
     await this.loadSavedProfile();
 
+    // Load saved deletions from file store
+    await this.loadSavedDeletions();
+
     // Subscribe to gossip to populate local store
     if (this.gossip) {
       this.gossip.subscribe(async (msg: ContentGossipMessage) => {
@@ -222,6 +225,24 @@ export class Clout {
         },
         metadata: savedProfile.metadata
       });
+    }
+  }
+
+  /**
+   * Load saved deletions from file store and merge into Chronicle state
+   */
+  private async loadSavedDeletions(): Promise<void> {
+    if (!this.store || !('getDeletions' in this.store)) {
+      return;
+    }
+
+    const savedDeletions = await (this.store as any).getDeletions();
+    if (savedDeletions && savedDeletions.length > 0) {
+      console.log(`[Clout] 📂 Restoring ${savedDeletions.length} saved deletions from local storage`);
+
+      for (const deletion of savedDeletions) {
+        this.state.addPostDeletion(deletion);
+      }
     }
   }
 
@@ -543,8 +564,13 @@ export class Clout {
       reason
     };
 
-    // 6. Store deletion locally
+    // 6. Store deletion locally (both CRDT and file store)
     this.state.addPostDeletion(deletion);
+
+    // Also persist to file store for cross-restart persistence
+    if (this.store && 'addDeletion' in this.store) {
+      await (this.store as any).addDeletion(deletion);
+    }
 
     // 7. Gossip the deletion to the network
     if (this.gossip) {

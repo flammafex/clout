@@ -38,6 +38,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
   });
 
   // Get list of directly trusted users
+  // Philosophical stance: you should trust yourself above all, so self is included at the top
   router.get('/trusted', async (req, res) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
@@ -45,8 +46,21 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
 
       const profile = clout.getProfile();
       const myKey = profile.publicKey;
-      const trustedKeys = Array.from(profile.trustGraph).filter(k => k !== myKey);
 
+      // Self entry - you trust yourself above all
+      const selfEntry = {
+        publicKey: myKey,
+        publicKeyShort: myKey.slice(0, 12),
+        displayName: profile.metadata?.displayName || 'You',
+        nickname: null,
+        reputation: { score: 1.0, distance: 0, visible: true },
+        tags: [],
+        isMuted: false,
+        distance: 0,
+        isSelf: true
+      };
+
+      const trustedKeys = Array.from(profile.trustGraph).filter(k => k !== myKey);
       const trustedUsers = trustedKeys.map(publicKey => {
         const reputation = clout.getReputation(publicKey);
         const tags = clout.getTagsForUser(publicKey);
@@ -60,15 +74,19 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           reputation,
           tags,
           isMuted,
-          distance: 1
+          distance: 1,
+          isSelf: false
         };
       });
+
+      // Self at top, then trusted users
+      const allUsers = [selfEntry, ...trustedUsers];
 
       res.json({
         success: true,
         data: {
-          count: trustedUsers.length,
-          users: trustedUsers
+          count: allUsers.length,
+          users: allUsers
         }
       });
     } catch (error: any) {
