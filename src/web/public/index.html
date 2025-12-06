@@ -16,6 +16,9 @@
         <span id="status-indicator" class="status-dot"></span>
         <span id="status-text">Not initialized</span>
       </div>
+      <div id="day-pass-timer" class="day-pass-timer" style="display: none;">
+        🕊️ Freebird Day Pass: <span id="day-pass-countdown">--:--:--</span> remaining
+      </div>
     </header>
 
     <!-- Initialization Section -->
@@ -200,6 +203,13 @@
           <div class="trust-explainer">
             <h4>How Your Feed Works</h4>
             <div class="trust-levels">
+              <div class="trust-level level-self">
+                <span class="level-icon">🪞</span>
+                <div class="level-info">
+                  <strong>Self (0 hops)</strong>
+                  <p>Your own posts</p>
+                </div>
+              </div>
               <div class="trust-level level-1">
                 <span class="level-icon">👤</span>
                 <div class="level-info">

@@ -26,6 +26,8 @@ let replyingTo = null; // Track which post we're replying to
 let pendingMedia = null; // Track uploaded media for post { cid, mimeType, filename, size }
 let editingPost = null; // Track which post we're editing { id, content }
 let postsCache = {}; // Cache of loaded posts by ID for edit lookups
+let dayPassEndTime = null; // Track day pass expiration
+let dayPassInterval = null; // Interval for updating countdown
 
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => document.querySelectorAll(selector);
@@ -93,6 +95,43 @@ function updateStatus(text, active = false) {
   }
 }
 
+// Day pass countdown timer
+function startDayPassTimer() {
+  // Set day pass to expire 24 hours from now
+  dayPassEndTime = Date.now() + (24 * 60 * 60 * 1000);
+
+  // Show the timer
+  $('day-pass-timer').style.display = 'flex';
+
+  // Update immediately
+  updateDayPassCountdown();
+
+  // Update every second
+  if (dayPassInterval) clearInterval(dayPassInterval);
+  dayPassInterval = setInterval(updateDayPassCountdown, 1000);
+}
+
+function updateDayPassCountdown() {
+  const now = Date.now();
+  const remaining = dayPassEndTime - now;
+
+  if (remaining <= 0) {
+    $('day-pass-countdown').textContent = 'Expired';
+    if (dayPassInterval) {
+      clearInterval(dayPassInterval);
+      dayPassInterval = null;
+    }
+    return;
+  }
+
+  const hours = Math.floor(remaining / (1000 * 60 * 60));
+  const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+  $('day-pass-countdown').textContent =
+    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
 // =========================================================================
 // 4. TAB MANAGEMENT
 // =========================================================================
@@ -136,6 +175,9 @@ async function initializeClout() {
     $('init-section').style.display = 'none';
     $('main-app').style.display = 'block';
     updateStatus('Connected', true);
+
+    // Start day pass countdown timer
+    startDayPassTimer();
 
     // Load initial data
     await loadFeed();
@@ -266,9 +308,9 @@ async function loadFeed() {
               <div class="feed-header">
                 <div class="feed-author">
                   <span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span>
-                  <span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
-                    ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
-                  </span>
+                  ${!isYou ? `<span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
+                    ${rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
+                  </span>` : ''}
                   ${tagsHtml}
                   ${quickTrustBtn}
                 </div>
@@ -292,7 +334,7 @@ async function loadFeed() {
                 <div class="feed-content">${renderPostContent(post)}</div>
               `}
               <div class="feed-footer">
-                <div class="feed-timestamp">${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
+                <div class="feed-timestamp">🙌 Witnessed ${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
                 <div class="feed-actions">
                   ${reactionsHtml}
                   <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
@@ -719,20 +761,25 @@ function renderFeedItem(post) {
   // Use server-side isAuthor flag (reliable) instead of window.userPublicKey (may not be set yet)
   const isYou = post.isAuthor || rep.distance === 0;
   const authorAvatar = post.authorAvatar || '👤';
+  const distanceClass = `distance-${Math.min(rep.distance, 3)}`;
+
+  // Trust context (Self tag)
+  const trustContext = isYou ? '<span class="trust-context trust-self">Self</span>' : '';
 
   return `
-    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasCW ? 'has-cw' : ''}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
+    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="viewThread('${post.id}')" style="cursor: pointer;">
       <div class="feed-item-wrapper">
         <div class="feed-avatar">${renderAvatar(authorAvatar)}</div>
         <div class="feed-post-content">
           <div class="feed-header">
             <div class="feed-author">
               <span title="${post.author}">${escapeHtml(authorName)}</span>
-              <span class="reputation-badge" style="background-color: ${repColor}">
-                ${rep.distance === 0 ? 'You' : rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
-              </span>
+              ${!isYou ? `<span class="reputation-badge" style="background-color: ${repColor}">
+                ${rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
+              </span>` : ''}
             </div>
             <div class="feed-meta">
+              ${trustContext}
               ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
             </div>
           </div>
@@ -750,7 +797,7 @@ function renderFeedItem(post) {
             <div class="feed-content">${renderPostContent(post)}</div>
           `}
           <div class="feed-footer">
-            <div class="feed-timestamp">${formatRelativeTime(post.proof?.timestamp || post.timestamp)}</div>
+            <div class="feed-timestamp">🙌 Witnessed ${formatRelativeTime(post.proof?.timestamp || post.timestamp)}</div>
             <div class="feed-actions">
               ${reactionsHtml}
               <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')">

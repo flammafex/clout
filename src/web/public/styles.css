@@ -82,6 +82,22 @@ h1 {
   50% { opacity: 0.5; }
 }
 
+.day-pass-timer {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.day-pass-timer #day-pass-countdown {
+  font-family: 'Monaco', 'Menlo', monospace;
+  color: var(--primary);
+  font-weight: bold;
+}
+
 .section {
   background: var(--bg-card);
   border-radius: 12px;
@@ -1322,6 +1338,10 @@ h2 {
   padding: 0.75rem;
   border-radius: 8px;
   background: var(--bg);
+}
+
+.trust-level.level-self {
+  border-left: 3px solid var(--primary);
 }
 
 .trust-level.level-1 {
