@@ -9,15 +9,17 @@
 
 ## Executive Summary
 
-Clout is a decentralized reputation protocol that creates censorship-resistant, village-scale social networks using a Web of Trust model. The security audit identified **5 critical**, **7 high**, **8 medium**, and **5 low** severity issues across cryptography, authentication, network communication, data storage, and anti-Sybil mechanisms.
+Clout is a decentralized reputation protocol that creates censorship-resistant, village-scale social networks using a Web of Trust model. The security audit identified **3 critical**, **7 high**, **8 medium**, and **7 low** severity issues across cryptography, authentication, network communication, data storage, and anti-Sybil mechanisms.
 
-**Overall Risk Level: HIGH**
+**Overall Risk Level: MEDIUM-HIGH**
 
 The most critical findings relate to:
 1. Plaintext storage of private keys
-2. Insecure fallback modes that bypass all Sybil resistance
-3. Missing signature implementation in ticket delegation
+2. Missing signature implementation in ticket delegation
+3. Token verification accepts invalid format on server unavailability
 4. Lack of input validation across multiple components
+
+*Note: Insecure fallback modes (Freebird/Witness) were initially rated Critical but downgraded to Low since they are disabled by default and require explicit opt-in.*
 
 ---
 
@@ -87,69 +89,47 @@ private saveStore(): void {
 
 ---
 
-### CRIT-02: Insecure Fallback Mode in Freebird (Anti-Sybil Bypass)
+### ~~CRIT-02~~ LOW-06: Insecure Fallback Mode in Freebird (Opt-In)
 
 **Location:** `src/integrations/freebird.ts:34, 170-174, 331-334`
-**Severity:** CRITICAL
-**CVSS Score:** 10.0
+**Severity:** ~~CRITICAL~~ LOW (downgraded - disabled by default)
 
 **Description:**
-When `allowInsecureFallback: true` and no Freebird issuers are available, tokens are generated using simple SHA-256 hashes instead of VOPRF, completely bypassing Sybil resistance.
+An opt-in insecure fallback mode exists that, when explicitly enabled via `allowInsecureFallback: true`, allows hash-based tokens instead of VOPRF when issuers are unavailable.
 
-```typescript
-// src/integrations/freebird.ts:170-174
-// Fallback: simulated blinding (only reached if allowInsecureFallback is true)
-const nonce = Crypto.randomBytes(32);
-return Crypto.hash(publicKey.bytes, nonce);
+**Mitigations Already Present:**
+- Default is `false` (line 65: `config.allowInsecureFallback ?? false`)
+- Documentation clearly warns about the danger (lines 24-34)
+- Runtime displays prominent `=====` warning banners when fallback activates
+- Error messages explain security implications
 
-// src/integrations/freebird.ts:331-334
-// Fallback: simulated token
-return Crypto.hash(blindedValue, 'ISSUED');
-```
-
-**Impact:**
-- Unlimited account creation (Sybil attack)
-- Spam flooding of the network
-- Complete breakdown of reputation system
+**Residual Risk:**
+Developers could inadvertently enable this for "development convenience" and forget to disable it.
 
 **Recommendation:**
-1. Remove `allowInsecureFallback` option entirely
-2. Require explicit user confirmation with prominent warning
-3. Add monitoring/alerting when fallback mode is active
+Consider adding an environment check that refuses to enable fallback in production builds.
 
 ---
 
-### CRIT-03: Insecure Fallback Mode in Witness (Timestamp Bypass)
+### ~~CRIT-03~~ LOW-07: Insecure Fallback Mode in Witness (Opt-In)
 
 **Location:** `src/integrations/witness.ts:33, 266-279`
-**Severity:** CRITICAL
-**CVSS Score:** 10.0
+**Severity:** ~~CRITICAL~~ LOW (downgraded - disabled by default)
 
 **Description:**
-When `allowInsecureFallback: true` and no Witness gateways are available, attestations use fake local hashes instead of cryptographic signatures.
+An opt-in insecure fallback mode exists that, when explicitly enabled via `allowInsecureFallback: true`, allows fake local attestations when gateways are unavailable.
 
-```typescript
-// src/integrations/witness.ts:266-279
-return {
-  hash,
-  timestamp: Date.now(),
-  signatures: [
-    Crypto.toHex(Crypto.hash(hash, 'witness-1')),
-    Crypto.toHex(Crypto.hash(hash, 'witness-2')),
-    Crypto.toHex(Crypto.hash(hash, 'witness-3'))
-  ],
-  witnessIds: ['witness-1', 'witness-2', 'witness-3'],
-  _insecureFallback: true
-};
-```
+**Mitigations Already Present:**
+- Default is `false` (line 65: `config.allowInsecureFallback ?? false`)
+- Documentation clearly warns about the danger (lines 22-33)
+- Runtime displays prominent `=====` warning banners when fallback activates
+- Fallback attestations are marked with `_insecureFallback: true` for identification
 
-**Impact:**
-- Timestamps can be arbitrarily forged
-- Double-spend detection is disabled
-- Post ordering can be manipulated
+**Residual Risk:**
+Same as Freebird - developers could enable for convenience.
 
 **Recommendation:**
-Same as CRIT-02: remove or require explicit opt-in with strong warnings.
+Same as Freebird - consider environment check for production builds.
 
 ---
 
@@ -555,17 +535,17 @@ Some internal types are not exported, making extension difficult.
    - Implement password-based encryption for `~/.clout/identities.json`
    - Set file permissions to 0600
 
-2. **Remove Insecure Fallback Modes**
-   - Make Freebird/Witness availability required
-   - Or require explicit CLI flag with strong warnings
-
-3. **Fix Delegation Signature**
+2. **Fix Delegation Signature**
    - Replace `Crypto.hash()` with `Crypto.sign()` in ticket-booth.ts
 
-4. **Add Input Validation**
+3. **Add Input Validation**
    - Validate public key lengths and formats
    - Add content size limits
    - Sanitize all user inputs
+
+4. **Improve Token Verification Resilience**
+   - Don't accept tokens based on length alone when server is unavailable
+   - Cache verified tokens with cryptographic proofs
 
 ### Short-Term (High Priority)
 
