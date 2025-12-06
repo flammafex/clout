@@ -86,10 +86,12 @@ services:
     tty: true
 
   # ----------------------------------------
-  # Infrastructure Services
+  # SOPHIA OS
   # ----------------------------------------
 
-  # Freebird Issuer - Anonymous authorization
+  # ============================================================================
+  # FREEBIRD CLUSTER
+  # ============================================================================
   freebird-issuer:
     build:
       context: https://github.com/flammafex/freebird.git
@@ -117,7 +119,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # Freebird Verifier - Token verification
   freebird-verifier:
     build:
       context: https://github.com/flammafex/freebird.git
@@ -143,14 +144,100 @@ services:
   # Redis - For Freebird verifier caching
   redis:
     image: redis:alpine
-    container_name: clout-redis
+    container_name: freebird-redis
     volumes:
       - redis-data:/data
     networks:
       - clout-net
     restart: unless-stopped
 
-  # Witness Gateway - Threshold timestamping
+# ============================================================================
+  # WITNESS CLUSTER
+  # ============================================================================
+  witness-setup:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    volumes:
+      - witness-config:/data
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ -f /data/network.json ]; then
+          echo "✅ Configuration already exists. Skipping setup."
+          exit 0
+        fi
+
+        echo "🔧 Generating Witness Keys..."
+
+        # Generate witness-1
+        OUT1=$$(witness-node --generate-key)
+        PRIV1=$$(echo "$$OUT1" | grep "Private key:" | awk '{print $$3}')
+        PUB1=$$(echo "$$OUT1" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-1\", \"private_key\": \"$$PRIV1\", \"port\": 4001, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness1.json
+
+        # Generate witness-2
+        OUT2=$$(witness-node --generate-key)
+        PRIV2=$$(echo "$$OUT2" | grep "Private key:" | awk '{print $$3}')
+        PUB2=$$(echo "$$OUT2" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-2\", \"private_key\": \"$$PRIV2\", \"port\": 4002, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness2.json
+
+        # Generate witness-3
+        OUT3=$$(witness-node --generate-key)
+        PRIV3=$$(echo "$$OUT3" | grep "Private key:" | awk '{print $$3}')
+        PUB3=$$(echo "$$OUT3" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-3\", \"private_key\": \"$$PRIV3\", \"port\": 4003, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness3.json
+
+        echo "📝 Creating network.json..."
+        cat > /data/network.json <<EOF
+        {
+          "id": "docker-net",
+          "threshold": 2,
+          "witnesses": [
+            { "id": "witness-1", "pubkey": "$$PUB1", "endpoint": "http://witness-1:4001" },
+            { "id": "witness-2", "pubkey": "$$PUB2", "endpoint": "http://witness-2:4002" },
+            { "id": "witness-3", "pubkey": "$$PUB3", "endpoint": "http://witness-3:4003" }
+          ],
+          "federation_peers": [],
+          "external_anchors": { "enabled": false, "providers": [] }
+        }
+        EOF
+
+        echo "✅ Setup complete."
+
+  witness-1:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness1.json"]
+
+  witness-2:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness2.json"]
+
+  witness-3:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness3.json"]
+
   witness-gateway:
     build:
       context: https://github.com/flammafex/witness.git
@@ -158,17 +245,24 @@ services:
     image: witness-gateway:latest
     container_name: witness-gateway
     ports:
-      - "${WITNESS_GATEWAY_PORT:-8080}:8080"
+      - "8080:8080"
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+      witness-1:
+        condition: service_started
+      witness-2:
+        condition: service_started
+      witness-3:
+        condition: service_started
+    volumes:
+      - witness-config:/config
     environment:
       - RUST_LOG=info
-    volumes:
-      - witness-config:/config:ro
-      - witness-gateway-data:/data
-    networks:
-      - clout-net
-    restart: unless-stopped
-
-  # HyperToken Relay - P2P gossip coordination
+    command: ["witness-gateway", "--config", "/config/network.json", "--database", ":memory:"]
+  # ============================================================================
+  # HYPERTOKEN RELAY
+  # ============================================================================
   hypertoken-relay:
     build:
       context: https://github.com/flammafex/hypertoken.git
@@ -197,7 +291,7 @@ volumes:
   freebird-issuer-data:
     name: freebird-issuer-data
   redis-data:
-    name: clout-redis-data
+    name: freebird-verifier-data
   witness-config:
     name: witness-config
   witness-gateway-data:
