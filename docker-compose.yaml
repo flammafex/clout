@@ -2,11 +2,8 @@
 # Clout - Docker Compose Configuration
 # ============================================
 #
-# Quick Start (includes Freebird + Witness):
+# Quick Start:
 #   docker compose up --build
-#
-# With P2P relay (HyperToken):
-#   docker compose --profile full-stack up --build
 #
 # CLI commands:
 #   docker compose run --rm cli identity
@@ -37,7 +34,6 @@ services:
       - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-clout-testnet}
       - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
       - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
-      - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
       # Tor (optional)
       - TOR_ENABLED=${TOR_ENABLED:-false}
       - TOR_PROXY=${TOR_PROXY:-socks5://tor:9050}
@@ -76,7 +72,6 @@ services:
       - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-clout-testnet}
       - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
       - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
-      - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
     volumes:
       - clout-data:/data
     networks:
@@ -85,8 +80,7 @@ services:
     tty: true
 
   # ----------------------------------------
-  # Full Stack Services (optional)
-  # Run with: docker compose --profile full-stack up
+  # Infrastructure Services
   # ----------------------------------------
 
   # Freebird Issuer - Anonymous authorization
@@ -163,20 +157,6 @@ services:
     volumes:
       - witness-config:/config:ro
       - witness-gateway-data:/data
-    networks:
-      - clout-net
-    restart: unless-stopped
-
-  # HyperToken Relay - P2P synchronization
-  hypertoken-relay:
-    image: ghcr.io/flammafex/hypertoken:latest
-    profiles:
-      - full-stack
-    container_name: hypertoken-relay
-    build:
-      context: https://github.com/flammafex/hypertoken.git
-    ports:
-      - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
     networks:
       - clout-net
     restart: unless-stopped
