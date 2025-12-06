@@ -180,7 +180,22 @@ export enum RelayMessageType {
   SIGNAL = 'signal',
 
   /** Query for peers */
-  QUERY_PEERS = 'query_peers'
+  QUERY_PEERS = 'query_peers',
+
+  /**
+   * Authentication challenge from server
+   * Server sends random nonce that client must sign
+   */
+  AUTH_CHALLENGE = 'auth_challenge',
+
+  /**
+   * Authentication response from client
+   * Client sends Ed25519 signature of: nonce + publicKey
+   */
+  AUTH_RESPONSE = 'auth_response',
+
+  /** Error message */
+  ERROR = 'error'
 }
 
 /**
