@@ -178,6 +178,11 @@ export class FreebirdAdmin {
         console.log(`[FreebirdAdmin] ℹ️ Owner already registered`);
         return { success: true, owner: userId };
       }
+      // If endpoint doesn't exist (404), Freebird needs to be updated
+      if (error instanceof Error && error.message.includes('404')) {
+        console.log(`[FreebirdAdmin] ℹ️ Owner registration not available (update Freebird)`);
+        return { success: false, owner: '' };
+      }
       throw error;
     }
   }
