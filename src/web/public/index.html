@@ -21,6 +21,29 @@
       </div>
     </header>
 
+    <!-- Invite Required Popover -->
+    <div id="invite-popover" class="popover" style="display: none;">
+      <div class="popover-content">
+        <button class="popover-close" onclick="closeInvitePopover()">×</button>
+        <h3>🎟️ Invitation Required</h3>
+        <p>Clout is an invitation-only network. You need an invitation code to post.</p>
+
+        <div class="invite-section">
+          <h4>Have an invitation code?</h4>
+          <div class="invite-input-group">
+            <input type="text" id="invite-code-input" class="input" placeholder="Enter invitation code">
+            <button id="redeem-invite-btn" class="btn btn-primary" onclick="redeemInvite()">Redeem</button>
+          </div>
+          <div id="invite-result" class="result-message"></div>
+        </div>
+
+        <div class="invite-section">
+          <h4>Need an invitation?</h4>
+          <p class="help-text">Ask someone in the network to invite you. Trusted members can share invitations with newcomers they vouch for.</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Initialization Section -->
     <div id="init-section" class="section">
       <h2>Welcome to Clout</h2>
@@ -509,6 +532,21 @@
                 <button id="import-backup-btn" class="btn">Select Backup File</button>
                 <div id="import-result" class="result-message" style="display: none;"></div>
               </div>
+            </div>
+          </div>
+
+          <!-- Admin Section (only shown when admin key is available) -->
+          <div id="admin-section" class="settings-card" style="display: none;">
+            <h3>🔐 Administration</h3>
+            <p class="help-text">Manage invitations and network settings via the Freebird Admin Dashboard</p>
+
+            <div class="admin-links">
+              <a id="freebird-admin-link" href="http://localhost:8081/admin" target="_blank" class="btn btn-primary">
+                🎟️ Open Freebird Admin
+              </a>
+              <p class="help-text-small" style="margin-top: 0.5rem;">
+                Create and manage invitation codes, view user stats, and configure anti-Sybil settings.
+              </p>
             </div>
           </div>
         </div>

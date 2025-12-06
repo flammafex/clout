@@ -28,6 +28,7 @@ let editingPost = null; // Track which post we're editing { id, content }
 let postsCache = {}; // Cache of loaded posts by ID for edit lookups
 let dayPassEndTime = null; // Track day pass expiration
 let dayPassInterval = null; // Interval for updating countdown
+let pendingInviteCode = null; // Track pending invitation code for redemption
 
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => document.querySelectorAll(selector);
@@ -140,6 +141,67 @@ function updateDayPassCountdown() {
 
   $('day-pass-countdown').textContent =
     `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// =========================================================================
+// 3.5. INVITE POPOVER
+// =========================================================================
+
+function showInvitePopover() {
+  $('invite-popover').style.display = 'flex';
+  $('invite-code-input').value = '';
+  $('invite-result').textContent = '';
+  $('invite-result').className = 'result-message';
+}
+
+function closeInvitePopover() {
+  $('invite-popover').style.display = 'none';
+}
+
+async function redeemInvite() {
+  const code = $('invite-code-input').value.trim();
+
+  if (!code) {
+    $('invite-result').textContent = 'Please enter an invitation code';
+    $('invite-result').className = 'result-message error';
+    return;
+  }
+
+  try {
+    $('redeem-invite-btn').disabled = true;
+    $('redeem-invite-btn').textContent = 'Redeeming...';
+
+    // Store the invitation code for use when posting
+    const response = await apiCall('/invitation/redeem', 'POST', { code });
+
+    if (response.success) {
+      $('invite-result').textContent = 'Invitation redeemed! You can now post.';
+      $('invite-result').className = 'result-message success';
+      pendingInviteCode = code;
+
+      // Close popover after a short delay
+      setTimeout(() => {
+        closeInvitePopover();
+      }, 1500);
+    } else {
+      throw new Error(response.error || 'Failed to redeem invitation');
+    }
+  } catch (error) {
+    $('invite-result').textContent = error.message;
+    $('invite-result').className = 'result-message error';
+  } finally {
+    $('redeem-invite-btn').disabled = false;
+    $('redeem-invite-btn').textContent = 'Redeem';
+  }
+}
+
+// Check if an error indicates invitation is required
+function isInvitationRequiredError(error) {
+  const msg = error.message?.toLowerCase() || '';
+  return msg.includes('invitation') ||
+         msg.includes('invite') ||
+         msg.includes('sybil') ||
+         msg.includes('token');
 }
 
 // =========================================================================
@@ -1221,7 +1283,12 @@ async function createPost() {
     // Refresh feed
     await loadFeed();
   } catch (error) {
-    showResult('post-result', `Error: ${error.message}`, false);
+    // Check if this is an invitation-required error
+    if (isInvitationRequiredError(error)) {
+      showInvitePopover();
+    } else {
+      showResult('post-result', `Error: ${error.message}`, false);
+    }
   } finally {
     $('create-post-btn').disabled = false;
     $('create-post-btn').textContent = 'Post';
@@ -1803,6 +1870,14 @@ async function loadSettings() {
     const minRep = data.trustSettings?.minReputation || 0.3;
     $('settings-min-reputation').value = Math.round(minRep * 100);
     $('settings-min-reputation-value').textContent = minRep.toFixed(2);
+
+    // Show admin section if available
+    if (data.admin && data.admin.enabled) {
+      $('admin-section').style.display = 'block';
+      $('freebird-admin-link').href = data.admin.freebirdUrl;
+    } else {
+      $('admin-section').style.display = 'none';
+    }
 
     // Load tags
     await loadTags();
