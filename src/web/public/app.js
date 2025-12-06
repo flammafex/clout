@@ -25,6 +25,7 @@ let initialized = false;
 let replyingTo = null; // Track which post we're replying to
 let pendingMedia = null; // Track uploaded media for post { cid, mimeType, filename, size }
 let editingPost = null; // Track which post we're editing { id, content }
+let postsCache = {}; // Cache of loaded posts by ID for edit lookups
 
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => document.querySelectorAll(selector);
@@ -168,6 +169,13 @@ async function loadFeed() {
     const data = await apiCall('/feed');
     const feedList = $('feed-list');
 
+    // Cache posts for edit lookups (avoid inline content in onclick)
+    if (data.posts) {
+      data.posts.forEach(post => {
+        postsCache[post.id] = post;
+      });
+    }
+
     if (!data.posts || data.posts.length === 0) {
       feedList.innerHTML = `
         <div class="empty-state-helpful">
@@ -223,7 +231,7 @@ async function loadFeed() {
 
       // Edit/Delete buttons (only for your own posts)
       const authorActions = post.isAuthor
-        ? `<button class="btn-action" onclick="event.stopPropagation(); startEditPost('${post.id}', \`${escapeHtml(post.content).replace(/`/g, '\\`')}\`)" title="Edit post">Edit</button>
+        ? `<button class="btn-action" onclick="event.stopPropagation(); startEditPost('${post.id}')" title="Edit post">Edit</button>
            <button class="btn-action btn-delete" onclick="event.stopPropagation(); deletePost('${post.id}')" title="Delete post">Delete</button>`
         : '';
 
@@ -370,7 +378,15 @@ async function deletePost(postId) {
 }
 
 // Start editing a post
-function startEditPost(postId, currentContent) {
+function startEditPost(postId) {
+  // Look up content from cache instead of passing inline (avoids escaping issues)
+  const cachedPost = postsCache[postId];
+  if (!cachedPost) {
+    alert('Could not find post to edit. Please refresh the feed.');
+    return;
+  }
+  const currentContent = cachedPost.content || '';
+
   editingPost = { id: postId, content: currentContent };
 
   // Switch to post tab

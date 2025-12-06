@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
-import type { CloutStore, PostPackage, SlidePackage, PostDeletePackage } from '../clout-types.js';
+import type { CloutStore, PostPackage, SlidePackage, PostDeletePackage, ReactionPackage } from '../clout-types.js';
 
 /**
  * Get Clout data directory from environment or default
@@ -25,6 +25,8 @@ interface LocalData {
   slides: { [id: string]: SlidePackage };
   trustGraph?: TrustGraphEntry[];
   deletions?: { [postId: string]: PostDeletePackage };
+  reactions?: { [reactionId: string]: ReactionPackage };
+  bookmarks?: string[];  // Array of bookmarked post IDs
 }
 
 export class FileSystemStore implements CloutStore {
@@ -171,5 +173,90 @@ export class FileSystemStore implements CloutStore {
    */
   isDeleted(postId: string): boolean {
     return !!(this.data.deletions && this.data.deletions[postId]);
+  }
+
+  // =================================================================
+  //  REACTIONS PERSISTENCE
+  // =================================================================
+
+  /**
+   * Save a reaction
+   */
+  async addReaction(reaction: ReactionPackage): Promise<void> {
+    if (!this.data.reactions) {
+      this.data.reactions = {};
+    }
+
+    this.data.reactions[reaction.id] = reaction;
+    this.save();
+  }
+
+  /**
+   * Remove a reaction
+   */
+  async removeReaction(reactionId: string): Promise<void> {
+    if (!this.data.reactions) return;
+
+    delete this.data.reactions[reactionId];
+    this.save();
+  }
+
+  /**
+   * Get all reactions
+   */
+  async getReactions(): Promise<ReactionPackage[]> {
+    if (!this.data.reactions) {
+      return [];
+    }
+    return Object.values(this.data.reactions);
+  }
+
+  /**
+   * Check if a reaction exists
+   */
+  hasReaction(reactionId: string): boolean {
+    return !!(this.data.reactions && this.data.reactions[reactionId]);
+  }
+
+  // =================================================================
+  //  BOOKMARKS PERSISTENCE
+  // =================================================================
+
+  /**
+   * Add a bookmark
+   */
+  async addBookmark(postId: string): Promise<void> {
+    if (!this.data.bookmarks) {
+      this.data.bookmarks = [];
+    }
+
+    if (!this.data.bookmarks.includes(postId)) {
+      this.data.bookmarks.push(postId);
+      this.save();
+    }
+  }
+
+  /**
+   * Remove a bookmark
+   */
+  async removeBookmark(postId: string): Promise<void> {
+    if (!this.data.bookmarks) return;
+
+    this.data.bookmarks = this.data.bookmarks.filter(id => id !== postId);
+    this.save();
+  }
+
+  /**
+   * Get all bookmarks
+   */
+  async getBookmarks(): Promise<string[]> {
+    return this.data.bookmarks || [];
+  }
+
+  /**
+   * Check if a post is bookmarked
+   */
+  isBookmarked(postId: string): boolean {
+    return !!(this.data.bookmarks && this.data.bookmarks.includes(postId));
   }
 }
