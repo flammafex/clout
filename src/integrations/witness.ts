@@ -19,6 +19,18 @@ export interface WitnessAdapterConfig {
   readonly tor?: TorConfig;
   readonly powDifficulty?: number; // Proof-of-work difficulty in bits (default: 0 = disabled)
   readonly quorumThreshold?: number; // Minimum agreements required (default: 2 for 2-of-3)
+  /**
+   * Allow insecure fallback mode when Witness servers are unavailable.
+   *
+   * ⚠️  WARNING: Setting this to true removes timestamp verification!
+   * Fallback mode uses fake local attestations with no cryptographic
+   * signatures. This means timestamps can be forged and double-spends
+   * cannot be detected. Only enable for development or small trusted
+   * networks where timing attacks are not a concern.
+   *
+   * Default: false (fail if servers unavailable)
+   */
+  readonly allowInsecureFallback?: boolean;
 }
 
 /**
@@ -33,7 +45,9 @@ export class WitnessAdapter implements WitnessClient {
   private readonly tor: TorProxy | null;
   private readonly powDifficulty: number;
   private readonly quorumThreshold: number;
+  private readonly allowInsecureFallback: boolean;
   private config: any = null;
+  private fallbackWarningShown = false;
 
   constructor(config: WitnessAdapterConfig) {
     // Support both single gateway (backward compatibility) and multiple gateways
@@ -48,6 +62,7 @@ export class WitnessAdapter implements WitnessClient {
     this.networkId = config.networkId ?? 'scarcity-network';
     this.tor = config.tor ? new TorProxy(config.tor) : null;
     this.powDifficulty = config.powDifficulty ?? 0; // Default: disabled
+    this.allowInsecureFallback = config.allowInsecureFallback ?? false;
 
     // Default quorum: 2-of-3 (or majority if different number of gateways)
     this.quorumThreshold = config.quorumThreshold ?? Math.ceil(this.gatewayUrls.length / 2);
@@ -104,7 +119,27 @@ export class WitnessAdapter implements WitnessClient {
       this.config = validConfig;
       console.log('[Witness] Connected to network:', this.config.network_id || 'unknown');
     } else {
-      console.warn('[Witness] No gateways available, using fallback mode');
+      if (!this.allowInsecureFallback) {
+        throw new Error(
+          '[Witness] FATAL: No Witness gateways available and fallback mode is disabled.\n' +
+          'This means timestamps cannot be verified and double-spends cannot be detected.\n\n' +
+          'Options:\n' +
+          '  1. Ensure at least one Witness gateway is running and accessible\n' +
+          '  2. Set allowInsecureFallback: true in WitnessAdapterConfig (NOT RECOMMENDED)\n\n' +
+          '⚠️  WARNING: Enabling fallback mode removes all timestamp verification!'
+        );
+      }
+      if (!this.fallbackWarningShown) {
+        console.warn('\n' + '='.repeat(70));
+        console.warn('⚠️  SECURITY WARNING: Witness running in INSECURE FALLBACK MODE');
+        console.warn('='.repeat(70));
+        console.warn('No Witness gateways are available. Using fake local attestations.');
+        console.warn('This provides NO timestamp verification - anyone can forge timestamps.');
+        console.warn('Double-spend detection is DISABLED.');
+        console.warn('Only use this for development or small trusted networks.');
+        console.warn('='.repeat(70) + '\n');
+        this.fallbackWarningShown = true;
+      }
     }
   }
 
@@ -214,10 +249,22 @@ export class WitnessAdapter implements WitnessClient {
         return successfulResult;
       }
 
-      console.warn('[Witness] All gateways failed for timestamping, using fallback');
+      // All gateways failed - check if fallback is allowed
+      if (!this.allowInsecureFallback) {
+        throw new Error(
+          '[Witness] All gateways failed for timestamping and fallback mode is disabled.\n' +
+          'Cannot create a verified timestamp. This could indicate:\n' +
+          '  - Network issues preventing connection to Witness gateways\n' +
+          '  - All Witness servers are down\n' +
+          '  - A network partition or censorship attack\n\n' +
+          'Timestamping rejected for security reasons.'
+        );
+      }
+      console.warn('[Witness] All gateways failed - using INSECURE fallback attestation');
     }
 
-    // Fallback: simulated local attestation
+    // Fallback: simulated local attestation (only reached if allowInsecureFallback is true)
+    // This is checked above and in init() - if we get here, the user explicitly opted in
     return {
       hash,
       timestamp: Date.now(),
@@ -226,8 +273,10 @@ export class WitnessAdapter implements WitnessClient {
         Crypto.toHex(Crypto.hash(hash, 'witness-2')),
         Crypto.toHex(Crypto.hash(hash, 'witness-3'))
       ],
-      witnessIds: ['witness-1', 'witness-2', 'witness-3']
-    };
+      witnessIds: ['witness-1', 'witness-2', 'witness-3'],
+      // Mark this as a fallback attestation so it can be identified
+      _insecureFallback: true
+    } as Attestation;
   }
 
   /**
@@ -280,7 +329,20 @@ export class WitnessAdapter implements WitnessClient {
       }
     }
 
-    // Fallback: basic structural validation
+    // Fallback verification - only accept if insecure fallback is enabled
+    if (!this.allowInsecureFallback) {
+      console.error(
+        '[Witness] Cannot verify attestation: no gateways available and fallback mode is disabled.\n' +
+        'This attestation cannot be cryptographically verified. Rejecting for security.\n' +
+        'Set allowInsecureFallback: true to accept unverified attestations (NOT RECOMMENDED).'
+      );
+      return false;
+    }
+
+    // Insecure fallback: basic structural validation only
+    // This provides NO cryptographic security - only checks format
+    console.warn('[Witness] Using INSECURE structural validation (no cryptographic verification)');
+
     if (!attestation.hash || !attestation.timestamp) {
       return false;
     }
@@ -297,6 +359,14 @@ export class WitnessAdapter implements WitnessClient {
     const age = Date.now() - attestation.timestamp;
     if (age > 24 * 60 * 60 * 1000) {
       return false;
+    }
+
+    // Check if this is a known fallback attestation (created with fake witness IDs)
+    const isFallbackAttestation = attestation.witnessIds.every(
+      id => id.startsWith('witness-') && /^witness-\d+$/.test(id)
+    );
+    if (isFallbackAttestation) {
+      console.warn('[Witness] Accepting fallback attestation with fake witness IDs (INSECURE)');
     }
 
     return true;
@@ -527,6 +597,14 @@ export class WitnessAdapter implements WitnessClient {
     }
 
     // Fallback: cannot check without gateway
+    if (!this.allowInsecureFallback) {
+      console.error('[Witness] Cannot check nullifier: no gateways available');
+      // Return 0.5 (suspicious) rather than 0 (safe) when we can't verify
+      return 0.5;
+    }
+    // In insecure fallback mode, assume nullifier hasn't been seen
+    // This is DANGEROUS - double-spends cannot be detected!
+    console.warn('[Witness] INSECURE: Assuming nullifier not seen (no verification possible)');
     return 0;
   }
 
@@ -605,7 +683,8 @@ export class WitnessAdapter implements WitnessClient {
       return this.config;
     }
 
-    // Fallback config
+    // Fallback config (only reached if allowInsecureFallback is true)
+    // This is checked in init() - if we get here, the user explicitly opted in
     return {
       network_id: this.networkId,
       threshold: 2,
@@ -613,7 +692,15 @@ export class WitnessAdapter implements WitnessClient {
         { id: 'witness-1', endpoint: 'http://localhost:3001' },
         { id: 'witness-2', endpoint: 'http://localhost:3002' },
         { id: 'witness-3', endpoint: 'http://localhost:3003' }
-      ]
+      ],
+      _insecureFallback: true
     };
+  }
+
+  /**
+   * Check if adapter is running in insecure fallback mode
+   */
+  isInsecureFallbackMode(): boolean {
+    return this.allowInsecureFallback && !this.config;
   }
 }

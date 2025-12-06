@@ -21,6 +21,17 @@ export interface FreebirdAdapterConfig {
   readonly issuerEndpoints: string[];
   readonly verifierUrl: string;
   readonly tor?: TorConfig;
+  /**
+   * Allow insecure fallback mode when Freebird servers are unavailable.
+   *
+   * ⚠️  WARNING: Setting this to true removes all Sybil resistance!
+   * Fallback mode uses simple hashes instead of VOPRF tokens, meaning
+   * anyone can mint unlimited fake tokens. Only enable for development
+   * or small trusted networks where Sybil attacks are not a concern.
+   *
+   * Default: false (fail if servers unavailable)
+   */
+  readonly allowInsecureFallback?: boolean;
 }
 
 /**
@@ -38,8 +49,10 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly verifierUrl: string;
   private readonly context: Uint8Array;
   private readonly tor: TorProxy | null;
+  private readonly allowInsecureFallback: boolean;
   private metadata: Map<string, any> = new Map();
   private blindStates: Map<string, BlindState> = new Map();
+  private fallbackWarningShown = false;
 
   constructor(config: FreebirdAdapterConfig) {
     if (!config.issuerEndpoints || config.issuerEndpoints.length === 0) {
@@ -49,6 +62,7 @@ export class FreebirdAdapter implements FreebirdClient {
     this.issuerEndpoints = config.issuerEndpoints;
     this.verifierUrl = config.verifierUrl;
     this.tor = config.tor ? new TorProxy(config.tor) : null;
+    this.allowInsecureFallback = config.allowInsecureFallback ?? false;
     // Context must match Freebird server
     this.context = new TextEncoder().encode('freebird:v1');
 
@@ -108,7 +122,26 @@ export class FreebirdAdapter implements FreebirdClient {
     if (successCount > 0) {
       console.log(`[Freebird] Connected to ${successCount}/${this.issuerEndpoints.length} issuers`);
     } else {
-      console.warn('[Freebird] No issuers available, using fallback mode');
+      if (!this.allowInsecureFallback) {
+        throw new Error(
+          '[Freebird] FATAL: No Freebird issuers available and fallback mode is disabled.\n' +
+          'This means anti-Sybil protection cannot be enforced.\n\n' +
+          'Options:\n' +
+          '  1. Ensure at least one Freebird issuer is running and accessible\n' +
+          '  2. Set allowInsecureFallback: true in FreebirdAdapterConfig (NOT RECOMMENDED)\n\n' +
+          '⚠️  WARNING: Enabling fallback mode removes all Sybil resistance!'
+        );
+      }
+      if (!this.fallbackWarningShown) {
+        console.warn('\n' + '='.repeat(70));
+        console.warn('⚠️  SECURITY WARNING: Freebird running in INSECURE FALLBACK MODE');
+        console.warn('='.repeat(70));
+        console.warn('No Freebird issuers are available. Using hash-based fake tokens.');
+        console.warn('This provides NO Sybil resistance - anyone can create unlimited accounts.');
+        console.warn('Only use this for development or small trusted networks.');
+        console.warn('='.repeat(70) + '\n');
+        this.fallbackWarningShown = true;
+      }
     }
   }
 
@@ -134,7 +167,8 @@ export class FreebirdAdapter implements FreebirdClient {
       return blinded;
     }
 
-    // Fallback: simulated blinding for testing without Freebird server
+    // Fallback: simulated blinding (only reached if allowInsecureFallback is true)
+    // This is checked in init() - if we get here, the user explicitly opted in
     const nonce = Crypto.randomBytes(32);
     return Crypto.hash(publicKey.bytes, nonce);
   }
@@ -243,9 +277,14 @@ export class FreebirdAdapter implements FreebirdClient {
         const threshold = Math.ceil(this.issuerEndpoints.length / 2);
 
         if (validResponses.length < threshold) {
-          console.warn(
-            `[Freebird] Only ${validResponses.length}/${this.issuerEndpoints.length} valid responses, ` +
-            `threshold is ${threshold}. Proceeding with available responses.`
+          throw new Error(
+            `[Freebird] Threshold not met: only ${validResponses.length}/${this.issuerEndpoints.length} ` +
+            `valid responses (need ${threshold}).\n` +
+            'This could indicate:\n' +
+            '  - Network issues preventing connection to issuers\n' +
+            '  - Compromised issuers returning invalid DLEQ proofs\n' +
+            '  - A coordinated attack on the Freebird network\n\n' +
+            'Token issuance rejected for security reasons.'
           );
         }
 
@@ -283,12 +322,14 @@ export class FreebirdAdapter implements FreebirdClient {
 
         return aggregatedToken;
       } catch (error) {
-        console.warn('[Freebird] Token issuance failed, using fallback:', error);
+        // Re-throw errors from threshold check or other security failures
         this.blindStates.delete(blindedHex);
+        throw error;
       }
     }
 
-    // Fallback: simulated token (for testing without Freebird server)
+    // Fallback: simulated token (only reached if allowInsecureFallback is true)
+    // This is checked in init() - if we get here, the user explicitly opted in
     this.blindStates.delete(blindedHex);
     return Crypto.hash(blindedValue, 'ISSUED');
   }
@@ -397,12 +438,39 @@ export class FreebirdAdapter implements FreebirdClient {
           return data.ok === true;
         }
       } catch (error) {
-        console.warn('[Freebird] Token verification failed, using fallback:', error);
+        console.warn('[Freebird] Token verification via server failed:', error);
+        // Fall through to local verification
       }
     }
 
-    // Fallback: basic length check
-    return token.length === 32 || token.length === 130;
+    // Local verification based on token format
+    if (token.length === 130) {
+      // Real VOPRF token format - accept (server verification failed but format is valid)
+      // Note: This is weaker than server verification but better than nothing
+      console.warn('[Freebird] Using local format validation (server unavailable)');
+      return true;
+    }
+
+    if (token.length === 32) {
+      // Fallback token format - only accept if insecure fallback is enabled
+      if (this.allowInsecureFallback) {
+        console.warn('[Freebird] Accepting 32-byte fallback token (INSECURE MODE)');
+        return true;
+      }
+      console.error(
+        '[Freebird] Rejecting 32-byte fallback token.\n' +
+        'This token was created in insecure fallback mode but verification\n' +
+        'is running in secure mode. This could indicate:\n' +
+        '  - Token was created when Freebird was unavailable\n' +
+        '  - Token forgery attempt\n\n' +
+        'Set allowInsecureFallback: true to accept fallback tokens (NOT RECOMMENDED).'
+      );
+      return false;
+    }
+
+    // Unknown token format
+    console.error(`[Freebird] Invalid token length: ${token.length} (expected 130 or 32)`);
+    return false;
   }
 
   /**
@@ -419,5 +487,12 @@ export class FreebirdAdapter implements FreebirdClient {
     //
     // For now: deterministic hash as placeholder
     return Crypto.hash(secret, 'OWNERSHIP_PROOF');
+  }
+
+  /**
+   * Check if adapter is running in insecure fallback mode
+   */
+  isInsecureFallbackMode(): boolean {
+    return this.allowInsecureFallback && this.metadata.size === 0;
   }
 }

@@ -228,31 +228,74 @@ clout follow <friend-public-key>
 
 ---
 
-## Option 3: Quick Start with Fallback Mode
+## Option 3: Quick Start with Fallback Mode (Development Only)
 
-For development or small trusted groups, you can skip external infrastructure entirely:
+For development or small trusted groups, you can skip external infrastructure by explicitly enabling insecure fallback mode.
 
-```bash
-npm install
-npm run build
+**⚠️ SECURITY WARNING**: Fallback mode removes critical security guarantees:
+- **No Sybil resistance** - Anyone can create unlimited fake accounts
+- **No timestamp verification** - Timestamps can be forged
+- **No double-spend protection** - Cannot detect malicious behavior
 
-# Create identity (no external services needed)
-clout identity create
+### Enabling Fallback Mode
 
-# Start the web UI
-npm run web
-# Open http://localhost:3000
+Create `~/.clout/config.json`:
+
+```json
+{
+  "witness": {
+    "gatewayUrl": "http://localhost:8080",
+    "allowInsecureFallback": true
+  },
+  "freebird": {
+    "issuerEndpoints": ["http://localhost:8081"],
+    "verifierUrl": "http://localhost:8082",
+    "allowInsecureFallback": true
+  },
+  "hypertoken": {
+    "relayUrl": "ws://localhost:3000"
+  }
+}
 ```
 
-In fallback mode:
-- **Witness**: Uses simulated local attestations
-- **Freebird**: Uses hash-based simulated tokens
-- **Relay**: Runs embedded or connects to configured relay
+Or programmatically:
 
-This is perfect for:
-- Local development
-- Small trusted friend groups
-- Testing before deploying full infrastructure
+```typescript
+const freebird = new FreebirdAdapter({
+  issuerEndpoints: ['http://localhost:8081'],
+  verifierUrl: 'http://localhost:8082',
+  allowInsecureFallback: true  // ⚠️ INSECURE
+});
+
+const witness = new WitnessAdapter({
+  gatewayUrl: 'http://localhost:8080',
+  allowInsecureFallback: true  // ⚠️ INSECURE
+});
+```
+
+### What Happens in Fallback Mode
+
+When servers are unavailable and fallback is enabled:
+- **Witness**: Uses fake local attestations with hash-based "signatures"
+- **Freebird**: Uses 32-byte hash tokens instead of 130-byte VOPRF tokens
+- **Warnings**: Loud console warnings are displayed
+
+When fallback is **disabled** (default):
+- Operations fail with clear error messages
+- No silent degradation of security
+- Forces you to fix infrastructure before proceeding
+
+### When to Use Fallback Mode
+
+✅ **Appropriate uses**:
+- Local development and testing
+- Demos and prototypes
+- Very small trusted friend groups (< 10 people who all know each other)
+
+❌ **Never use for**:
+- Production deployments
+- Networks with strangers
+- Any scenario where spam/abuse is possible
 
 ---
 
