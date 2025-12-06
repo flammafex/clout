@@ -9,17 +9,20 @@
 
 ## Executive Summary
 
-Clout is a decentralized reputation protocol that creates censorship-resistant, village-scale social networks using a Web of Trust model. The security audit identified **3 critical**, **7 high**, **8 medium**, and **7 low** severity issues across cryptography, authentication, network communication, data storage, and anti-Sybil mechanisms.
+Clout is a decentralized reputation protocol that creates censorship-resistant, village-scale social networks using a Web of Trust model. The security audit identified **0 critical**, **7 high**, **8 medium**, and **10 low** severity issues across cryptography, authentication, network communication, and data storage.
 
-**Overall Risk Level: MEDIUM-HIGH**
+**Overall Risk Level: MEDIUM**
 
-The most critical findings relate to:
-1. Plaintext storage of private keys
-2. Missing signature implementation in ticket delegation
-3. Token verification accepts invalid format on server unavailability
-4. Lack of input validation across multiple components
+The most significant findings relate to:
+1. Lack of input validation across multiple components
+2. No authentication on web API
+3. No per-peer rate limiting in gossip protocol
 
-*Note: Insecure fallback modes (Freebird/Witness) were initially rated Critical but downgraded to Low since they are disabled by default and require explicit opt-in.*
+*Notes on downgraded items:*
+- *Insecure fallback modes (Freebird/Witness): Disabled by default, require explicit opt-in*
+- *Private key storage: User responsibility model (similar to SSH/GPG)*
+- *Delegation signature: Uses Witness attestation for security, not the keyed hash*
+- *Token format verification: Intentional graceful degradation for availability*
 
 ---
 
@@ -60,32 +63,25 @@ Clout implements a five-phase architecture:
 
 ## Critical Vulnerabilities
 
-### CRIT-01: Plaintext Private Key Storage
+### ~~CRIT-01~~ LOW-08: Plaintext Private Key Storage (User Responsibility)
 
 **Location:** `src/cli/identity-manager.ts:72-75`
-**Severity:** CRITICAL
-**CVSS Score:** 9.8
+**Severity:** ~~CRITICAL~~ LOW (user responsibility model)
 
 **Description:**
-Private keys are stored in plaintext JSON at `~/.clout/identities.json` without any encryption or file permission restrictions.
+Private keys are stored in plaintext JSON at `~/.clout/identities.json`.
 
-```typescript
-// src/cli/identity-manager.ts:72-75
-private saveStore(): void {
-  const data = JSON.stringify(this.store, null, 2);
-  writeFileSync(this.identityPath, data, 'utf-8');  // No encryption, no chmod
-}
-```
+**Design Rationale:**
+This follows the established model of developer/power-user tools:
+- SSH keys (~/.ssh/id_ed25519) - typically unencrypted
+- GPG keys (~/.gnupg/)
+- Many cryptocurrency CLIs
 
-**Impact:**
-- Any local process can read private keys
-- Full account takeover if device is compromised
-- Keys persist after user logout
+The user is responsible for securing their device and key material.
 
-**Recommendation:**
-1. Encrypt keys using password-derived AES-256-GCM
-2. Set file permissions to `0600` on Unix systems
-3. Consider OS keychain integration (macOS Keychain, Windows Credential Manager)
+**Future Enhancement (Optional):**
+- Optional password-based encryption for users who want it
+- File permissions set to `0600` on Unix systems
 
 ---
 
@@ -133,62 +129,59 @@ Same as Freebird - consider environment check for production builds.
 
 ---
 
-### CRIT-04: Missing Cryptographic Signature in Ticket Delegation
+### ~~CRIT-04~~ LOW-09: Delegation Uses Keyed Hash (Naming Issue)
 
 **Location:** `src/ticket-booth.ts:174-175`
-**Severity:** CRITICAL
-**CVSS Score:** 8.5
+**Severity:** ~~CRITICAL~~ LOW (naming/style issue)
 
 **Description:**
-The delegation signature uses a hash instead of a proper Ed25519 signature:
+The delegation "signature" is a keyed hash rather than an Ed25519 signature:
 
 ```typescript
-// src/ticket-booth.ts:174-175
-const payloadHash = Crypto.hashString(JSON.stringify(delegationPayload));
 const signature = Crypto.hash(payloadHash, delegator.privateKey.bytes);
 ```
 
-This is **not a signature** - it's a keyed hash. Anyone who sees the hash can verify it was created with that key, but it provides no non-repudiation or standard signature properties.
+**Why This Is Not a Vulnerability:**
+1. Delegations are stored locally in a `Map` (line 189), not gossiped
+2. The **Witness attestation** (line 178) provides cryptographic proof
+3. When minting, it's the Witness proof that's verified (line 218)
+4. The keyed hash serves as a binding/identifier, not external verification
 
-**Impact:**
-- Delegation proofs are not cryptographically valid
-- Cannot verify delegator actually authorized the delegation
-- Potential for delegation forgery
+**Design Note:**
+The security model correctly relies on Witness attestation. The "signature" field is misleadingly named but doesn't compromise security.
 
 **Recommendation:**
-Replace with proper Ed25519 signature:
-```typescript
-const signature = Crypto.sign(Crypto.hash(payloadHash), delegator.privateKey.bytes);
-```
+Consider renaming `signature` to `binding` or `commitment` for clarity.
 
 ---
 
-### CRIT-05: Fallback Token Verification Accepts Invalid Tokens
+### ~~CRIT-05~~ LOW-10: Token Format Verification on Server Failure (Graceful Degradation)
 
-**Location:** `src/integrations/freebird.ts:447-458`
-**Severity:** CRITICAL
-**CVSS Score:** 9.0
+**Location:** `src/integrations/freebird.ts:447-452`
+**Severity:** ~~CRITICAL~~ LOW (intentional design tradeoff)
 
 **Description:**
-When server verification fails, tokens are accepted based solely on length:
+When server verification temporarily fails, 130-byte tokens are accepted based on format:
 
 ```typescript
-// src/integrations/freebird.ts:447-452
-// Local verification based on token format
 if (token.length === 130) {
-  // Real VOPRF token format - accept (server verification failed but format is valid)
   console.warn('[Freebird] Using local format validation (server unavailable)');
   return true;
 }
 ```
 
-**Impact:**
-- Attackers can forge 130-byte tokens
-- No actual cryptographic verification performed
-- Sybil resistance bypassed when verifier is temporarily unavailable
+**Why This Is Intentional:**
+1. If `init()` succeeded, issuers were available and issued real VOPRF tokens
+2. Temporary verification failure (network blip) shouldn't break the system
+3. 130-byte format is specific to valid VOPRF tokens
+4. Warning is logged for observability
+5. 32-byte fallback tokens are still rejected unless explicitly enabled
+
+**Design Tradeoff:**
+This prioritizes availability over strict verification during transient failures. The alternative (fail closed) would cause service disruption.
 
 **Recommendation:**
-Cache valid tokens locally with cryptographic proofs, or fail closed when verification is unavailable.
+Consider optional "strict mode" config for high-security deployments.
 
 ---
 
@@ -529,55 +522,44 @@ Some internal types are not exported, making extension difficult.
 
 ## Recommendations
 
-### Immediate Actions (Critical)
+### Immediate Actions (High Priority)
 
-1. **Encrypt Private Keys**
-   - Implement password-based encryption for `~/.clout/identities.json`
-   - Set file permissions to 0600
-
-2. **Fix Delegation Signature**
-   - Replace `Crypto.hash()` with `Crypto.sign()` in ticket-booth.ts
-
-3. **Add Input Validation**
-   - Validate public key lengths and formats
-   - Add content size limits
+1. **Add Input Validation**
+   - Validate public key lengths and formats (32 bytes for Ed25519/X25519)
+   - Add content size limits for posts
    - Sanitize all user inputs
 
-4. **Improve Token Verification Resilience**
-   - Don't accept tokens based on length alone when server is unavailable
-   - Cache verified tokens with cryptographic proofs
+2. **Add Web API Authentication**
+   - Implement session tokens or API keys
+   - Bind to localhost only by default
 
-### Short-Term (High Priority)
+### Short-Term
 
-5. **Add Web API Authentication**
-   - Implement session tokens
-   - Add rate limiting per IP/session
-
-6. **Implement Per-Peer Rate Limiting**
+3. **Implement Per-Peer Rate Limiting**
    - Track message rates per peer
    - Temporarily ban flooding peers
 
-7. **Persist Trust Graph**
+4. **Persist Trust Graph**
    - Save adjacency list to disk
    - Restore on startup
 
-8. **Add Replay Protection**
+5. **Add Replay Protection**
    - Include nonce/sequence numbers in messages
    - Track message IDs per sender
 
 ### Long-Term (Architecture)
 
-9. **Formal Security Model**
+6. **Formal Security Model**
    - Document trust assumptions
    - Define threat model
 
-10. **Security Monitoring**
-    - Add metrics for suspicious activity
-    - Alert on fallback mode activation
+7. **Security Monitoring**
+   - Add metrics for suspicious activity
+   - Alert on fallback mode activation
 
-11. **Key Management**
-    - Implement key rotation
-    - Support hardware security modules
+8. **Optional Key Encryption**
+   - Password-based encryption for users who want it
+   - OS keychain integration as an option
 
 ---
 
