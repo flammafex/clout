@@ -17,10 +17,28 @@ import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
 import { concatBytes, bytesToHex } from '@noble/hashes/utils';
 
+export type SybilMode = 'none' | 'pow' | 'invitation';
+
 export interface FreebirdAdapterConfig {
   readonly issuerEndpoints: string[];
   readonly verifierUrl: string;
   readonly tor?: TorConfig;
+  /**
+   * Sybil resistance mode to use when requesting tokens.
+   * Must match the Freebird issuer's SYBIL_RESISTANCE setting.
+   *
+   * - 'none': No proof required (development only)
+   * - 'pow': Proof-of-work puzzle (rate limits account creation)
+   * - 'invitation': Invitation code required (web-of-trust)
+   *
+   * Default: 'none'
+   */
+  readonly sybilMode?: SybilMode;
+  /**
+   * Invitation code for 'invitation' sybil mode.
+   * Required when sybilMode is 'invitation'.
+   */
+  readonly invitationCode?: string;
   /**
    * Allow insecure fallback mode when Freebird servers are unavailable.
    *
@@ -50,6 +68,8 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly context: Uint8Array;
   private readonly tor: TorProxy | null;
   private readonly allowInsecureFallback: boolean;
+  private readonly sybilMode: SybilMode;
+  private invitationCode: string | undefined;
   private metadata: Map<string, any> = new Map();
   private blindStates: Map<string, BlindState> = new Map();
   private fallbackWarningShown = false;
@@ -63,6 +83,8 @@ export class FreebirdAdapter implements FreebirdClient {
     this.verifierUrl = config.verifierUrl;
     this.tor = config.tor ? new TorProxy(config.tor) : null;
     this.allowInsecureFallback = config.allowInsecureFallback ?? false;
+    this.sybilMode = config.sybilMode ?? 'none';
+    this.invitationCode = config.invitationCode;
     // Context must match Freebird server
     this.context = new TextEncoder().encode('freebird:v1');
 
@@ -81,6 +103,87 @@ export class FreebirdAdapter implements FreebirdClient {
     // Log MPC mode
     if (this.issuerEndpoints.length > 1) {
       console.log(`[Freebird] MPC threshold mode: ${this.issuerEndpoints.length} issuers`);
+    }
+
+    // Log Sybil mode
+    console.log(`[Freebird] Sybil resistance mode: ${this.sybilMode}`);
+  }
+
+  /**
+   * Set the invitation code for 'invitation' sybil mode
+   */
+  setInvitationCode(code: string): void {
+    this.invitationCode = code;
+  }
+
+  /**
+   * Generate a proof-of-work solution for the given challenge
+   */
+  private async solveProofOfWork(challenge: string, difficulty: number): Promise<{ nonce: number; hash: string }> {
+    const target = '0'.repeat(difficulty);
+    let nonce = 0;
+    const maxIterations = 10_000_000; // Prevent infinite loops
+
+    console.log(`[Freebird] Solving PoW challenge (difficulty: ${difficulty})...`);
+
+    while (nonce < maxIterations) {
+      const input = `${challenge}:${nonce}`;
+      const hashBytes = sha256(new TextEncoder().encode(input));
+      const hash = bytesToHex(hashBytes);
+
+      if (hash.startsWith(target)) {
+        console.log(`[Freebird] PoW solved after ${nonce} iterations`);
+        return { nonce, hash };
+      }
+      nonce++;
+
+      // Yield to event loop every 10k iterations
+      if (nonce % 10000 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+
+    throw new Error(`[Freebird] PoW failed: could not find solution within ${maxIterations} iterations`);
+  }
+
+  /**
+   * Build the sybil_proof object based on the configured mode
+   */
+  private async buildSybilProof(metadata: any): Promise<{ type: string; [key: string]: any }> {
+    switch (this.sybilMode) {
+      case 'none':
+        return { type: 'none' };
+
+      case 'pow': {
+        // Request a PoW challenge from the issuer
+        const challengeData = metadata.sybil?.pow;
+        if (!challengeData) {
+          throw new Error('[Freebird] PoW mode requested but issuer did not provide challenge');
+        }
+        const { nonce, hash } = await this.solveProofOfWork(
+          challengeData.challenge,
+          challengeData.difficulty || 4
+        );
+        return {
+          type: 'pow',
+          challenge: challengeData.challenge,
+          nonce,
+          hash
+        };
+      }
+
+      case 'invitation': {
+        if (!this.invitationCode) {
+          throw new Error('[Freebird] Invitation mode requires an invitation code. Call setInvitationCode() first.');
+        }
+        return {
+          type: 'invitation',
+          code: this.invitationCode
+        };
+      }
+
+      default:
+        throw new Error(`[Freebird] Unknown sybil mode: ${this.sybilMode}`);
     }
   }
 
@@ -195,6 +298,10 @@ export class FreebirdAdapter implements FreebirdClient {
     // Attempt real VOPRF issuance if at least one issuer is available
     if (this.metadata.size > 0 && state) {
       try {
+        // Build sybil proof once (uses first available issuer's metadata for PoW challenge)
+        const firstMetadata = Array.from(this.metadata.values())[0];
+        const sybilProof = await this.buildSybilProof(firstMetadata);
+
         // Broadcast to all issuers in parallel
         const issuePromises = this.issuerEndpoints.map(async (url, index) => {
           const metadata = this.metadata.get(url);
@@ -208,7 +315,7 @@ export class FreebirdAdapter implements FreebirdClient {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 blinded_element_b64: voprf.bytesToBase64Url(blindedValue),
-                sybil_proof: { type: 'none' }
+                sybil_proof: sybilProof
               })
             });
 

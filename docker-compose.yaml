@@ -34,6 +34,7 @@ services:
       - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-clout-testnet}
       - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
       - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
+      - FREEBIRD_SYBIL_MODE=${FREEBIRD_SYBIL_MODE:-none}
       - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
       # Tor (optional)
       - TOR_ENABLED=${TOR_ENABLED:-false}
@@ -75,6 +76,7 @@ services:
       - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-clout-testnet}
       - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
       - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
+      - FREEBIRD_SYBIL_MODE=${FREEBIRD_SYBIL_MODE:-none}
       - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
     volumes:
       - clout-data:/data
@@ -91,10 +93,11 @@ services:
   # FREEBIRD CLUSTER
   # ============================================================================
   freebird-issuer:
-    container_name: freebird-issuer
     build:
       context: https://github.com/flammafex/freebird.git
-      target: issuer
+      dockerfile: issuer/Dockerfile
+    image: freebird-issuer:latest
+    container_name: freebird-issuer
     ports:
       - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
     environment:
@@ -102,7 +105,8 @@ services:
       - BIND_ADDR=0.0.0.0:8081
       - ISSUER_ID=clout-issuer
       - TOKEN_TTL_MIN=60
-      - SYBIL_RESISTANCE=proof_of_work
+      - SYBIL_RESISTANCE=${FREEBIRD_SYBIL_MODE:-none}
+      - ADMIN_ENABLED=true
       - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
     volumes:
       - freebird-issuer-data:/data
@@ -116,10 +120,11 @@ services:
       retries: 3
 
   freebird-verifier:
-    container_name: freebird-verifier
     build:
       context: https://github.com/flammafex/freebird.git
-      target: verifier
+      dockerfile: verifier/Dockerfile
+    image: freebird-verifier:latest
+    container_name: freebird-verifier
     ports:
       - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
     environment:
@@ -236,7 +241,9 @@ services:
   witness-gateway:
     build:
       context: https://github.com/flammafex/witness.git
-      target: witness-gateway
+      dockerfile: gateway/Dockerfile
+    image: witness-gateway:latest
+    container_name: witness-gateway
     ports:
       - "8080:8080"
     depends_on:
@@ -257,10 +264,11 @@ services:
   # HYPERTOKEN RELAY
   # ============================================================================
   hypertoken-relay:
-    container_name: hypertoken-relay
     build:
       context: https://github.com/flammafex/hypertoken.git
-    command: ["node", "start-relay.js", "3000"]
+      dockerfile: relay/Dockerfile
+    image: hypertoken-relay:latest
+    container_name: hypertoken-relay
     ports:
       - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
     networks:
