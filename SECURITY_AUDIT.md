@@ -9,14 +9,18 @@
 
 ## Executive Summary
 
-Clout is a decentralized reputation protocol that creates censorship-resistant, village-scale social networks using a Web of Trust model. The security audit identified **0 critical**, **7 high**, **8 medium**, and **10 low** severity issues across cryptography, authentication, network communication, and data storage.
+Clout is a decentralized reputation protocol that creates censorship-resistant, village-scale social networks using a Web of Trust model. The security audit identified **0 critical**, **0 high (7 fixed)**, **8 medium**, and **10 low** severity issues across cryptography, authentication, network communication, and data storage.
 
-**Overall Risk Level: MEDIUM**
+**Overall Risk Level: LOW** (after fixes)
 
-The most significant findings relate to:
-1. Lack of input validation across multiple components
-2. No authentication on web API
-3. No per-peer rate limiting in gossip protocol
+All high-severity findings have been addressed:
+1. ~~Lack of input validation~~ → ✅ Public key validation added
+2. ~~No authentication on web API~~ → ✅ Token-based auth with signature login
+3. ~~No per-peer rate limiting~~ → ✅ Sliding window rate limiter with temp bans
+4. ~~Delegation bypass~~ → ✅ Reputation checked at mint time
+5. ~~Message replay vulnerability~~ → ✅ Nonce + expiry protection
+6. ~~Trust graph not persisted~~ → ✅ FileSystemStore persistence
+7. ~~JSON non-determinism~~ → ✅ Stable stringify for hashing
 
 *Notes on downgraded items:*
 - *Insecure fallback modes (Freebird/Witness): Disabled by default, require explicit opt-in*
@@ -187,132 +191,98 @@ Consider optional "strict mode" config for high-security deployments.
 
 ## High Severity Issues
 
-### HIGH-01: No Public Key Validation
+### ~~HIGH-01: No Public Key Validation~~ ✅ FIXED
 
 **Location:** Multiple files
-**Severity:** HIGH
+**Severity:** ~~HIGH~~ FIXED
 
-**Description:**
-Public keys are accepted as hex strings without validation of:
-- Length (Ed25519: 32 bytes, X25519: 32 bytes)
-- Point validity (on curve check)
-- Format (valid hex characters)
-
-**Files Affected:**
-- `crypto.ts` - `fromHex()` accepts any hex
-- `content-gossip.ts` - Trust signals with arbitrary keys
-- `web/server.ts` - API accepts user-provided keys
-
-**Impact:**
-- Invalid keys could cause cryptographic operations to fail
-- Potential for denial-of-service via malformed keys
-- Edge cases in curve operations
+**Fix Applied:**
+- Added `Crypto.isValidPublicKeyHex()` for 64-char hex validation
+- Added `Crypto.parsePublicKey()` with validation + parsing
+- All web API routes now use `validatePublicKey()` helper
+- Files updated: `crypto.ts`, `web/routes/trust.ts`, `web/routes/slides.ts`
 
 ---
 
-### HIGH-02: No Rate Limiting Per Peer
+### ~~HIGH-02: No Rate Limiting Per Peer~~ ✅ FIXED
 
 **Location:** `src/content-gossip.ts`
-**Severity:** HIGH
+**Severity:** ~~HIGH~~ FIXED
 
-**Description:**
-The gossip protocol has no per-peer message rate limiting. Malicious peers can flood the network with messages.
-
-```typescript
-// Only global limits exist:
-maxPosts: config.maxPosts ?? 100_000
-```
-
-**Impact:**
-- Resource exhaustion attacks
-- Memory/CPU denial-of-service
-- Network congestion
+**Fix Applied:**
+- Added sliding window rate limiter per peer
+- Configurable: `maxMessagesPerWindow` (default: 100), `windowMs` (1 min), `banDurationMs` (5 min)
+- Peers exceeding limits are temporarily banned
+- Stats include `rateLimitedPeers` count
 
 ---
 
-### HIGH-03: Web API Has No Authentication
+### ~~HIGH-03: Web API Has No Authentication~~ ✅ FIXED
 
-**Location:** `src/web/server.ts`
-**Severity:** HIGH
+**Location:** `src/web/server.ts`, `src/web/auth.ts`
+**Severity:** ~~HIGH~~ FIXED
 
-**Description:**
-The web server has no authentication mechanism. All endpoints are accessible without credentials.
-
-```typescript
-// src/web/server.ts:77-79
-this.app.get('/api/health', (req, res) => {
-  res.json({ success: true, status: 'online' });
-});
-```
-
-**Impact:**
-- Local privilege escalation if server binds to non-localhost
-- Unauthorized posting/trust management
-- Private key exposure via API
+**Fix Applied:**
+- Added `AuthManager` with session token authentication
+- Login requires Ed25519 signature verification
+- Configurable: `requireAuth` (default: true in production)
+- Public routes: `/api/health`, `/api/auth/login`, `/api/auth/status`
+- All other endpoints require `Authorization: Bearer <token>` header
 
 ---
 
-### HIGH-04: Delegation Bypass After Reputation Drop
+### ~~HIGH-04: Delegation Bypass After Reputation Drop~~ ✅ FIXED
 
-**Location:** `src/ticket-booth.ts:149-196`
-**Severity:** HIGH
+**Location:** `src/ticket-booth.ts`
+**Severity:** ~~HIGH~~ FIXED
 
-**Description:**
-Once a delegation is issued, there's no check that the delegator's reputation remains valid. A user could:
-1. Achieve 0.7+ reputation
-2. Delegate passes to multiple accounts
-3. Have their reputation drop (e.g., unfollowed)
-4. Recipients still use their delegated passes
-
----
-
-### HIGH-05: Message Replay Vulnerability
-
-**Location:** `src/content-gossip.ts`
-**Severity:** HIGH
-
-**Description:**
-Messages are only deduplicated by content hash, not by sender+timestamp. Old valid messages could be replayed:
-
-```typescript
-// Only checks if message exists, not if it's a replay
-if (this.seenPosts.has(key)) {
-  return;
-}
-```
+**Fix Applied:**
+- Added `ReputationGetter` callback type
+- Added `setReputationGetter()` to TicketBooth
+- `mintDelegatedTicket()` now verifies delegator reputation at mint time
+- Delegation includes `requiredReputation` threshold (0.7)
+- Integration in `clout.ts` connects to reputation system
 
 ---
 
-### HIGH-06: Trust Graph Not Persisted
+### ~~HIGH-05: Message Replay Vulnerability~~ ✅ FIXED
 
-**Location:** `src/content-gossip.ts:149-151`
-**Severity:** HIGH
+**Location:** `src/content-gossip.ts`, `src/clout-types.ts`
+**Severity:** ~~HIGH~~ FIXED
 
-**Description:**
-The trust adjacency list and hop distance cache are stored only in memory:
-
-```typescript
-private readonly trustAdjacencyList = new Map<string, Set<string>>();
-private readonly hopDistanceCache = new Map<string, number>();
-```
-
-On restart, extended trust graph information is lost.
+**Fix Applied:**
+- Added `nonce` (32 bytes) and `expiresAt` to SignedContentGossipMessage
+- Messages now include unique nonce signed with content
+- `seenMessages` Map tracks nonce+sender for replay detection
+- Expired messages rejected (default: 5 min expiry)
+- Configurable via `replayProtection` config
 
 ---
 
-### HIGH-07: JSON Serialization Non-Determinism
+### ~~HIGH-06: Trust Graph Not Persisted~~ ✅ FIXED
 
-**Location:** `src/ticket-booth.ts:72`, `src/crypto.ts:468`
-**Severity:** HIGH
+**Location:** `src/content-gossip.ts`, `src/store/file-store.ts`
+**Severity:** ~~HIGH~~ FIXED
 
-**Description:**
-JSON.stringify() is used for creating hashes of objects, but JSON key ordering is not guaranteed:
+**Fix Applied:**
+- Added `TrustGraphEntry` interface to FileSystemStore
+- Added `saveTrustEdge()`, `removeTrustEdge()`, `getTrustGraph()` methods
+- ContentGossip accepts `onTrustEdge` callback for persistence
+- ContentGossip accepts `persistedTrustGraph` for initialization
+- Trust graph survives restarts
 
-```typescript
-const payloadHash = Crypto.hashString(JSON.stringify(ticketPayload));
-```
+---
 
-Different JavaScript engines could produce different hashes for the same logical object.
+### ~~HIGH-07: JSON Serialization Non-Determinism~~ ✅ FIXED
+
+**Location:** `src/crypto.ts`
+**Severity:** ~~HIGH~~ FIXED
+
+**Fix Applied:**
+- Added `Crypto.stableStringify()` - deterministic JSON with sorted keys
+- Added `Crypto.hashObject()` - combines stable stringify with hashing
+- Updated all callsites: `post.ts`, `invitation.ts`, `ticket-booth.ts`
+- Object hash is now consistent across JS engines
 
 ---
 

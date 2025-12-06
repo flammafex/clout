@@ -394,7 +394,7 @@ export interface ContentGossipMessage {
  * Security guarantees:
  * - Sender identity verification: The message is signed by the sender's Ed25519 key
  * - Tamper detection: Any modification invalidates the signature
- * - Replay mitigation: Timestamp + sender combo can be tracked
+ * - Replay prevention: Nonce + timestamp ensures each message is unique
  */
 export interface SignedContentGossipMessage {
   /** The original gossip message */
@@ -403,8 +403,20 @@ export interface SignedContentGossipMessage {
   /** Sender's public key (Ed25519, hex-encoded) */
   readonly senderPublicKey: string;
 
-  /** Ed25519 signature over the serialized message (hex-encoded) */
+  /** Ed25519 signature over the serialized message + nonce (hex-encoded) */
   readonly signature: string;
+
+  /**
+   * Unique message nonce (32 bytes, hex-encoded) - prevents replay attacks
+   * Combined with timestamp to create a unique message ID for deduplication.
+   */
+  readonly nonce: string;
+
+  /**
+   * Message expiry timestamp - messages older than this are rejected
+   * Typically set to timestamp + 5 minutes for gossip freshness
+   */
+  readonly expiresAt?: number;
 }
 
 /**

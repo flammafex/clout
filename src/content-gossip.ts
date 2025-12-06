@@ -78,6 +78,37 @@ export interface ContentGossipConfig {
    * Map of truster -> Set of trustees
    */
   readonly persistedTrustGraph?: Map<string, Set<string>>;
+
+  /**
+   * Rate limiting configuration
+   */
+  readonly rateLimit?: {
+    /** Maximum messages per peer per window (default: 100) */
+    readonly maxMessagesPerWindow?: number;
+    /** Time window in milliseconds (default: 60000 = 1 minute) */
+    readonly windowMs?: number;
+    /** Ban duration in milliseconds when limit exceeded (default: 300000 = 5 minutes) */
+    readonly banDurationMs?: number;
+  };
+
+  /**
+   * Replay protection configuration
+   */
+  readonly replayProtection?: {
+    /** How long signed messages are valid (default: 300000 = 5 minutes) */
+    readonly messageExpiryMs?: number;
+    /** How long to keep seen message IDs for deduplication (default: 600000 = 10 minutes) */
+    readonly seenMessagesTtlMs?: number;
+  };
+}
+
+/**
+ * Per-peer rate limiting tracker
+ */
+interface PeerRateLimit {
+  messageCount: number;
+  windowStart: number;
+  bannedUntil?: number;
 }
 
 export interface PeerConnection {
@@ -112,6 +143,16 @@ interface SlideRecord {
   firstSeen: number;
 }
 
+/**
+ * Seen message record for replay protection
+ */
+interface SeenMessageRecord {
+  /** When this message was first seen */
+  firstSeen: number;
+  /** Message expiry (for cleanup) */
+  expiresAt: number;
+}
+
 interface PeerStateRecord {
   publicKey: string;
   version: number;
@@ -130,8 +171,10 @@ export class ContentGossip {
   private readonly seenTrustSignals = new Map<string, TrustRecord>();
   private readonly seenEncryptedTrustSignals = new Map<string, EncryptedTrustRecord>();
   private readonly seenSlides = new Map<string, SlideRecord>();
+  private readonly seenMessages = new Map<string, SeenMessageRecord>(); // Replay protection
   private readonly peerStates = new Map<string, PeerStateRecord>();
   private readonly peerConnections: PeerConnection[] = [];
+  private readonly peerRateLimits = new Map<string, PeerRateLimit>();
   private readonly witness: WitnessClient;
   private readonly freebird: FreebirdClient;
   private readonly trustGraph: Set<string>;
@@ -139,6 +182,15 @@ export class ContentGossip {
   private readonly pruneInterval: number;
   private readonly maxPostAge: number;
   private readonly maxHops: number;
+
+  // Rate limiting configuration
+  private readonly rateLimitMaxMessages: number;
+  private readonly rateLimitWindowMs: number;
+  private readonly rateLimitBanDurationMs: number;
+
+  // Replay protection configuration
+  private readonly messageExpiryMs: number; // How long before messages expire (default: 5 min)
+  private readonly seenMessagesTtlMs: number; // How long to keep seen message IDs (default: 10 min)
   private receiveHandler?: (data: ContentGossipMessage) => Promise<void>;
   private pruneTimer?: NodeJS.Timeout;
   private stateSyncHandler?: (publicKey: string, stateBinary: Uint8Array) => Promise<void>;
@@ -178,6 +230,15 @@ export class ContentGossip {
     this.encryptionKey = config.encryptionKey;
     this.ourPublicKey = config.ourPublicKey;
     this.onTrustEdge = config.onTrustEdge;
+
+    // Rate limiting defaults
+    this.rateLimitMaxMessages = config.rateLimit?.maxMessagesPerWindow ?? 100;
+    this.rateLimitWindowMs = config.rateLimit?.windowMs ?? 60_000; // 1 minute
+    this.rateLimitBanDurationMs = config.rateLimit?.banDurationMs ?? 300_000; // 5 minutes
+
+    // Replay protection defaults
+    this.messageExpiryMs = config.replayProtection?.messageExpiryMs ?? 300_000; // 5 minutes
+    this.seenMessagesTtlMs = config.replayProtection?.seenMessagesTtlMs ?? 600_000; // 10 minutes
 
     // Initialize adjacency list from initial trust graph (distance 1)
     for (const trustedKey of this.trustGraph) {
@@ -304,6 +365,11 @@ export class ContentGossip {
    * When requireSignatures=true, unsigned messages are rejected.
    */
   async onReceive(data: ContentGossipMessage | SignedContentGossipMessage, peerId?: string): Promise<void> {
+    // Rate limit check - protect against flooding
+    if (peerId && !this.checkRateLimit(peerId)) {
+      return;
+    }
+
     // Verify signature and unwrap message
     const message = this.verifyMessage(data);
     if (!message) {
@@ -673,6 +739,64 @@ export class ContentGossip {
   }
 
   /**
+   * Check if a peer has exceeded rate limits
+   *
+   * Uses a sliding window rate limiter with temporary bans for abuse.
+   * Returns true if the message should be processed, false if rate limited.
+   *
+   * @param peerId - The peer's identifier
+   * @returns true if within limits, false if rate limited
+   */
+  private checkRateLimit(peerId: string): boolean {
+    const now = Date.now();
+    let peerLimit = this.peerRateLimits.get(peerId);
+
+    // Initialize if first message from this peer
+    if (!peerLimit) {
+      peerLimit = { messageCount: 0, windowStart: now };
+      this.peerRateLimits.set(peerId, peerLimit);
+    }
+
+    // Check if currently banned
+    if (peerLimit.bannedUntil && now < peerLimit.bannedUntil) {
+      console.warn(
+        `[ContentGossip] ⛔ Rate limited peer ${peerId.slice(0, 8)} ` +
+        `(banned until ${new Date(peerLimit.bannedUntil).toISOString()})`
+      );
+      return false;
+    }
+
+    // Clear ban if expired
+    if (peerLimit.bannedUntil && now >= peerLimit.bannedUntil) {
+      peerLimit.bannedUntil = undefined;
+      peerLimit.messageCount = 0;
+      peerLimit.windowStart = now;
+    }
+
+    // Reset window if expired
+    if (now - peerLimit.windowStart >= this.rateLimitWindowMs) {
+      peerLimit.messageCount = 0;
+      peerLimit.windowStart = now;
+    }
+
+    // Increment message count
+    peerLimit.messageCount++;
+
+    // Check if limit exceeded
+    if (peerLimit.messageCount > this.rateLimitMaxMessages) {
+      peerLimit.bannedUntil = now + this.rateLimitBanDurationMs;
+      console.warn(
+        `[ContentGossip] ⛔ Peer ${peerId.slice(0, 8)} exceeded rate limit ` +
+        `(${peerLimit.messageCount}/${this.rateLimitMaxMessages} in ${this.rateLimitWindowMs}ms). ` +
+        `Banned for ${this.rateLimitBanDurationMs}ms`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * OPTIMIZATION: Incrementally update graph caches when trust signals arrive
    *
    * This updates the adjacency list and recalculates hop distances
@@ -902,6 +1026,14 @@ export class ContentGossip {
    * Get gossip network statistics
    */
   getStats() {
+    const now = Date.now();
+    let bannedPeers = 0;
+    for (const limit of this.peerRateLimits.values()) {
+      if (limit.bannedUntil && now < limit.bannedUntil) {
+        bannedPeers++;
+      }
+    }
+
     return {
       postCount: this.seenPosts.size,
       trustSignalCount: this.seenTrustSignals.size,
@@ -909,12 +1041,40 @@ export class ContentGossip {
       slideCount: this.seenSlides.size,
       peerCount: this.peerConnections.length,
       activePeers: this.peerConnections.filter(p => p.isConnected()).length,
-      trustGraphSize: this.trustGraph.size
+      trustGraphSize: this.trustGraph.size,
+      rateLimitedPeers: bannedPeers,
+      trackedPeers: this.peerRateLimits.size,
+      seenMessageIds: this.seenMessages.size // Replay protection tracking
     };
   }
 
   /**
+   * Check if a peer is currently rate-limited (banned)
+   */
+  isPeerBanned(peerId: string): boolean {
+    const limit = this.peerRateLimits.get(peerId);
+    if (!limit || !limit.bannedUntil) return false;
+    return Date.now() < limit.bannedUntil;
+  }
+
+  /**
+   * Manually unban a peer (for administrative use)
+   */
+  unbanPeer(peerId: string): void {
+    const limit = this.peerRateLimits.get(peerId);
+    if (limit) {
+      limit.bannedUntil = undefined;
+      limit.messageCount = 0;
+      limit.windowStart = Date.now();
+    }
+  }
+
+  /**
    * Sign a gossip message for authentication
+   *
+   * Includes nonce and expiry for replay protection:
+   * - Nonce: Random 32 bytes to ensure message uniqueness
+   * - Expiry: Timestamp after which message should be rejected
    *
    * @param message - The message to sign
    * @returns Signed message wrapper, or original message if no signing key
@@ -924,8 +1084,13 @@ export class ContentGossip {
       return message;
     }
 
-    // Serialize message to bytes for signing
-    const messageBytes = new TextEncoder().encode(JSON.stringify(message));
+    // Generate nonce and expiry for replay protection
+    const nonce = Crypto.toHex(Crypto.randomBytes(32));
+    const expiresAt = Date.now() + this.messageExpiryMs;
+
+    // Serialize message + nonce + expiry to bytes for signing
+    const signPayload = JSON.stringify({ message, nonce, expiresAt });
+    const messageBytes = new TextEncoder().encode(signPayload);
 
     // Sign with Ed25519
     const signature = Crypto.sign(messageBytes, this.signingKey.privateKey);
@@ -933,7 +1098,9 @@ export class ContentGossip {
     const signedMessage: SignedContentGossipMessage = {
       message,
       senderPublicKey: Crypto.toHex(this.signingKey.publicKey),
-      signature: Crypto.toHex(signature)
+      signature: Crypto.toHex(signature),
+      nonce,
+      expiresAt
     };
 
     return signedMessage;
@@ -942,6 +1109,11 @@ export class ContentGossip {
   /**
    * Verify a signed gossip message
    *
+   * Performs the following checks:
+   * 1. Signature verification (Ed25519)
+   * 2. Expiry check (message not too old)
+   * 3. Replay detection (nonce not seen before)
+   *
    * @param data - The incoming message (may be signed or unsigned)
    * @returns The unwrapped message if valid, or null if invalid
    */
@@ -949,14 +1121,45 @@ export class ContentGossip {
     // Check if this is a signed message
     if ('message' in data && 'senderPublicKey' in data && 'signature' in data) {
       const signedData = data as SignedContentGossipMessage;
+      const now = Date.now();
 
       try {
+        // REPLAY PROTECTION CHECK 1: Expiry
+        if (signedData.expiresAt && signedData.expiresAt < now) {
+          console.warn(
+            `[ContentGossip] ⚠️ Rejecting expired message from ${signedData.senderPublicKey.slice(0, 8)} ` +
+            `(expired ${Math.round((now - signedData.expiresAt) / 1000)}s ago)`
+          );
+          return null;
+        }
+
+        // REPLAY PROTECTION CHECK 2: Nonce deduplication
+        if (signedData.nonce) {
+          const messageId = `${signedData.senderPublicKey}:${signedData.nonce}`;
+          if (this.seenMessages.has(messageId)) {
+            console.warn(
+              `[ContentGossip] ⚠️ Rejecting replayed message from ${signedData.senderPublicKey.slice(0, 8)} ` +
+              `(nonce: ${signedData.nonce.slice(0, 8)}...)`
+            );
+            return null;
+          }
+
+          // Track this message to prevent future replays
+          this.seenMessages.set(messageId, {
+            firstSeen: now,
+            expiresAt: signedData.expiresAt ?? (now + this.seenMessagesTtlMs)
+          });
+        }
+
         // Deserialize public key and signature
         const publicKey = Crypto.fromHex(signedData.senderPublicKey);
         const signature = Crypto.fromHex(signedData.signature);
 
-        // Serialize the inner message for verification
-        const messageBytes = new TextEncoder().encode(JSON.stringify(signedData.message));
+        // Serialize the inner message + nonce + expiry for verification (must match signing)
+        const signPayload = signedData.nonce
+          ? JSON.stringify({ message: signedData.message, nonce: signedData.nonce, expiresAt: signedData.expiresAt })
+          : JSON.stringify(signedData.message); // Backward compatibility
+        const messageBytes = new TextEncoder().encode(signPayload);
 
         // Verify signature
         if (!Crypto.verify(messageBytes, signature, publicKey)) {
@@ -1053,6 +1256,28 @@ export class ContentGossip {
         for (const [key] of toRemove) {
           this.seenSlides.delete(key);
         }
+      }
+
+      // Cleanup stale rate limit entries (no activity in 2x window + not banned)
+      const rateLimitCutoff = now - (this.rateLimitWindowMs * 2);
+      for (const [peerId, limit] of this.peerRateLimits.entries()) {
+        const isStale = limit.windowStart < rateLimitCutoff;
+        const notBanned = !limit.bannedUntil || now >= limit.bannedUntil;
+        if (isStale && notBanned) {
+          this.peerRateLimits.delete(peerId);
+        }
+      }
+
+      // Cleanup expired seen messages (replay protection)
+      let expiredMessages = 0;
+      for (const [messageId, record] of this.seenMessages.entries()) {
+        if (record.expiresAt < now) {
+          this.seenMessages.delete(messageId);
+          expiredMessages++;
+        }
+      }
+      if (expiredMessages > 0) {
+        console.log(`[ContentGossip] Cleaned up ${expiredMessages} expired message IDs`);
       }
     }, this.pruneInterval);
   }
