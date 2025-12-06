@@ -331,6 +331,7 @@ export class CloutWebServer {
 
     // Load or create identity
     let identity;
+    let isNewIdentity = false;
     try {
       identity = this.identityManager.getIdentity();
     } catch (error) {
@@ -338,11 +339,12 @@ export class CloutWebServer {
       console.log('No identity found, creating default identity...');
       identity = this.identityManager.createIdentity('default', true);
       console.log(`Created new identity: ${identity.publicKey.slice(0, 16)}...`);
-
-      // Bootstrap Dunbar pool on first init (invitation mode only)
-      await this.bootstrapDunbarPool(identity.publicKey);
+      isNewIdentity = true;
     }
     const secretKey = this.identityManager.getSecretKey();
+
+    // Register Self as Freebird owner and bootstrap invitations if needed
+    await this.bootstrapFreebirdOwner(identity.publicKey, isNewIdentity);
 
     // Initialize infrastructure (Freebird, Witness, Gossip)
     console.log('Initializing Clout infrastructure...');
@@ -370,25 +372,25 @@ export class CloutWebServer {
   }
 
   /**
-   * Bootstrap the Dunbar pool with initial invitations
+   * Register Self as Freebird owner and optionally bootstrap invitations
    *
-   * Called on first initialization when running in 'invitation' mode.
-   * Creates 50 invitation codes for the admin to distribute and
-   * registers the Self user as the Freebird owner.
+   * Owner registration runs on every startup (Freebird handles idempotency).
+   * Invitation bootstrap only runs when creating a new identity.
    *
    * @param selfPublicKey The public key of the Self identity (hex string)
+   * @param isNewIdentity Whether this is a freshly created identity
    */
-  private async bootstrapDunbarPool(selfPublicKey: string): Promise<void> {
+  private async bootstrapFreebirdOwner(selfPublicKey: string, isNewIdentity: boolean): Promise<void> {
     const sybilMode = process.env.FREEBIRD_SYBIL_MODE || 'invitation';
 
     if (sybilMode !== 'invitation') {
-      console.log('[Bootstrap] Skipping Dunbar pool (not in invitation mode)');
+      console.log('[Bootstrap] Skipping Freebird setup (not in invitation mode)');
       return;
     }
 
     const freebirdAdmin = createFreebirdAdminFromEnv();
     if (!freebirdAdmin) {
-      console.warn('[Bootstrap] Cannot bootstrap Dunbar pool: no admin key configured');
+      console.warn('[Bootstrap] No admin key configured, skipping Freebird setup');
       return;
     }
 
@@ -396,12 +398,17 @@ export class CloutWebServer {
       // Check if Freebird is accessible
       const isHealthy = await freebirdAdmin.healthCheck();
       if (!isHealthy) {
-        console.warn('[Bootstrap] Freebird admin API not accessible, skipping bootstrap');
+        console.warn('[Bootstrap] Freebird admin API not accessible, skipping setup');
         return;
       }
 
-      // Register Self as the Freebird owner (first registration wins)
+      // Always register Self as the Freebird owner (first registration wins)
       await freebirdAdmin.registerOwner(selfPublicKey);
+
+      // Only bootstrap invitations for new identities
+      if (!isNewIdentity) {
+        return;
+      }
 
       // Check if invitations already exist
       const existingInvites = await freebirdAdmin.listInvitations();
@@ -429,8 +436,8 @@ export class CloutWebServer {
       console.log(`[Bootstrap] 🔧 Admin UI: ${freebirdAdmin.getAdminUiUrl()}`);
 
     } catch (error: any) {
-      console.warn(`[Bootstrap] Failed to create Dunbar pool: ${error.message}`);
-      console.warn('[Bootstrap] You can create invitations manually via the Freebird Admin UI');
+      console.warn(`[Bootstrap] Freebird setup failed: ${error.message}`);
+      console.warn('[Bootstrap] You can configure via the Freebird Admin UI');
     }
   }
 
