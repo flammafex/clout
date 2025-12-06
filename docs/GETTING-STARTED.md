@@ -406,6 +406,81 @@ Configuration for MPC mode:
 }
 ```
 
+### Tor-Only Relay Mode (Maximum Privacy)
+
+For maximum privacy, run your relay as a Tor hidden service. This hides client IP addresses from the relay operator.
+
+**Server Setup:**
+
+1. Configure Tor hidden service in `/etc/tor/torrc`:
+```
+HiddenServiceDir /var/lib/tor/clout-relay/
+HiddenServicePort 80 127.0.0.1:3000
+```
+
+2. Restart Tor and get your .onion address:
+```bash
+sudo systemctl restart tor
+cat /var/lib/tor/clout-relay/hostname
+# Example: abc123xyz.onion
+```
+
+3. Start relay in Tor-only mode:
+```typescript
+import { RelayServer } from 'clout';
+
+const relay = new RelayServer({
+  port: 3000,
+  torOnly: true,  // Forces binding to 127.0.0.1
+  onionAddress: 'abc123xyz.onion'  // For logging
+});
+
+await relay.start();
+// [RelayServer] Started in Tor-only mode on 127.0.0.1:3000
+// [RelayServer] Client IP addresses are hidden from relay operator
+```
+
+**Client Connection via Tor:**
+
+```typescript
+import { RelayClient } from 'clout';
+
+const client = new RelayClient({
+  publicKey: myPublicKey,
+  nodeType: 'light',
+  relayUrl: 'ws://abc123xyz.onion',
+  privateKey: myPrivateKey,
+  tor: {
+    proxyHost: 'localhost',
+    proxyPort: 9050  // Tor SOCKS5 proxy
+  },
+  requireTor: true  // Fail if Tor unavailable
+});
+
+await client.connect();
+// [RelayClient] Connected to ws://abc123xyz.onion (via Tor)
+```
+
+**Privacy Guarantees:**
+- Relay operator cannot see client IP addresses (only sees Tor circuits)
+- Traffic analysis is prevented by Tor's onion routing
+- Clients can verify they're using Tor via `client.isUsingTor()`
+
+**Configuration for clients:**
+
+```json
+{
+  "hypertoken": {
+    "relayUrl": "ws://abc123xyz.onion"
+  },
+  "tor": {
+    "enabled": true,
+    "proxyHost": "localhost",
+    "proxyPort": 9050
+  }
+}
+```
+
 ---
 
 ## Trust-Based Content Propagation

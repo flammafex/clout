@@ -38,6 +38,7 @@ interface RegisteredClient {
 export interface RelayServerConfig {
   readonly port: number;
   readonly host?: string;
+
   /**
    * Whether to require authentication for peer discovery.
    * When true (default), clients must complete challenge-response auth.
@@ -49,6 +50,29 @@ export interface RelayServerConfig {
    * Challenge expiry time in milliseconds (default: 30 seconds)
    */
   readonly challengeExpiry?: number;
+
+  /**
+   * Enable Tor-only mode for maximum privacy.
+   *
+   * When enabled:
+   * - Server binds to 127.0.0.1 only (localhost)
+   * - Designed to be exposed only via Tor hidden service
+   * - Relay operator cannot see client IP addresses
+   * - Clients must connect via .onion address
+   *
+   * To set up a Tor hidden service, add to torrc:
+   *   HiddenServiceDir /var/lib/tor/clout-relay/
+   *   HiddenServicePort 80 127.0.0.1:PORT
+   *
+   * The .onion address will be in /var/lib/tor/clout-relay/hostname
+   */
+  readonly torOnly?: boolean;
+
+  /**
+   * Optional: Onion address for this relay (for logging/discovery)
+   * Format: xxxx.onion (without port)
+   */
+  readonly onionAddress?: string;
 }
 
 /**
@@ -58,6 +82,7 @@ export class RelayServer {
   private readonly config: RelayServerConfig;
   private readonly requireAuth: boolean;
   private readonly challengeExpiry: number;
+  private readonly torOnly: boolean;
   private wss?: WebSocketServer;
   private readonly clients = new Map<string, RegisteredClient>();
   private readonly pendingAuth = new Map<WebSocket, PendingAuth>();
@@ -66,15 +91,32 @@ export class RelayServer {
     this.config = config;
     this.requireAuth = config.requireAuth ?? true; // Default: require auth
     this.challengeExpiry = config.challengeExpiry ?? 30_000; // 30 seconds
+    this.torOnly = config.torOnly ?? false;
+
+    // Validate Tor-only mode configuration
+    if (this.torOnly) {
+      if (config.host && config.host !== '127.0.0.1' && config.host !== 'localhost') {
+        console.warn(
+          '[RelayServer] ⚠️ WARNING: torOnly mode enabled but host is not localhost.\n' +
+          'For maximum privacy, the server should only bind to 127.0.0.1 and be\n' +
+          'exposed via Tor hidden service. This prevents seeing client IP addresses.'
+        );
+      }
+    }
   }
 
   /**
    * Start relay server
    */
   async start(): Promise<void> {
+    // In Tor-only mode, force binding to localhost only
+    const host = this.torOnly
+      ? '127.0.0.1'
+      : (this.config.host || '0.0.0.0');
+
     this.wss = new WebSocketServer({
       port: this.config.port,
-      host: this.config.host || '0.0.0.0'
+      host
     });
 
     this.wss.on('connection', (ws: WebSocket) => {
@@ -88,7 +130,19 @@ export class RelayServer {
     // Start maintenance
     this.startMaintenance();
 
-    console.log(`[RelayServer] Started on ${this.config.host || '0.0.0.0'}:${this.config.port}`);
+    // Log startup with Tor mode information
+    if (this.torOnly) {
+      console.log(`[RelayServer] 🧅 Started in Tor-only mode on ${host}:${this.config.port}`);
+      console.log('[RelayServer] Server is only accessible via Tor hidden service');
+      if (this.config.onionAddress) {
+        console.log(`[RelayServer] Onion address: ${this.config.onionAddress}`);
+      } else {
+        console.log('[RelayServer] Configure onionAddress in config to display .onion address');
+      }
+      console.log('[RelayServer] Client IP addresses are hidden from relay operator');
+    } else {
+      console.log(`[RelayServer] Started on ${host}:${this.config.port}`);
+    }
   }
 
   /**
@@ -445,12 +499,29 @@ export class RelayServer {
   getStats() {
     return {
       connectedClients: this.clients.size,
+      torOnly: this.torOnly,
+      onionAddress: this.config.onionAddress,
+      requireAuth: this.requireAuth,
       clients: Array.from(this.clients.values()).map(c => ({
         publicKey: c.publicKey.slice(0, 8),
         nodeType: c.nodeType,
         lastSeen: new Date(c.lastSeen).toISOString()
       }))
     };
+  }
+
+  /**
+   * Check if server is running in Tor-only mode
+   */
+  isTorOnly(): boolean {
+    return this.torOnly;
+  }
+
+  /**
+   * Get the onion address (if configured)
+   */
+  getOnionAddress(): string | undefined {
+    return this.config.onionAddress;
   }
 
   /**

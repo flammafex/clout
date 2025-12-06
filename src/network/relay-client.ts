@@ -18,6 +18,7 @@ import { WebSocket } from 'ws';
 import type { RelayMessage, PeerDiscovery, PeerInfo, NodeType } from '../network-types.js';
 import { NodeType as NT, RelayMessageType } from '../network-types.js';
 import { Crypto } from '../crypto.js';
+import { TorProxy, type TorConfig } from '../tor.js';
 
 export interface RelayClientConfig {
   readonly publicKey: string;
@@ -30,6 +31,24 @@ export interface RelayClientConfig {
    * The key should correspond to the publicKey.
    */
   readonly privateKey?: Uint8Array;
+
+  /**
+   * Tor configuration for anonymous relay connections.
+   * When provided, connections are routed through Tor SOCKS5 proxy.
+   *
+   * Security benefits:
+   * - Hides client IP address from relay operator
+   * - Prevents traffic analysis correlation
+   * - Required for connecting to .onion relay addresses
+   */
+  readonly tor?: TorConfig;
+
+  /**
+   * Require Tor for all connections (default: false).
+   * When true, refuses to connect if Tor is unavailable.
+   * When false, uses Tor if configured, falls back to direct connection.
+   */
+  readonly requireTor?: boolean;
 }
 
 type MessageHandler = (message: RelayMessage) => void;
@@ -39,9 +58,12 @@ type MessageHandler = (message: RelayMessage) => void;
  */
 export class RelayClient implements PeerDiscovery {
   private readonly config: RelayClientConfig;
+  private readonly torProxy?: TorProxy;
+  private readonly requireTor: boolean;
   private ws?: WebSocket;
   private connected = false;
   private authenticated = false;
+  private usingTor = false;
   private messageHandlers: MessageHandler[] = [];
   private reconnectTimer?: NodeJS.Timeout;
   private authResolve?: () => void;
@@ -49,24 +71,77 @@ export class RelayClient implements PeerDiscovery {
 
   constructor(config: RelayClientConfig) {
     this.config = config;
+    this.requireTor = config.requireTor ?? false;
+
+    // Initialize Tor proxy if configured
+    if (config.tor) {
+      this.torProxy = new TorProxy(config.tor);
+    }
+
+    // Auto-detect: require Tor for .onion addresses
+    if (TorProxy.isOnionUrl(config.relayUrl)) {
+      if (!this.torProxy) {
+        throw new Error(
+          `Cannot connect to .onion relay without Tor configuration.\n` +
+          `Relay URL: ${config.relayUrl}\n` +
+          `Please provide tor config in RelayClientConfig.`
+        );
+      }
+    }
   }
 
   /**
    * Connect to relay server
    *
    * Handles authentication flow:
-   * 1. Connect WebSocket
+   * 1. Connect WebSocket (through Tor if configured)
    * 2. Receive auth challenge from server
    * 3. Sign challenge and respond
    * 4. Wait for auth success
    * 5. Register with relay
+   *
+   * Privacy: When Tor is configured, the relay server cannot see
+   * the client's real IP address. Only the Tor exit node IP is visible.
    */
   async connect(): Promise<void> {
+    // Determine if we should use Tor for this connection
+    const isOnion = TorProxy.isOnionUrl(this.config.relayUrl);
+    const shouldUseTor = this.torProxy && (isOnion || this.requireTor || this.torProxy.shouldProxy(this.config.relayUrl));
+
+    // Verify Tor is available if required
+    if (this.requireTor && !this.torProxy) {
+      throw new Error(
+        'Tor is required but not configured.\n' +
+        'Set requireTor: false or provide tor config in RelayClientConfig.'
+      );
+    }
+
+    if (shouldUseTor && this.torProxy) {
+      // Verify Tor connection is available
+      const torAvailable = await this.torProxy.checkConnection().catch(() => false);
+      if (!torAvailable) {
+        if (this.requireTor || isOnion) {
+          throw new Error(
+            `Tor proxy is not available at ${this.torProxy['proxyHost']}:${this.torProxy['proxyPort']}.\n` +
+            'Please ensure Tor is running and the SOCKS5 proxy is accessible.'
+          );
+        }
+        console.warn('[RelayClient] Tor unavailable, falling back to direct connection');
+      }
+    }
+
     return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this.config.relayUrl);
+      // Create WebSocket with Tor agent if configured
+      const wsOptions = shouldUseTor && this.torProxy
+        ? this.torProxy.getWebSocketOptions(this.config.relayUrl)
+        : {};
+
+      this.ws = new WebSocket(this.config.relayUrl, wsOptions);
+      this.usingTor = shouldUseTor && Object.keys(wsOptions).length > 0;
 
       this.ws.on('open', () => {
-        console.log(`[RelayClient] Connected to ${this.config.relayUrl}`);
+        const torStatus = this.usingTor ? ' (via Tor)' : '';
+        console.log(`[RelayClient] Connected to ${this.config.relayUrl}${torStatus}`);
         this.connected = true;
         // Don't register yet - wait for auth challenge
         // If no auth required, server won't send challenge and we can register immediately
@@ -369,6 +444,18 @@ export class RelayClient implements PeerDiscovery {
   }
 
   /**
+   * Check if connection is using Tor
+   *
+   * Returns true when:
+   * - Connected via Tor SOCKS5 proxy
+   * - Connecting to .onion address
+   * - forceProxy is enabled in Tor config
+   */
+  isUsingTor(): boolean {
+    return this.usingTor;
+  }
+
+  /**
    * Disconnect from relay
    */
   async disconnect(): Promise<void> {
@@ -380,6 +467,11 @@ export class RelayClient implements PeerDiscovery {
     if (this.ws) {
       this.ws.close();
       this.ws = undefined;
+    }
+
+    // Clean up Tor proxy resources
+    if (this.torProxy) {
+      this.torProxy.destroy();
     }
 
     this.connected = false;
