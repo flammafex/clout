@@ -194,7 +194,8 @@ async function loadFeed() {
 
       // Build trust path display ("Via Alice → Bob")
       const trustPath = post.trustPath || [];
-      const isYou = rep.distance === 0 || post.author === window.userPublicKey;
+      // Use server-side isAuthor flag (reliable) instead of window.userPublicKey (may not be set yet)
+      const isYou = post.isAuthor || rep.distance === 0;
       const isDirectTrust = post.isDirectlyTrusted || rep.distance === 1;
       let trustContext = '';
 
@@ -699,7 +700,8 @@ function renderFeedItem(post) {
   const myReaction = post.myReaction;
   const reactionEmojis = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
   const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, reactionEmojis);
-  const isYou = rep.distance === 0 || post.author === window.userPublicKey;
+  // Use server-side isAuthor flag (reliable) instead of window.userPublicKey (may not be set yet)
+  const isYou = post.isAuthor || rep.distance === 0;
   const authorAvatar = post.authorAvatar || '👤';
 
   return `
@@ -871,6 +873,26 @@ async function loadTrustedUsers() {
       const hasNickname = !!user.nickname;
       const displayName = user.displayName || user.publicKeyShort + '...';
       const isMuted = user.isMuted || false;
+      const isSelf = user.isSelf || false;
+
+      // Self entry has special styling - no mute/nickname buttons
+      if (isSelf) {
+        return `
+          <div class="trusted-user-card self-card">
+            <div class="trusted-user-info">
+              <div class="trusted-user-name" title="${user.publicKey}">
+                ${escapeHtml(displayName)}
+                <span class="self-badge">You</span>
+              </div>
+              <div class="trusted-user-key-small">${user.publicKeyShort}...</div>
+            </div>
+            <div class="trusted-user-actions">
+              <button class="btn-small" onclick="copyToClipboard2('${user.publicKey}')">Copy</button>
+            </div>
+          </div>
+        `;
+      }
+
       const muteBtn = isMuted
         ? `<button class="btn-small btn-unmute" onclick="unmuteUser('${user.publicKey}')" title="Unmute">🔊</button>`
         : `<button class="btn-small btn-mute" onclick="muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Mute">🔇</button>`;

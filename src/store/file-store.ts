@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
-import type { CloutStore, PostPackage, SlidePackage } from '../clout-types.js';
+import type { CloutStore, PostPackage, SlidePackage, PostDeletePackage } from '../clout-types.js';
 
 /**
  * Get Clout data directory from environment or default
@@ -24,6 +24,7 @@ interface LocalData {
   posts: { [id: string]: PostPackage };
   slides: { [id: string]: SlidePackage };
   trustGraph?: TrustGraphEntry[];
+  deletions?: { [postId: string]: PostDeletePackage };
 }
 
 export class FileSystemStore implements CloutStore {
@@ -139,5 +140,36 @@ export class FileSystemStore implements CloutStore {
     }
 
     return graph;
+  }
+
+  /**
+   * Save a post deletion
+   */
+  async addDeletion(deletion: PostDeletePackage): Promise<void> {
+    if (!this.data.deletions) {
+      this.data.deletions = {};
+    }
+
+    if (!this.data.deletions[deletion.postId]) {
+      this.data.deletions[deletion.postId] = deletion;
+      this.save();
+    }
+  }
+
+  /**
+   * Get all deletions
+   */
+  async getDeletions(): Promise<PostDeletePackage[]> {
+    if (!this.data.deletions) {
+      return [];
+    }
+    return Object.values(this.data.deletions);
+  }
+
+  /**
+   * Check if a post is deleted
+   */
+  isDeleted(postId: string): boolean {
+    return !!(this.data.deletions && this.data.deletions[postId]);
   }
 }
