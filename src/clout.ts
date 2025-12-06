@@ -357,6 +357,9 @@ export class Clout {
       reputation.score
     );
 
+    // Persist the ticket for cross-restart survival
+    this.saveTicket();
+
     const durationDays = Math.round(this.currentTicket.durationHours / 24);
     console.log(
       `[Clout] 🎟️ ${durationDays}-day pass acquired for ${this.publicKeyHex.slice(0, 8)} ` +
@@ -389,6 +392,51 @@ export class Clout {
       durationHours: this.currentTicket.durationHours,
       delegatedFrom: this.currentTicket.delegatedFrom
     };
+  }
+
+  /**
+   * Load saved ticket from persistent storage (survives Docker restarts)
+   *
+   * Called during initialization to restore ticket state.
+   * If the ticket is expired, it's automatically cleared.
+   */
+  async loadSavedTicket(): Promise<void> {
+    if (!this.store || !('getTicket' in this.store)) {
+      return;
+    }
+
+    const savedTicket = (this.store as any).getTicket();
+    if (savedTicket) {
+      // Restore ticket as CloutTicket
+      this.currentTicket = {
+        owner: savedTicket.owner,
+        expiry: savedTicket.expiry,
+        proof: savedTicket.proof,
+        signature: savedTicket.signature,
+        durationHours: savedTicket.durationHours,
+        delegatedFrom: savedTicket.delegatedFrom
+      };
+
+      const remainingMs = savedTicket.expiry - Date.now();
+      const remainingHours = Math.floor(remainingMs / (1000 * 60 * 60));
+      const remainingMinutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+
+      console.log(
+        `[Clout] 🎟️ Restored day pass: ${remainingHours}h ${remainingMinutes}m remaining`
+      );
+    }
+  }
+
+  /**
+   * Save current ticket to persistent storage
+   */
+  private saveTicket(): void {
+    if (!this.store || !('saveTicket' in this.store) || !this.currentTicket) {
+      return;
+    }
+
+    (this.store as any).saveTicket(this.currentTicket);
+    console.log(`[Clout] 💾 Day pass persisted to storage`);
   }
 
   /**

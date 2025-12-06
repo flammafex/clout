@@ -323,6 +323,9 @@ export class CloutWebServer {
       store
     });
 
+    // Load persisted ticket if available (survives Docker restarts)
+    await this.clout.loadSavedTicket();
+
     this.initialized = true;
     console.log(`Clout initialized with identity: ${identity.publicKey.slice(0, 16)}...`);
   }
