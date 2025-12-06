@@ -187,6 +187,9 @@ export interface PostPackage {
  *
  * This is the social equivalent of a token transfer.
  * Instead of transferring value, you're signaling trust.
+ *
+ * NOTE: This is the legacy plaintext format. For privacy-preserving
+ * trust signals, use EncryptedTrustSignal instead.
  */
 export interface TrustSignal {
   /** Who is doing the trusting */
@@ -206,6 +209,65 @@ export interface TrustSignal {
 
   /** Optional: Can revoke trust */
   readonly revoked?: boolean;
+}
+
+/**
+ * EncryptedTrustSignal - Privacy-preserving trust signal
+ *
+ * Hides the trustee's identity from third parties while allowing:
+ * 1. The trustee to decrypt and verify they were trusted
+ * 2. Third parties to detect duplicate signals (via commitment)
+ * 3. Anyone to verify the truster's signature
+ *
+ * Privacy guarantees:
+ * - Truster identity: PUBLIC (needed for signature verification)
+ * - Trustee identity: ENCRYPTED (only trustee can decrypt)
+ * - Trust relationship: HIDDEN (observers cannot map social graph)
+ *
+ * Cryptographic construction:
+ * - Commitment: H(trustee || nonce) - prevents duplicate detection attacks
+ * - Encryption: X25519 ECDH + XChaCha20-Poly1305 AEAD
+ * - Signature: Ed25519 over (commitment || weight || timestamp)
+ */
+export interface EncryptedTrustSignal {
+  /** Who is doing the trusting (public) */
+  readonly truster: string;
+
+  /**
+   * Commitment to trustee identity: H(trustee || nonce)
+   * - Allows duplicate detection without revealing trustee
+   * - Nonce prevents rainbow table attacks
+   */
+  readonly trusteeCommitment: string;
+
+  /**
+   * Encrypted trustee data - only decryptable by the trustee
+   * Contains: { trustee: string, nonce: string }
+   */
+  readonly encryptedTrustee: {
+    /** Ephemeral X25519 public key for ECDH */
+    readonly ephemeralPublicKey: Uint8Array;
+    /** XChaCha20-Poly1305 ciphertext */
+    readonly ciphertext: Uint8Array;
+  };
+
+  /**
+   * Ed25519 signature from truster over:
+   * H(trusteeCommitment || weight || timestamp)
+   */
+  readonly signature: Uint8Array;
+
+  /** Timestamp proof from Witness */
+  readonly proof: Attestation;
+
+  /** Trust level (0-1, default 1.0 for "follow") */
+  readonly weight?: number;
+
+  /** Revocation flag */
+  readonly revoked?: boolean;
+
+  /** Signal version for future compatibility */
+  readonly version: 'encrypted-v1';
 }
 
 /**
@@ -289,13 +351,16 @@ export interface SlidePackage {
  * In Clout: ContentGossipMessage spreads posts to propagate content
  */
 export interface ContentGossipMessage {
-  readonly type: 'post' | 'trust' | 'revoke' | 'slide' | 'reaction' | 'state-sync' | 'state-request';
+  readonly type: 'post' | 'trust' | 'trust-encrypted' | 'revoke' | 'slide' | 'reaction' | 'state-sync' | 'state-request';
 
   /** For posts */
   readonly post?: PostPackage;
 
-  /** For trust signals */
+  /** For trust signals (legacy plaintext format) */
   readonly trustSignal?: TrustSignal;
+
+  /** For encrypted trust signals (privacy-preserving) */
+  readonly encryptedTrustSignal?: EncryptedTrustSignal;
 
   /** For reactions */
   readonly reaction?: ReactionPackage;

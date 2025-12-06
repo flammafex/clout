@@ -419,4 +419,157 @@ export class Crypto {
   static getPublicKey(privateKey: Uint8Array): Uint8Array {
     return ed25519.getPublicKey(privateKey);
   }
+
+  // =================================================================
+  //  ENCRYPTED TRUST SIGNAL HELPERS
+  // =================================================================
+
+  /**
+   * Create an encrypted trust signal
+   *
+   * Privacy guarantees:
+   * - Trustee identity is encrypted and only visible to trustee
+   * - Commitment allows duplicate detection without revealing trustee
+   * - Truster can be verified via signature
+   *
+   * @param trusterPrivateKey - Truster's Ed25519 private key for signing
+   * @param trusterPublicKey - Truster's public key (hex)
+   * @param trusteePublicKey - Trustee's public key (hex) - used for encryption
+   * @param weight - Trust weight (0.1-1.0)
+   * @param timestamp - Current timestamp
+   * @returns Encrypted trust signal components
+   */
+  static createEncryptedTrustSignal(
+    trusterPrivateKey: Uint8Array,
+    trusterPublicKey: string,
+    trusteePublicKey: string,
+    weight: number,
+    timestamp: number
+  ): {
+    trusteeCommitment: string;
+    encryptedTrustee: { ephemeralPublicKey: Uint8Array; ciphertext: Uint8Array };
+    signature: Uint8Array;
+  } {
+    // 1. Generate random nonce for commitment
+    const nonce = this.toHex(this.randomBytes(32));
+
+    // 2. Create commitment: H(trustee || nonce)
+    const commitmentInput = trusteePublicKey + nonce;
+    const trusteeCommitment = this.hashString(commitmentInput);
+
+    // 3. Encrypt trustee data for the trustee
+    // The trustee needs both their key and the nonce to verify commitment
+    const trusteeData = JSON.stringify({ trustee: trusteePublicKey, nonce });
+    const trusteePubBytes = this.fromHex(trusteePublicKey);
+    const encrypted = this.encrypt(trusteeData, trusteePubBytes);
+
+    // 4. Sign the commitment + metadata
+    // This binds the signature to this specific trust signal
+    const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${weight}:${timestamp}`;
+    const signatureBytes = new TextEncoder().encode(signatureInput);
+    const signature = this.sign(signatureBytes, trusterPrivateKey);
+
+    return {
+      trusteeCommitment,
+      encryptedTrustee: {
+        ephemeralPublicKey: encrypted.ephemeralPublicKey,
+        ciphertext: encrypted.ciphertext
+      },
+      signature
+    };
+  }
+
+  /**
+   * Decrypt and verify an encrypted trust signal (as the trustee)
+   *
+   * Call this when you receive an encrypted trust signal to:
+   * 1. Decrypt the trustee identity
+   * 2. Verify the commitment matches
+   * 3. Verify the signature is valid
+   *
+   * @param encryptedTrustee - The encrypted trustee data
+   * @param trusteeCommitment - The commitment to verify
+   * @param trusterPublicKey - Truster's public key for signature verification
+   * @param signature - The signature to verify
+   * @param weight - Trust weight from the signal
+   * @param timestamp - Timestamp from the proof
+   * @param recipientPrivateKey - Your private key (to decrypt)
+   * @param recipientPublicKey - Your public key (for HKDF)
+   * @returns Decrypted trustee key if valid, null if invalid
+   */
+  static decryptTrustSignal(
+    encryptedTrustee: { ephemeralPublicKey: Uint8Array; ciphertext: Uint8Array },
+    trusteeCommitment: string,
+    trusterPublicKey: string,
+    signature: Uint8Array,
+    weight: number,
+    timestamp: number,
+    recipientPrivateKey: Uint8Array,
+    recipientPublicKey: Uint8Array
+  ): { trustee: string; nonce: string } | null {
+    try {
+      // 1. Decrypt the trustee data
+      const decrypted = this.decrypt(
+        encryptedTrustee.ephemeralPublicKey,
+        encryptedTrustee.ciphertext,
+        recipientPrivateKey,
+        recipientPublicKey
+      );
+
+      const { trustee, nonce } = JSON.parse(decrypted);
+
+      // 2. Verify the commitment matches
+      const expectedCommitment = this.hashString(trustee + nonce);
+      if (expectedCommitment !== trusteeCommitment) {
+        console.warn('[Crypto] Trust signal commitment mismatch');
+        return null;
+      }
+
+      // 3. Verify the signature
+      const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${weight}:${timestamp}`;
+      const signatureBytes = new TextEncoder().encode(signatureInput);
+      const trusterPubBytes = this.fromHex(trusterPublicKey);
+
+      if (!this.verify(signatureBytes, signature, trusterPubBytes)) {
+        console.warn('[Crypto] Trust signal signature invalid');
+        return null;
+      }
+
+      return { trustee, nonce };
+    } catch (error) {
+      // Decryption failed - we're not the intended recipient
+      return null;
+    }
+  }
+
+  /**
+   * Verify an encrypted trust signal's signature (as a third party)
+   *
+   * Third parties can verify the signature is valid from the truster,
+   * but cannot determine who the trustee is.
+   *
+   * @param trusteeCommitment - The commitment
+   * @param trusterPublicKey - Truster's public key
+   * @param signature - The signature
+   * @param weight - Trust weight
+   * @param timestamp - Timestamp from proof
+   * @returns true if signature is valid
+   */
+  static verifyEncryptedTrustSignature(
+    trusteeCommitment: string,
+    trusterPublicKey: string,
+    signature: Uint8Array,
+    weight: number,
+    timestamp: number
+  ): boolean {
+    try {
+      const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${weight}:${timestamp}`;
+      const signatureBytes = new TextEncoder().encode(signatureInput);
+      const trusterPubBytes = this.fromHex(trusterPublicKey);
+
+      return this.verify(signatureBytes, signature, trusterPubBytes);
+    } catch {
+      return false;
+    }
+  }
 }

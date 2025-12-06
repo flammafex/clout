@@ -572,6 +572,54 @@ services:
 
 ---
 
+## Privacy Features
+
+### Encrypted Trust Signals (Default)
+
+By default, Clout uses **encrypted trust signals** to hide your social graph from third parties.
+
+**How it works:**
+- When you trust someone (`clout follow <key>`), the trustee's identity is encrypted
+- Only the trustee can decrypt to see who trusts them
+- Third parties see the signal but cannot determine who is being trusted
+- A cryptographic commitment prevents duplicate detection without revealing identity
+
+**Privacy guarantees:**
+| What | Visibility |
+|------|------------|
+| Truster identity | PUBLIC (needed for signature verification) |
+| Trustee identity | ENCRYPTED (only trustee can decrypt) |
+| Trust relationship | HIDDEN (observers cannot map social graph) |
+
+**Configuration:**
+
+```typescript
+const clout = new Clout({
+  publicKey: myPublicKey,
+  privateKey: myPrivateKey,
+  freebird,
+  witness,
+
+  // Privacy: encrypted trust signals (default: true)
+  useEncryptedTrustSignals: true,
+});
+```
+
+To disable (legacy plaintext mode, NOT recommended):
+```typescript
+const clout = new Clout({
+  // ...
+  useEncryptedTrustSignals: false, // ⚠️ Exposes social graph
+});
+```
+
+**Cryptographic construction:**
+- Commitment: `H(trustee || nonce)` - prevents duplicate detection attacks
+- Encryption: X25519 ECDH + XChaCha20-Poly1305 AEAD
+- Signature: Ed25519 over `(commitment || weight || timestamp)`
+
+---
+
 ## Summary
 
 | Goal | How to Do It |
@@ -589,6 +637,7 @@ services:
 3. **Relay is built-in** - You can run the HyperToken relay from this codebase
 4. **Invitations are anti-spam** - Not access control; anyone can run their own network
 5. **Networks connect through trust** - Not through infrastructure federation
+6. **Privacy by default** - Encrypted trust signals hide your social graph
 
 ---
 

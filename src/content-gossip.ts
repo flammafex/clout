@@ -17,6 +17,7 @@ import type {
   SignedContentGossipMessage,
   PostPackage,
   TrustSignal,
+  EncryptedTrustSignal,
   CloutProfile,
   SlidePackage
 } from './clout-types.js';
@@ -46,6 +47,25 @@ export interface ContentGossipConfig {
    * When false, unsigned messages are accepted (backward compatibility).
    */
   readonly requireSignatures?: boolean;
+
+  /**
+   * Encryption keys for decrypting trust signals addressed to us
+   *
+   * When provided, the gossip node will attempt to decrypt incoming
+   * encrypted trust signals to see if we are the trustee.
+   *
+   * These should be X25519 keys (for ECDH key agreement).
+   */
+  readonly encryptionKey?: {
+    readonly publicKey: Uint8Array;
+    readonly privateKey: Uint8Array;
+  };
+
+  /**
+   * Our public key (hex string) for identity
+   * Used to determine if encrypted trust signals are addressed to us
+   */
+  readonly ourPublicKey?: string;
 }
 
 export interface PeerConnection {
@@ -66,6 +86,13 @@ interface PostRecord {
 interface TrustRecord {
   signal: TrustSignal;
   firstSeen: number;
+}
+
+interface EncryptedTrustRecord {
+  signal: EncryptedTrustSignal;
+  firstSeen: number;
+  /** If we decrypted it (we are the trustee), store the revealed trustee */
+  decryptedTrustee?: string;
 }
 
 interface SlideRecord {
@@ -89,6 +116,7 @@ interface PeerStateRecord {
 export class ContentGossip {
   private readonly seenPosts = new Map<string, PostRecord>();
   private readonly seenTrustSignals = new Map<string, TrustRecord>();
+  private readonly seenEncryptedTrustSignals = new Map<string, EncryptedTrustRecord>();
   private readonly seenSlides = new Map<string, SlideRecord>();
   private readonly peerStates = new Map<string, PeerStateRecord>();
   private readonly peerConnections: PeerConnection[] = [];
@@ -111,6 +139,13 @@ export class ContentGossip {
   };
   private readonly requireSignatures: boolean;
 
+  // Encryption keys for decrypting trust signals addressed to us
+  private readonly encryptionKey?: {
+    readonly publicKey: Uint8Array;
+    readonly privateKey: Uint8Array;
+  };
+  private readonly ourPublicKey?: string;
+
   // OPTIMIZATION: Cached adjacency list for O(1) hop distance lookups
   private readonly trustAdjacencyList = new Map<string, Set<string>>();
   private readonly hopDistanceCache = new Map<string, number>();
@@ -125,6 +160,8 @@ export class ContentGossip {
     this.maxHops = config.maxHops ?? 3; // Up to 3 degrees of separation
     this.signingKey = config.signingKey;
     this.requireSignatures = config.requireSignatures ?? false;
+    this.encryptionKey = config.encryptionKey;
+    this.ourPublicKey = config.ourPublicKey;
 
     // Initialize adjacency list from initial trust graph (distance 1)
     for (const trustedKey of this.trustGraph) {
@@ -174,6 +211,25 @@ export class ContentGossip {
 
       this.seenTrustSignals.set(key, {
         signal: message.trustSignal,
+        firstSeen: Date.now()
+      });
+
+      await this.broadcast(message);
+
+      if (this.receiveHandler) {
+        await this.receiveHandler(message);
+      }
+    } else if (message.type === 'trust-encrypted' && message.encryptedTrustSignal) {
+      // Encrypted trust signals use commitment as key (trustee is hidden)
+      const key = `${message.encryptedTrustSignal.truster}:${message.encryptedTrustSignal.trusteeCommitment}`;
+
+      if (this.seenEncryptedTrustSignals.has(key)) {
+        console.log(`[ContentGossip] Encrypted trust signal ${key.slice(0, 16)} already published`);
+        return;
+      }
+
+      this.seenEncryptedTrustSignals.set(key, {
+        signal: message.encryptedTrustSignal,
         firstSeen: Date.now()
       });
 
@@ -233,6 +289,8 @@ export class ContentGossip {
       await this.handlePostMessage(message.post, peerId);
     } else if (message.type === 'trust' && message.trustSignal) {
       await this.handleTrustMessage(message.trustSignal, peerId);
+    } else if (message.type === 'trust-encrypted' && message.encryptedTrustSignal) {
+      await this.handleEncryptedTrustMessage(message.encryptedTrustSignal, peerId);
     } else if (message.type === 'slide' && message.slide) {
       await this.handleSlideMessage(message.slide, peerId);
     } else if (message.type === 'state-sync' && message.stateSync) {
@@ -356,6 +414,93 @@ export class ContentGossip {
     // Notify handler
     if (this.receiveHandler) {
       await this.receiveHandler({ type: 'trust', trustSignal: signal, timestamp: Date.now() });
+    }
+  }
+
+  /**
+   * Handle incoming encrypted trust signal
+   *
+   * Privacy-preserving trust signals where:
+   * 1. Third parties can verify the truster's signature
+   * 2. Only the trustee can decrypt to see who trusted them
+   * 3. The social graph is hidden from observers
+   */
+  private async handleEncryptedTrustMessage(signal: EncryptedTrustSignal, peerId?: string): Promise<void> {
+    // Key is truster + commitment (trustee is hidden)
+    const key = `${signal.truster}:${signal.trusteeCommitment}`;
+
+    if (this.seenEncryptedTrustSignals.has(key)) {
+      return;
+    }
+
+    // Verify witness proof
+    const proofValid = await this.witness.verify(signal.proof);
+    if (!proofValid) {
+      console.warn('[ContentGossip] Invalid encrypted trust signal proof');
+      return;
+    }
+
+    // Verify truster's signature (anyone can do this)
+    const signatureValid = Crypto.verifyEncryptedTrustSignature(
+      signal.trusteeCommitment,
+      signal.truster,
+      signal.signature,
+      signal.weight ?? 1.0,
+      signal.proof.timestamp
+    );
+
+    if (!signatureValid) {
+      console.warn('[ContentGossip] Invalid encrypted trust signal signature');
+      return;
+    }
+
+    // Try to decrypt if we have encryption keys (to see if we're the trustee)
+    let decryptedTrustee: string | undefined;
+    if (this.encryptionKey && this.ourPublicKey) {
+      const decrypted = Crypto.decryptTrustSignal(
+        signal.encryptedTrustee,
+        signal.trusteeCommitment,
+        signal.truster,
+        signal.signature,
+        signal.weight ?? 1.0,
+        signal.proof.timestamp,
+        this.encryptionKey.privateKey,
+        this.encryptionKey.publicKey
+      );
+
+      if (decrypted && decrypted.trustee === this.ourPublicKey) {
+        // We are the trustee! Someone trusts us.
+        decryptedTrustee = decrypted.trustee;
+        console.log(`[ContentGossip] 🔐 Decrypted trust signal: ${signal.truster.slice(0, 8)} trusts us!`);
+
+        // Update our trust graph caches
+        this.updateGraphCaches(signal.truster, decryptedTrustee);
+      }
+    }
+
+    // Store the signal
+    this.seenEncryptedTrustSignals.set(key, {
+      signal,
+      firstSeen: Date.now(),
+      decryptedTrustee
+    });
+
+    console.log(`[ContentGossip] ✅ Accepted encrypted trust signal from ${signal.truster.slice(0, 8)}`);
+
+    // Propagate (trustee remains hidden)
+    await this.broadcast({
+      type: 'trust-encrypted',
+      encryptedTrustSignal: signal,
+      timestamp: Date.now()
+    }, true);
+
+    // Notify handler
+    if (this.receiveHandler) {
+      await this.receiveHandler({
+        type: 'trust-encrypted',
+        encryptedTrustSignal: signal,
+        timestamp: Date.now()
+      });
     }
   }
 
@@ -727,6 +872,7 @@ export class ContentGossip {
     return {
       postCount: this.seenPosts.size,
       trustSignalCount: this.seenTrustSignals.size,
+      encryptedTrustSignalCount: this.seenEncryptedTrustSignals.size,
       slideCount: this.seenSlides.size,
       peerCount: this.peerConnections.length,
       activePeers: this.peerConnections.filter(p => p.isConnected()).length,
