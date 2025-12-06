@@ -43,7 +43,7 @@ export class AuthManager {
   constructor(config: AuthConfig = {}) {
     this.sessionDurationMs = config.sessionDurationMs ?? 24 * 60 * 60 * 1000; // 24 hours
     this.maxSessions = config.maxSessions ?? 5;
-    this.requireAuth = config.requireAuth ?? (process.env.NODE_ENV === 'production');
+    this.requireAuth = config.requireAuth ?? false; // Disabled by default for local-first use
 
     // Cleanup expired sessions every 5 minutes
     this.cleanupTimer = setInterval(() => this.cleanupExpiredSessions(), 5 * 60 * 1000);
