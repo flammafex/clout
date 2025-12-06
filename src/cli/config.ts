@@ -5,10 +5,17 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 
-export interface ScarcityConfig {
+/**
+ * Get Clout data directory from environment or default
+ */
+function getCloutDataDir(): string {
+  return process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+}
+
+export interface CloutConfig {
   version: string;
   witness: {
     gatewayUrl: string;
@@ -28,11 +35,11 @@ export interface ScarcityConfig {
   };
 }
 
-export const DEFAULT_CONFIG: ScarcityConfig = {
+export const DEFAULT_CONFIG: CloutConfig = {
   version: '1.0',
   witness: {
     gatewayUrl: 'http://localhost:8080',
-    networkId: 'scarcity-testnet'
+    networkId: 'clout-testnet'
   },
   freebird: {
     issuerEndpoints: ['http://localhost:8081'],
@@ -50,10 +57,10 @@ export const DEFAULT_CONFIG: ScarcityConfig = {
 
 export class ConfigManager {
   private configPath: string;
-  private config: ScarcityConfig;
+  private config: CloutConfig;
 
   constructor(customPath?: string) {
-    this.configPath = customPath || join(homedir(), '.scarcity', 'config.json');
+    this.configPath = customPath || join(getCloutDataDir(), 'config.json');
     this.ensureConfigDir();
     this.config = this.loadConfig();
   }
@@ -62,7 +69,7 @@ export class ConfigManager {
    * Ensure config directory exists
    */
   private ensureConfigDir(): void {
-    const dir = join(homedir(), '.scarcity');
+    const dir = dirname(this.configPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
@@ -71,8 +78,8 @@ export class ConfigManager {
   /**
    * Load config from disk and apply environment overrides
    */
-  private loadConfig(): ScarcityConfig {
-    let loadedConfig: Partial<ScarcityConfig> = {};
+  private loadConfig(): CloutConfig {
+    let loadedConfig: Partial<CloutConfig> = {};
 
     // 1. Load from file if exists
     if (existsSync(this.configPath)) {
@@ -147,7 +154,7 @@ export class ConfigManager {
   /**
    * Get entire config
    */
-  getAll(): ScarcityConfig {
+  getAll(): CloutConfig {
     return { ...this.config };
   }
 

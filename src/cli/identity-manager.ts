@@ -5,10 +5,17 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { Crypto } from '../crypto.js';
 import type { PublicKey } from '../types.js';
+
+/**
+ * Get Clout data directory from environment or default
+ */
+function getCloutDataDir(): string {
+  return process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+}
 
 export interface IdentityData {
   name: string;
@@ -28,7 +35,7 @@ export class IdentityManager {
   private store: IdentityStore;
 
   constructor(customPath?: string) {
-    this.identityPath = customPath || join(homedir(), '.clout', 'identities.json');
+    this.identityPath = customPath || join(getCloutDataDir(), 'identities.json');
     this.ensureIdentityDir();
     this.store = this.loadStore();
   }
@@ -37,7 +44,7 @@ export class IdentityManager {
    * Ensure identity directory exists
    */
   private ensureIdentityDir(): void {
-    const dir = join(homedir(), '.clout');
+    const dir = dirname(this.identityPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
