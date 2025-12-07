@@ -411,7 +411,11 @@ export class Clout {
    * Load saved ticket from persistent storage (survives Docker restarts)
    *
    * Called during initialization to restore ticket state.
-   * If the ticket is expired, it's automatically cleared.
+   * Performs defense-in-depth verification:
+   * 1. Check expiry (quick rejection)
+   * 2. Verify witness signature (prevents storage tampering)
+   *
+   * If the ticket is expired or invalid, it's automatically cleared.
    */
   async loadSavedTicket(): Promise<void> {
     if (!this.store || !('getTicket' in this.store)) {
@@ -419,31 +423,61 @@ export class Clout {
     }
 
     const savedTicket = (this.store as any).getTicket();
-    if (savedTicket) {
-      // Infer ticket type for backwards compatibility with old saved tickets
-      const ticketType: TicketType = savedTicket.ticketType ?? (savedTicket.delegatedFrom ? 'delegated' : 'direct');
-
-      // Restore ticket as CloutTicket
-      this.currentTicket = {
-        owner: savedTicket.owner,
-        expiry: savedTicket.expiry,
-        proof: savedTicket.proof,
-        signature: savedTicket.signature,
-        durationHours: savedTicket.durationHours,
-        ticketType,
-        freebirdProof: savedTicket.freebirdProof ?? (ticketType === 'direct' ? savedTicket.proof : undefined),
-        delegationProof: savedTicket.delegationProof ?? (ticketType === 'delegated' ? savedTicket.proof : undefined),
-        delegatedFrom: savedTicket.delegatedFrom
-      };
-
-      const remainingMs = savedTicket.expiry - Date.now();
-      const remainingHours = Math.floor(remainingMs / (1000 * 60 * 60));
-      const remainingMinutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
-
-      console.log(
-        `[Clout] 🎟️ Restored day pass: ${remainingHours}h ${remainingMinutes}m remaining`
-      );
+    if (!savedTicket) {
+      return;
     }
+
+    // 1. Quick expiry check first (no need for crypto if expired)
+    if (Date.now() > savedTicket.expiry) {
+      console.log('[Clout] Saved ticket expired, discarding');
+      if ('clearTicket' in this.store) {
+        (this.store as any).clearTicket();
+      }
+      return;
+    }
+
+    // 2. Verify witness signature before accepting (defense in depth)
+    // This prevents users from extending ticket expiry via storage manipulation
+    if (savedTicket.proof) {
+      try {
+        const isValid = await this.witness.verify(savedTicket.proof);
+        if (!isValid) {
+          console.warn('[Clout] ⚠️ Saved ticket has invalid witness signature, discarding');
+          if ('clearTicket' in this.store) {
+            (this.store as any).clearTicket();
+          }
+          return;
+        }
+      } catch (err) {
+        // If verification fails (e.g., witness unavailable), log but still load
+        // This allows offline usage while still providing protection when online
+        console.warn('[Clout] Could not verify ticket signature (witness unavailable):', err);
+      }
+    }
+
+    // 3. Restore ticket as CloutTicket
+    // Infer ticket type for backwards compatibility with old saved tickets
+    const ticketType: TicketType = savedTicket.ticketType ?? (savedTicket.delegatedFrom ? 'delegated' : 'direct');
+
+    this.currentTicket = {
+      owner: savedTicket.owner,
+      expiry: savedTicket.expiry,
+      proof: savedTicket.proof,
+      signature: savedTicket.signature,
+      durationHours: savedTicket.durationHours,
+      ticketType,
+      freebirdProof: savedTicket.freebirdProof ?? (ticketType === 'direct' ? savedTicket.proof : undefined),
+      delegationProof: savedTicket.delegationProof ?? (ticketType === 'delegated' ? savedTicket.proof : undefined),
+      delegatedFrom: savedTicket.delegatedFrom
+    };
+
+    const remainingMs = savedTicket.expiry - Date.now();
+    const remainingHours = Math.floor(remainingMs / (1000 * 60 * 60));
+    const remainingMinutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    console.log(
+      `[Clout] 🎟️ Restored day pass: ${remainingHours}h ${remainingMinutes}m remaining`
+    );
   }
 
   /**
