@@ -1,13 +1,45 @@
 import { Crypto } from './crypto.js';
 import type { KeyPair, FreebirdClient, WitnessClient, Attestation } from './types.js';
 
+/**
+ * Ticket type discriminator
+ *
+ * - 'direct': Minted using a Freebird token (proof is freebirdToken)
+ * - 'delegated': Minted using a delegation (proof is delegator's signature)
+ */
+export type TicketType = 'direct' | 'delegated';
+
 export interface CloutTicket {
   owner: string;          // User's Public Key (Hex)
   expiry: number;         // Timestamp (e.g., Now + 24-168 hours)
-  proof: Uint8Array;      // The consumed Freebird Token
   signature: Attestation; // Witness proof that this ticket was minted now
   durationHours: number;  // Duration in hours (for transparency)
-  delegatedFrom?: string; // Optional: delegator's public key (if this is a delegated pass)
+
+  /**
+   * Ticket type discriminator (default: 'direct' for backwards compatibility)
+   */
+  ticketType: TicketType;
+
+  /**
+   * Freebird token proof (present if ticketType === 'direct')
+   */
+  freebirdProof?: Uint8Array;
+
+  /**
+   * Delegation signature proof (present if ticketType === 'delegated')
+   */
+  delegationProof?: Uint8Array;
+
+  /**
+   * Delegator's public key (present if ticketType === 'delegated')
+   */
+  delegatedFrom?: string;
+
+  /**
+   * @deprecated Use freebirdProof or delegationProof based on ticketType
+   * Kept for backwards compatibility - contains the appropriate proof based on ticket type
+   */
+  proof: Uint8Array;
 }
 
 export interface DelegatedPass {
@@ -35,6 +67,19 @@ export type ReputationGetter = (publicKey: string) => number;
 export type DelegationChangeCallback = (delegation: DelegatedPass | null, recipient: string) => void;
 
 /**
+ * Delegation count tracking for rate limiting
+ */
+export interface DelegationCount {
+  count: number;
+  windowStart: number; // Start of the current counting window (weekly)
+}
+
+/**
+ * Callback for delegation count changes (for persistence)
+ */
+export type DelegationCountCallback = (delegator: string, count: DelegationCount) => void;
+
+/**
  * Configuration options for TicketBooth
  */
 export interface TicketBoothConfig {
@@ -52,14 +97,31 @@ export interface TicketBoothConfig {
    * Map of recipient public key -> DelegatedPass
    */
   persistedDelegations?: Map<string, DelegatedPass>;
+
+  /**
+   * Optional callback to persist delegation count changes
+   * Called when a user's delegation count changes
+   */
+  onDelegationCountChange?: DelegationCountCallback;
+
+  /**
+   * Optional initial delegation counts from persistence
+   * Map of delegator public key -> DelegationCount
+   */
+  persistedDelegationCounts?: Map<string, DelegationCount>;
 }
+
+/** One week in milliseconds */
+const DELEGATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class TicketBooth {
   private freebird: FreebirdClient;
   private witness: WitnessClient;
   private readonly delegations = new Map<string, DelegatedPass>(); // recipient -> delegation
+  private readonly delegationCounts = new Map<string, DelegationCount>(); // delegator -> count this week
   private reputationGetter?: ReputationGetter;
   private readonly onDelegationChange?: DelegationChangeCallback;
+  private readonly onDelegationCountChange?: DelegationCountCallback;
 
   constructor(freebird: FreebirdClient, witness: WitnessClient, config?: Partial<TicketBoothConfig>);
   constructor(config: TicketBoothConfig);
@@ -75,6 +137,7 @@ export class TicketBooth {
       this.freebird = cfg.freebird;
       this.witness = cfg.witness;
       this.onDelegationChange = cfg.onDelegationChange;
+      this.onDelegationCountChange = cfg.onDelegationCountChange;
 
       // Load persisted delegations
       if (cfg.persistedDelegations) {
@@ -86,11 +149,22 @@ export class TicketBooth {
         }
         console.log(`[TicketBooth] Loaded ${this.delegations.size} persisted delegations`);
       }
+
+      // Load persisted delegation counts
+      if (cfg.persistedDelegationCounts) {
+        for (const [delegator, count] of cfg.persistedDelegationCounts) {
+          // Only load if still in current window
+          if (Date.now() < count.windowStart + DELEGATION_WINDOW_MS) {
+            this.delegationCounts.set(delegator, count);
+          }
+        }
+      }
     } else {
       // Old style: separate freebird and witness arguments
       this.freebird = freebirdOrConfig as FreebirdClient;
       this.witness = witness!;
       this.onDelegationChange = config?.onDelegationChange;
+      this.onDelegationCountChange = config?.onDelegationCountChange;
 
       // Load persisted delegations from config
       if (config?.persistedDelegations) {
@@ -100,6 +174,15 @@ export class TicketBooth {
           }
         }
         console.log(`[TicketBooth] Loaded ${this.delegations.size} persisted delegations`);
+      }
+
+      // Load persisted delegation counts
+      if (config?.persistedDelegationCounts) {
+        for (const [delegator, count] of config.persistedDelegationCounts) {
+          if (Date.now() < count.windowStart + DELEGATION_WINDOW_MS) {
+            this.delegationCounts.set(delegator, count);
+          }
+        }
       }
     }
   }
@@ -165,7 +248,9 @@ export class TicketBooth {
       owner: ticketPayload.owner,
       expiry: ticketPayload.expiry,
       durationHours,
-      proof: freebirdToken,
+      ticketType: 'direct' as const,
+      freebirdProof: freebirdToken,
+      proof: freebirdToken, // Backwards compatibility
       signature: signature
     };
   }
@@ -243,6 +328,16 @@ export class TicketBooth {
 
     const delegatorKey = Crypto.toHex(delegator.publicKey.bytes);
 
+    // Enforce delegation rate limit
+    const maxAllowed = this.getMaxDelegations(delegatorReputation);
+    const currentCount = this.getDelegationCount(delegatorKey);
+    if (currentCount >= maxAllowed) {
+      throw new Error(
+        `Delegation limit reached (${currentCount}/${maxAllowed} this week). ` +
+        `Try again after the weekly reset.`
+      );
+    }
+
     // Create delegation
     const now = Date.now();
     const expiry = now + (durationHours * 60 * 60 * 1000);
@@ -278,11 +373,79 @@ export class TicketBooth {
       this.onDelegationChange(delegation, recipient);
     }
 
+    // Increment delegation count for rate limiting
+    this.incrementDelegationCount(delegatorKey);
+
     console.log(
-      `[TicketBooth] 🎁 ${delegatorKey.slice(0, 8)} delegated ${durationHours}h pass to ${recipient.slice(0, 8)}`
+      `[TicketBooth] 🎁 ${delegatorKey.slice(0, 8)} delegated ${durationHours}h pass to ${recipient.slice(0, 8)} ` +
+      `(${currentCount + 1}/${maxAllowed} this week)`
     );
 
     return delegation;
+  }
+
+  /**
+   * Get current delegation count for a user (within the weekly window)
+   */
+  getDelegationCount(delegatorKey: string): number {
+    const record = this.delegationCounts.get(delegatorKey);
+    if (!record) {
+      return 0;
+    }
+
+    // Check if the window has expired
+    if (Date.now() >= record.windowStart + DELEGATION_WINDOW_MS) {
+      // Window expired, reset count
+      this.delegationCounts.delete(delegatorKey);
+      return 0;
+    }
+
+    return record.count;
+  }
+
+  /**
+   * Increment delegation count for a user
+   */
+  private incrementDelegationCount(delegatorKey: string): void {
+    const now = Date.now();
+    let record = this.delegationCounts.get(delegatorKey);
+
+    // Check if we need to start a new window
+    if (!record || now >= record.windowStart + DELEGATION_WINDOW_MS) {
+      record = { count: 0, windowStart: now };
+    }
+
+    record.count++;
+    this.delegationCounts.set(delegatorKey, record);
+
+    // Persist the count change
+    if (this.onDelegationCountChange) {
+      this.onDelegationCountChange(delegatorKey, record);
+    }
+  }
+
+  /**
+   * Get delegation rate limit info for a user
+   */
+  getDelegationLimitInfo(delegatorKey: string, reputation: number): {
+    current: number;
+    max: number;
+    remaining: number;
+    windowResetMs: number;
+  } {
+    const max = this.getMaxDelegations(reputation);
+    const current = this.getDelegationCount(delegatorKey);
+    const record = this.delegationCounts.get(delegatorKey);
+    const windowResetMs = record
+      ? Math.max(0, (record.windowStart + DELEGATION_WINDOW_MS) - Date.now())
+      : 0;
+
+    return {
+      current,
+      max,
+      remaining: Math.max(0, max - current),
+      windowResetMs
+    };
   }
 
   /**
@@ -362,9 +525,11 @@ export class TicketBooth {
       owner: userKey,
       expiry: delegation.expiry,
       durationHours,
-      proof: delegation.signature, // Use delegation signature as proof
-      signature,
-      delegatedFrom: delegation.delegator
+      ticketType: 'delegated' as const,
+      delegationProof: delegation.signature,
+      delegatedFrom: delegation.delegator,
+      proof: delegation.signature, // Backwards compatibility
+      signature
     };
   }
 
