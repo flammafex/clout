@@ -341,6 +341,15 @@ export class FileSystemStore implements CloutStore {
       return null;
     }
 
+    // Check for old ticket format (had 'signature' string instead of 'signatures' array)
+    // If found, clear it so a new ticket will be minted
+    if (!serialized.signature.signatures || !Array.isArray(serialized.signature.signatures)) {
+      console.log('[FileStore] Clearing old format ticket - will mint new one');
+      delete this.data.ticket;
+      this.save();
+      return null;
+    }
+
     // Deserialize base64 back to Uint8Array for proof, keep signature as-is
     return {
       owner: serialized.owner,
