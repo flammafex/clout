@@ -86,6 +86,10 @@ export class RelayServer {
   private wss?: WebSocketServer;
   private readonly clients = new Map<string, RegisteredClient>();
   private readonly pendingAuth = new Map<WebSocket, PendingAuth>();
+  /** Track WebSockets that have successfully completed authentication */
+  private readonly authenticatedWs = new Set<WebSocket>();
+  /** Map WebSocket to authenticated publicKey for sender verification */
+  private readonly wsToPublicKey = new Map<WebSocket, string>();
 
   constructor(config: RelayServerConfig) {
     this.config = config;
@@ -176,8 +180,10 @@ export class RelayServer {
     });
 
     ws.on('close', () => {
-      // Clean up pending auth
+      // Clean up all tracking structures
       this.pendingAuth.delete(ws);
+      this.authenticatedWs.delete(ws);
+      this.wsToPublicKey.delete(ws);
 
       // Remove client from registry
       for (const [publicKey, client] of this.clients.entries()) {
@@ -264,11 +270,14 @@ export class RelayServer {
         console.warn(`[RelayServer] ⚠️ Invalid signature from ${publicKey.slice(0, 8)}`);
         this.sendError(ws, 'Invalid signature - authentication failed');
         this.pendingAuth.delete(ws);
+        ws.close(4001, 'Authentication failed');
         return;
       }
 
-      // Authentication successful - clean up pending auth
+      // Authentication successful - clean up pending auth and track success
       this.pendingAuth.delete(ws);
+      this.authenticatedWs.add(ws);
+      this.wsToPublicKey.set(ws, publicKey);
 
       console.log(`[RelayServer] ✓ Authenticated ${publicKey.slice(0, 8)}`);
 
@@ -285,6 +294,7 @@ export class RelayServer {
       console.error('[RelayServer] Auth verification error:', error);
       this.sendError(ws, 'Authentication verification failed');
       this.pendingAuth.delete(ws);
+      ws.close(4001, 'Authentication failed');
     }
   }
 
@@ -308,16 +318,15 @@ export class RelayServer {
   }
 
   /**
-   * Check if a WebSocket has completed auth challenge
+   * Check if a WebSocket has completed auth challenge successfully
    */
   private hasCompletedAuth(ws: WebSocket): boolean {
     if (!this.requireAuth) {
       return true;
     }
 
-    // If there's no pending auth for this ws, auth was completed
-    // (either passed or wasn't required for this connection)
-    return !this.pendingAuth.has(ws);
+    // Check if client successfully completed authentication
+    return this.authenticatedWs.has(ws);
   }
 
   /**
@@ -335,6 +344,19 @@ export class RelayServer {
     if (!this.hasCompletedAuth(ws)) {
       this.sendError(ws, 'Must complete authentication challenge before registering');
       return;
+    }
+
+    // Verify the publicKey matches the authenticated identity
+    if (this.requireAuth) {
+      const authenticatedAs = this.wsToPublicKey.get(ws);
+      if (authenticatedAs !== publicKey) {
+        console.warn(
+          `[RelayServer] ⚠️ Registration identity mismatch: ` +
+          `authenticated as ${authenticatedAs?.slice(0, 8)}, trying to register as ${publicKey.slice(0, 8)}`
+        );
+        this.sendError(ws, 'Registration publicKey must match authenticated identity');
+        return;
+      }
     }
 
     // Register client (authenticated since they passed the challenge)
@@ -366,10 +388,26 @@ export class RelayServer {
    * Handle WebRTC signaling
    */
   private handleSignal(ws: WebSocket, message: RelayMessage): void {
-    const { to, payload } = message;
+    const { to, payload, from } = message;
 
     if (!to) {
       this.sendError(ws, 'Missing recipient in signal');
+      return;
+    }
+
+    // Verify sender identity to prevent spoofing
+    const authenticatedAs = this.wsToPublicKey.get(ws);
+    if (!authenticatedAs) {
+      this.sendError(ws, 'Must register before sending signals');
+      return;
+    }
+
+    if (from !== authenticatedAs) {
+      console.warn(
+        `[RelayServer] ⚠️ Sender spoofing attempt: ` +
+        `claimed ${from?.slice(0, 8)}, actually ${authenticatedAs.slice(0, 8)}`
+      );
+      this.sendError(ws, 'Sender identity mismatch');
       return;
     }
 
@@ -379,16 +417,16 @@ export class RelayServer {
       return;
     }
 
-    // Forward signal to recipient
+    // Forward signal to recipient with verified sender
     this.send(recipient.ws, {
       type: RelayMessageType.SIGNAL,
-      from: message.from,
+      from: authenticatedAs,
       to,
       payload
     });
 
     console.log(
-      `[RelayServer] Forwarded signal: ${message.from?.slice(0, 8)} -> ${to.slice(0, 8)}`
+      `[RelayServer] Forwarded signal: ${authenticatedAs.slice(0, 8)} -> ${to.slice(0, 8)}`
     );
   }
 
@@ -396,10 +434,26 @@ export class RelayServer {
    * Handle message forwarding
    */
   private handleForward(ws: WebSocket, message: RelayMessage): void {
-    const { to, payload } = message;
+    const { to, payload, from } = message;
 
     if (!to) {
       this.sendError(ws, 'Missing recipient in forward');
+      return;
+    }
+
+    // Verify sender identity to prevent spoofing
+    const authenticatedAs = this.wsToPublicKey.get(ws);
+    if (!authenticatedAs) {
+      this.sendError(ws, 'Must register before forwarding messages');
+      return;
+    }
+
+    if (from !== authenticatedAs) {
+      console.warn(
+        `[RelayServer] ⚠️ Forward spoofing attempt: ` +
+        `claimed ${from?.slice(0, 8)}, actually ${authenticatedAs.slice(0, 8)}`
+      );
+      this.sendError(ws, 'Sender identity mismatch');
       return;
     }
 
@@ -409,10 +463,10 @@ export class RelayServer {
       return;
     }
 
-    // Forward message
+    // Forward message with verified sender
     this.send(recipient.ws, {
       type: RelayMessageType.FORWARD,
-      from: message.from,
+      from: authenticatedAs,
       to,
       payload
     });
