@@ -359,10 +359,9 @@ export class CloutWebServer {
       isOwner
     });
 
-    // Initialize persistent storage
+    // Initialize persistent storage (path logged by FileStore)
     const store = new FileSystemStore();
     await store.init();
-    console.log('Persistent storage initialized at ~/.clout/local-data.json');
 
     this.clout = new Clout({
       publicKey: identity.publicKey,
