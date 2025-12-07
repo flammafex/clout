@@ -34,11 +34,15 @@ function getReactionsSummary(clout: Clout, postId: string) {
   return { reactions: summary, myReaction };
 }
 
-export function createFeedRoutes(getClout: () => Clout | undefined, isInitialized: () => boolean): Router {
+export function createFeedRoutes(
+  getClout: () => Clout | undefined,
+  isInitialized: () => boolean,
+  areVisitorsAllowed: () => boolean = () => true
+): Router {
   const router = Router();
 
   // Get Feed
-  // Public route - visitors can view the feed without an identity
+  // Public route - visitors can view the feed without an identity (if allowed)
   router.get('/feed', async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
@@ -49,6 +53,16 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
       const clout = getClout();
 
       if (!isMember || !clout) {
+        // Check if visitors are allowed
+        if (!areVisitorsAllowed()) {
+          // Private instance - require identity
+          return res.status(401).json({
+            success: false,
+            error: 'This is a private Clout instance. Identity required.',
+            requiresIdentity: true
+          });
+        }
+
         // Visitor mode - return empty feed with visitor flag
         // In the future, this could return a curated public feed from gossip
         return res.json({
@@ -58,6 +72,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             totalPosts: 0,
             nsfwEnabled: false,
             isVisitor: true,
+            visitorsAllowed: true,
             message: 'Welcome! Join with an invitation code to see the full feed.'
           }
         });
@@ -213,7 +228,7 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
   });
 
   // Get Thread
-  // Public route - visitors can view threads
+  // Public route - visitors can view threads (if allowed)
   router.get('/thread/:id', async (req, res) => {
     try {
       const postId = req.params.id;
@@ -221,6 +236,15 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
       const clout = getClout();
 
       if (!isMember || !clout) {
+        // Check if visitors are allowed
+        if (!areVisitorsAllowed()) {
+          return res.status(401).json({
+            success: false,
+            error: 'This is a private Clout instance. Identity required.',
+            requiresIdentity: true
+          });
+        }
+
         // Visitor mode - return empty thread with visitor flag
         return res.json({
           success: true,

@@ -2408,12 +2408,23 @@ async function loadVisitorFeed() {
       renderFeed(data.posts);
     }
   } catch (error) {
-    $('feed-list').innerHTML = `
-      <div class="empty-state-helpful">
-        <div class="empty-icon">❌</div>
-        <h4>Unable to load feed</h4>
-        <p>${error.message}</p>
-      </div>
-    `;
+    const feedList = $('feed-list');
+
+    // Check if this is a private instance (visitors not allowed)
+    if (error.message?.includes('private') || error.message?.includes('Identity required')) {
+      // Private instance - show init screen instead
+      $('main-app').style.display = 'none';
+      $('init-section').style.display = 'block';
+      updateStatus('Private Instance - Identity Required', false);
+      feedList.innerHTML = '';
+    } else {
+      feedList.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">❌</div>
+          <h4>Unable to load feed</h4>
+          <p>${error.message}</p>
+        </div>
+      `;
+    }
   }
 }
