@@ -516,6 +516,28 @@ export class ContentGossip {
    * 1. Third parties can verify the truster's signature
    * 2. Only the trustee can decrypt to see who trusted them
    * 3. The social graph is hidden from observers
+   *
+   * ## Privacy vs Graph Completeness Tradeoff
+   *
+   * IMPORTANT: When encrypted trust signals propagate through the network,
+   * nodes that aren't the trustee learn nothing about the edge. This means:
+   *
+   * - Hop distance calculations are incomplete for third parties
+   * - A user may appear "unreachable" (999 hops) even if they're actually
+   *   2-3 hops away through encrypted edges
+   * - The social graph is effectively hidden from network observers
+   *
+   * This is an INTENTIONAL privacy design decision. The tradeoff is:
+   * - Privacy: Third parties cannot map the social graph
+   * - Completeness: Reputation/distance scores may be lower than reality
+   *
+   * For communities that prefer full graph transparency over privacy,
+   * use plaintext TrustSignal messages instead of EncryptedTrustSignal.
+   * The graph caches (hopDistanceCache, trustAdjacencyList) will then
+   * contain all edges and provide accurate hop distance calculations.
+   *
+   * Note: We only update graph caches when WE are the trustee because
+   * that's the only case where we can decrypt and verify the edge.
    */
   private async handleEncryptedTrustMessage(signal: EncryptedTrustSignal, peerId?: string): Promise<void> {
     // Key is truster + commitment (trustee is hidden)
