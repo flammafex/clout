@@ -1,5 +1,5 @@
 import { CloutPost, type PostConfig, type ContentGossip } from './post.js';
-import { TicketBooth, type CloutTicket } from './ticket-booth.js';
+import { TicketBooth, type CloutTicket, type TicketType } from './ticket-booth.js';
 import { Crypto } from './crypto.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
@@ -408,6 +408,9 @@ export class Clout {
 
     const savedTicket = (this.store as any).getTicket();
     if (savedTicket) {
+      // Infer ticket type for backwards compatibility with old saved tickets
+      const ticketType: TicketType = savedTicket.ticketType ?? (savedTicket.delegatedFrom ? 'delegated' : 'direct');
+
       // Restore ticket as CloutTicket
       this.currentTicket = {
         owner: savedTicket.owner,
@@ -415,6 +418,9 @@ export class Clout {
         proof: savedTicket.proof,
         signature: savedTicket.signature,
         durationHours: savedTicket.durationHours,
+        ticketType,
+        freebirdProof: savedTicket.freebirdProof ?? (ticketType === 'direct' ? savedTicket.proof : undefined),
+        delegationProof: savedTicket.delegationProof ?? (ticketType === 'delegated' ? savedTicket.proof : undefined),
         delegatedFrom: savedTicket.delegatedFrom
       };
 
