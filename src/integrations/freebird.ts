@@ -36,9 +36,19 @@ export interface FreebirdAdapterConfig {
   readonly sybilMode?: SybilMode;
   /**
    * Invitation code for 'invitation' sybil mode.
-   * Required when sybilMode is 'invitation'.
+   * Required when sybilMode is 'invitation' (unless isOwner is true).
    */
   readonly invitationCode?: string;
+  /**
+   * User's public key (hex string).
+   * Used for owner identification in invitation mode.
+   */
+  readonly userPublicKey?: string;
+  /**
+   * Whether this user is the instance owner.
+   * Owners can obtain tokens without an invitation code.
+   */
+  readonly isOwner?: boolean;
   /**
    * Allow insecure fallback mode when Freebird servers are unavailable.
    *
@@ -70,6 +80,8 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly allowInsecureFallback: boolean;
   private readonly sybilMode: SybilMode;
   private invitationCode: string | undefined;
+  private readonly userPublicKey: string | undefined;
+  private readonly isOwner: boolean;
   private metadata: Map<string, any> = new Map();
   private blindStates: Map<string, BlindState> = new Map();
   private fallbackWarningShown = false;
@@ -85,6 +97,8 @@ export class FreebirdAdapter implements FreebirdClient {
     this.allowInsecureFallback = config.allowInsecureFallback ?? false;
     this.sybilMode = config.sybilMode ?? 'none';
     this.invitationCode = config.invitationCode;
+    this.userPublicKey = config.userPublicKey;
+    this.isOwner = config.isOwner ?? false;
     // Context must match Freebird server
     this.context = new TextEncoder().encode('freebird:v1');
 
@@ -173,6 +187,14 @@ export class FreebirdAdapter implements FreebirdClient {
       }
 
       case 'invitation': {
+        // Owner can obtain tokens without an invitation code
+        if (this.isOwner && this.userPublicKey) {
+          console.log('[Freebird] Owner mode - obtaining token as registered user');
+          return {
+            type: 'registered_user',
+            user_id: this.userPublicKey
+          };
+        }
         if (!this.invitationCode) {
           throw new Error('[Freebird] Invitation mode requires an invitation code. Call setInvitationCode() first.');
         }

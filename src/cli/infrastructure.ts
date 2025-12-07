@@ -19,6 +19,13 @@ export interface Infrastructure {
   hypertoken: HyperTokenAdapter;
 }
 
+export interface InitializeOptions {
+  /** User's public key (hex string) for Freebird owner identification */
+  userPublicKey?: string;
+  /** Whether this user is the Freebird instance owner */
+  isOwner?: boolean;
+}
+
 export class InfrastructureManager {
   private config: ConfigManager;
   private infrastructure?: Infrastructure;
@@ -29,14 +36,21 @@ export class InfrastructureManager {
 
   /**
    * Initialize infrastructure
+   *
+   * @param options Optional initialization options (owner info, etc.)
    */
-  async initialize(): Promise<Infrastructure> {
+  async initialize(options?: InitializeOptions): Promise<Infrastructure> {
     if (this.infrastructure) {
       return this.infrastructure;
     }
 
-    // Initialize Freebird
-    const freebird = new FreebirdAdapter(this.config.getFreebirdConfig());
+    // Initialize Freebird with owner info if available
+    const freebirdConfig = {
+      ...this.config.getFreebirdConfig(),
+      userPublicKey: options?.userPublicKey,
+      isOwner: options?.isOwner
+    };
+    const freebird = new FreebirdAdapter(freebirdConfig);
 
     // Initialize Witness
     const witness = new WitnessAdapter(this.config.getWitnessConfig());
