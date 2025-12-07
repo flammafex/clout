@@ -9,13 +9,11 @@
   "files": [
     "hypertoken_core_bg.wasm",
     "hypertoken_core.js",
-    "hypertoken_core_bg.js",
     "hypertoken_core.d.ts"
   ],
   "main": "hypertoken_core.js",
   "types": "hypertoken_core.d.ts",
   "sideEffects": [
-    "./hypertoken_core.js",
     "./snippets/*"
   ]
 }
