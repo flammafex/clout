@@ -172,20 +172,17 @@ async function redeemInvite() {
     $('redeem-invite-btn').textContent = 'Redeeming...';
 
     // Store the invitation code for use when posting
-    const response = await apiCall('/invitation/redeem', 'POST', { code });
+    // apiCall returns the data payload on success, throws on failure
+    await apiCall('/invitation/redeem', 'POST', { code });
 
-    if (response.success) {
-      $('invite-result').textContent = 'Invitation redeemed! You can now post.';
-      $('invite-result').className = 'result-message success';
-      pendingInviteCode = code;
+    $('invite-result').textContent = 'Invitation redeemed! You can now post.';
+    $('invite-result').className = 'result-message success';
+    pendingInviteCode = code;
 
-      // Close popover after a short delay
-      setTimeout(() => {
-        closeInvitePopover();
-      }, 1500);
-    } else {
-      throw new Error(response.error || 'Failed to redeem invitation');
-    }
+    // Close popover after a short delay
+    setTimeout(() => {
+      closeInvitePopover();
+    }, 1500);
   } catch (error) {
     $('invite-result').textContent = error.message;
     $('invite-result').className = 'result-message error';

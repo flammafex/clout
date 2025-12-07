@@ -344,9 +344,15 @@ export class CloutWebServer {
     // Register Self as Freebird owner and bootstrap invitations if needed
     await this.bootstrapFreebirdOwner(identity.publicKey);
 
+    // Check if we're the instance owner (have admin key)
+    const isOwner = !!process.env.FREEBIRD_ADMIN_KEY;
+
     // Initialize infrastructure (Freebird, Witness, Gossip)
     console.log('Initializing Clout infrastructure...');
-    const infra = await this.infraManager.initialize();
+    const infra = await this.infraManager.initialize({
+      userPublicKey: identity.publicKey,
+      isOwner
+    });
 
     // Initialize persistent storage
     const store = new FileSystemStore();
