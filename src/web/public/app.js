@@ -22,6 +22,7 @@
 
 const API_BASE = '/api';
 let initialized = false;
+let isVisitor = true; // Track visitor state - true until identity is created via invitation
 let replyingTo = null; // Track which post we're replying to
 let pendingMedia = null; // Track uploaded media for post { cid, mimeType, filename, size }
 let editingPost = null; // Track which post we're editing { id, content }
@@ -29,6 +30,19 @@ let postsCache = {}; // Cache of loaded posts by ID for edit lookups
 let dayPassEndTime = null; // Track day pass expiration
 let dayPassInterval = null; // Interval for updating countdown
 let pendingInviteCode = null; // Track pending invitation code for redemption
+
+/**
+ * Check if user is a member (has identity). If not, show invite popup.
+ * Use this to guard all interactive actions.
+ * @returns {boolean} true if user is a member, false if visitor (popup shown)
+ */
+function requireMembership() {
+  if (!initialized || isVisitor) {
+    showInvitePopover();
+    return false;
+  }
+  return true;
+}
 
 const $ = (id) => document.getElementById(id);
 const $$ = (selector) => document.querySelectorAll(selector);
@@ -171,17 +185,45 @@ async function redeemInvite() {
     $('redeem-invite-btn').disabled = true;
     $('redeem-invite-btn').textContent = 'Redeeming...';
 
-    // Store the invitation code for use when posting
-    // apiCall returns the data payload on success, throws on failure
+    // Step 1: Redeem the invitation code
     await apiCall('/invitation/redeem', 'POST', { code });
 
-    $('invite-result').textContent = 'Invitation redeemed! You can now post.';
+    $('invite-result').textContent = 'Invitation accepted! Creating your identity...';
     $('invite-result').className = 'result-message success';
+    $('redeem-invite-btn').textContent = 'Creating Identity...';
+
+    // Step 2: Initialize Clout (creates identity)
+    const initResponse = await apiCall('/init', 'POST');
+
+    // Step 3: Transition from visitor to member
+    initialized = true;
+    isVisitor = false;
     pendingInviteCode = code;
 
-    // Close popover after a short delay
-    setTimeout(() => {
+    // Update UI for member mode
+    $('init-section').style.display = 'none';
+    $('main-app').style.display = 'block';
+    updateStatus('Connected', true);
+
+    // Start day pass countdown timer with actual ticket expiry
+    const ticketExpiry = initResponse?.ticketInfo?.expiry;
+    startDayPassTimer(ticketExpiry);
+
+    $('invite-result').textContent = '🎉 Welcome to Clout! Your identity has been created.';
+    $('invite-result').className = 'result-message success';
+
+    // Close popover and load feed after a short delay
+    setTimeout(async () => {
       closeInvitePopover();
+
+      // Load member data
+      await loadFeed();
+      await loadIdentity();
+      await loadProfile();
+      loadSlides().catch(() => {});
+      connectLiveUpdates();
+      updateNotificationCounts();
+      setInterval(updateNotificationCounts, 30000);
     }, 1500);
   } catch (error) {
     $('invite-result').textContent = error.message;
@@ -241,6 +283,7 @@ async function initializeClout() {
     const initResponse = await apiCall('/init', 'POST');
 
     initialized = true;
+    isVisitor = false; // Successfully initialized = member, not visitor
     $('init-section').style.display = 'none';
     $('main-app').style.display = 'block';
     updateStatus('Connected', true);
@@ -433,6 +476,9 @@ function switchToTab(tabName) {
 
 // Quick trust a user from feed
 async function quickTrust(publicKey) {
+  // Visitors cannot trust - show invite popup
+  if (!requireMembership()) return;
+
   try {
     await apiCall('/trust', 'POST', { publicKey });
     showResult('feed-list', `Added ${publicKey.slice(0, 8)}... to your trust circle!`, true);
@@ -445,6 +491,9 @@ async function quickTrust(publicKey) {
 
 // Mute a user (hide their posts from your feed)
 async function muteUser(publicKey, displayName) {
+  // Visitors cannot mute - show invite popup
+  if (!requireMembership()) return;
+
   if (!confirm(`Mute ${displayName || publicKey.slice(0, 8)}...?\n\nTheir posts will be hidden from your feed. You can unmute them anytime from the Trust tab.`)) {
     return;
   }
@@ -476,6 +525,9 @@ async function unmuteUser(publicKey) {
 
 // Delete a post
 async function deletePost(postId) {
+  // Visitors cannot delete - show invite popup
+  if (!requireMembership()) return;
+
   if (!confirm('Are you sure you want to delete this post?\n\nThis action creates a deletion request that will be gossiped to the network. The original post still exists cryptographically but will be hidden from feeds.')) {
     return;
   }
@@ -491,6 +543,9 @@ async function deletePost(postId) {
 
 // Start editing a post
 function startEditPost(postId) {
+  // Visitors cannot edit - show invite popup
+  if (!requireMembership()) return;
+
   // Look up content from cache instead of passing inline (avoids escaping issues)
   const cachedPost = postsCache[postId];
   if (!cachedPost) {
@@ -600,6 +655,9 @@ function renderReactionsBar(postId, reactions, myReaction, availableEmojis) {
 
 // Toggle a reaction on a post
 async function toggleReaction(postId, emoji) {
+  // Visitors cannot react - show invite popup
+  if (!requireMembership()) return;
+
   try {
     // Check if we already have this reaction (need to get current state)
     const data = await apiCall(`/reactions/${postId}`);
@@ -644,6 +702,9 @@ function toggleCW(cwId) {
 // =========================================================================
 
 async function toggleBookmark(postId) {
+  // Visitors cannot bookmark - show invite popup
+  if (!requireMembership()) return;
+
   try {
     // Check current state (we'll toggle it)
     const response = await fetch(`/api/bookmarks`);
@@ -1181,6 +1242,9 @@ async function viewThread(postId) {
 // =========================================================================
 
 function startReply(postId, author) {
+  // Visitors cannot reply - show invite popup
+  if (!requireMembership()) return;
+
   replyingTo = postId;
 
   // Switch to post tab
@@ -1208,6 +1272,9 @@ function cancelReply() {
 
 // Create Post (or save edit if editing)
 async function createPost() {
+  // Visitors cannot post - show invite popup
+  if (!requireMembership()) return;
+
   // If we're editing, call saveEdit instead
   if (editingPost) {
     await saveEdit();
@@ -1294,6 +1361,9 @@ async function createPost() {
 
 // Trust a new user
 async function trustUser() {
+  // Visitors cannot trust - show invite popup
+  if (!requireMembership()) return;
+
   const publicKey = $('trust-public-key').value.trim();
 
   if (!publicKey) {
@@ -1325,6 +1395,9 @@ async function trustUser() {
 // =========================================================================
 
 async function sendSlide() {
+  // Visitors cannot send slides - show invite popup
+  if (!requireMembership()) return;
+
   const recipientKey = $('slide-recipient').value.trim();
   const message = $('slide-message').value.trim();
 
@@ -1824,6 +1897,9 @@ function cancelProfileEdit() {
 }
 
 async function saveProfile() {
+  // Visitors cannot save profile - show invite popup
+  if (!requireMembership()) return;
+
   const displayName = $('profile-name').value.trim();
   const bio = $('profile-bio').value.trim();
   const avatar = $('profile-avatar').value.trim();
@@ -1885,6 +1961,9 @@ async function loadSettings() {
 
 // Save Settings
 async function saveSettings() {
+  // Visitors cannot save settings - show invite popup
+  if (!requireMembership()) return;
+
   try {
     $('save-settings-btn').disabled = true;
     $('save-settings-btn').textContent = 'Saving...';
@@ -2255,18 +2334,86 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Auto-initialize Clout connection
+// Tries to initialize for returning users, falls back to visitor mode
 async function autoInitialize() {
   try {
     // Check if server is available
     const health = await apiCall('/health');
 
-    // Auto-initialize whether or not already initialized
-    // This gives users a seamless experience without needing to click "Initialize"
+    // Try to initialize - will work if an identity already exists on the server
     updateStatus('Connecting...', false);
-    await initializeClout();
+
+    try {
+      await initializeClout();
+      // Successfully initialized - user has an identity
+      isVisitor = false;
+    } catch (initError) {
+      // Initialization failed - likely no identity exists
+      // Enter visitor mode: show the feed but require invitation for interactions
+      console.log('No existing identity, entering visitor mode');
+      isVisitor = true;
+      initialized = false;
+
+      // Show main app in visitor mode
+      $('init-section').style.display = 'none';
+      $('main-app').style.display = 'block';
+      updateStatus('Visitor Mode', false);
+
+      // Load the visitor feed (will show welcome message)
+      await loadVisitorFeed();
+    }
   } catch (error) {
     // Server not responding - show init section for manual retry
     updateStatus('Server not responding. Click Initialize to retry.', false);
     console.error('Auto-init failed:', error);
+  }
+}
+
+// Load feed in visitor mode
+async function loadVisitorFeed() {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall('/feed');
+    const feedList = $('feed-list');
+
+    if (data.isVisitor) {
+      // Show visitor welcome message
+      feedList.innerHTML = `
+        <div class="empty-state-helpful visitor-welcome">
+          <div class="empty-icon">👋</div>
+          <h4>Welcome to Clout</h4>
+          <p>${data.message || 'Clout is an invitation-only network. Get an invitation from someone you know to join the conversation.'}</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" onclick="showInvitePopover()">🎟️ I Have an Invitation</button>
+          </div>
+          <p class="help-text" style="margin-top: 1rem;">
+            Don't have an invitation? Ask someone in the network to invite you.
+          </p>
+        </div>
+      `;
+    } else if (!data.posts || data.posts.length === 0) {
+      feedList.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">🏠</div>
+          <h4>Your feed is quiet</h4>
+          <p>Posts from people in your trust circle will appear here.</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" onclick="switchToTab('trust')">Add Someone to Trust</button>
+            <button class="btn btn-secondary" onclick="switchToTab('post')">Write Your First Post</button>
+          </div>
+        </div>
+      `;
+    } else {
+      // Regular feed rendering (shouldn't happen in visitor mode)
+      renderFeed(data.posts);
+    }
+  } catch (error) {
+    $('feed-list').innerHTML = `
+      <div class="empty-state-helpful">
+        <div class="empty-icon">❌</div>
+        <h4>Unable to load feed</h4>
+        <p>${error.message}</p>
+      </div>
+    `;
   }
 }

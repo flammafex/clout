@@ -38,14 +38,32 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
   const router = Router();
 
   // Get Feed
+  // Public route - visitors can view the feed without an identity
   router.get('/feed', async (req, res) => {
     try {
-      if (!isInitialized()) throw new Error('Not initialized');
-      const clout = getClout()!;
-
       const limit = parseInt(req.query.limit as string) || 50;
       const includeNsfw = req.query.nsfw === 'true' ? true : undefined;
 
+      // Check if we have an initialized member or just a visitor
+      const isMember = isInitialized();
+      const clout = getClout();
+
+      if (!isMember || !clout) {
+        // Visitor mode - return empty feed with visitor flag
+        // In the future, this could return a curated public feed from gossip
+        return res.json({
+          success: true,
+          data: {
+            posts: [],
+            totalPosts: 0,
+            nsfwEnabled: false,
+            isVisitor: true,
+            message: 'Welcome! Join with an invitation code to see the full feed.'
+          }
+        });
+      }
+
+      // Member mode - full personalized feed
       const allPosts = await clout.getFeed({ includeNsfw });
       const posts = allPosts.slice(0, limit);
 
@@ -82,7 +100,8 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             };
           }),
           totalPosts: allPosts.length,
-          nsfwEnabled: clout.isNsfwEnabled()
+          nsfwEnabled: clout.isNsfwEnabled(),
+          isVisitor: false
         }
       });
     } catch (error: any) {
@@ -194,11 +213,25 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
   });
 
   // Get Thread
+  // Public route - visitors can view threads
   router.get('/thread/:id', async (req, res) => {
     try {
-      if (!isInitialized()) throw new Error('Not initialized');
-      const clout = getClout()!;
       const postId = req.params.id;
+      const isMember = isInitialized();
+      const clout = getClout();
+
+      if (!isMember || !clout) {
+        // Visitor mode - return empty thread with visitor flag
+        return res.json({
+          success: true,
+          data: {
+            parent: null,
+            replies: [],
+            isVisitor: true,
+            message: 'Join with an invitation code to view threads.'
+          }
+        });
+      }
 
       const allPosts = await clout.getFeed();
       const parentPost = allPosts.find((p: any) => p.id === postId);
@@ -232,7 +265,8 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
             authorDisplayName: clout.getDisplayName(post.author),
             authorNickname: clout.getNickname(post.author),
             authorAvatar: post.author === userPublicKey ? userAvatar : '👤'
-          }))
+          })),
+          isVisitor: false
         }
       });
     } catch (error: any) {
