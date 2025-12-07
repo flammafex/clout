@@ -178,7 +178,22 @@ export function createFeedRoutes(
     }
   });
 
-  // Delete Post
+  // Retract Post - publicly take back what you said
+  router.post('/post/:id/retract', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+      const postId = req.params.id;
+      const reason = req.body.reason as 'retracted' | 'edited' | 'mistake' | 'other' | undefined;
+
+      const retraction = await clout.retractPost(postId, reason || 'retracted');
+      res.json({ success: true, data: { postId, retracted: true, reason: retraction.reason } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // @deprecated - Use POST /post/:id/retract instead
   router.delete('/post/:id', async (req, res) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
@@ -186,8 +201,8 @@ export function createFeedRoutes(
       const postId = req.params.id;
       const reason = req.body.reason as 'retracted' | 'edited' | 'mistake' | 'other' | undefined;
 
-      const deletion = await clout.deletePost(postId, reason || 'retracted');
-      res.json({ success: true, data: { postId, deleted: true, reason: deletion.reason } });
+      const retraction = await clout.retractPost(postId, reason || 'retracted');
+      res.json({ success: true, data: { postId, retracted: true, reason: retraction.reason } });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

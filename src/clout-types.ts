@@ -195,14 +195,17 @@ export interface PostPackage {
 }
 
 /**
- * PostDeletePackage - A signed request to delete/retract a post
+ * PostDeletePackage - A signed request to retract a post
  *
- * Deletion is "soft" - the original post still exists cryptographically,
- * but nodes that receive this signal should hide it from feeds.
- * Only the original author can sign a valid deletion request.
+ * Retraction is an act of accountability - publicly taking back what you said
+ * while acknowledging it can't be truly erased. The original post still exists
+ * cryptographically, but nodes that receive this signal should hide it from feeds.
+ * Only the original author can sign a valid retraction request.
+ *
+ * Note: Type name kept as "PostDeletePackage" for wire/storage compatibility.
  */
 export interface PostDeletePackage {
-  /** The post ID to delete */
+  /** The post ID to retract */
   readonly postId: string;
 
   /** Author's public key (must match original post author) */
@@ -211,13 +214,13 @@ export interface PostDeletePackage {
   /** Author's signature over { postId, deletedAt } */
   readonly signature: Uint8Array;
 
-  /** Witness timestamp proof of deletion request */
+  /** Witness timestamp proof of retraction request */
   readonly proof: Attestation;
 
-  /** When the deletion was requested */
+  /** When the retraction was requested (field name kept for wire compatibility) */
   readonly deletedAt: number;
 
-  /** Optional reason for deletion */
+  /** Reason for retraction */
   readonly reason?: 'retracted' | 'edited' | 'mistake' | 'other';
 }
 

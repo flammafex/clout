@@ -384,10 +384,10 @@ async function loadFeed() {
         ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Mute this user">Mute</button>`
         : '';
 
-      // Edit/Delete buttons (only for your own posts)
+      // Edit/Retract buttons (only for your own posts)
       const authorActions = post.isAuthor
         ? `<button class="btn-action" onclick="event.stopPropagation(); startEditPost('${post.id}')" title="Edit post">Edit</button>
-           <button class="btn-action btn-delete" onclick="event.stopPropagation(); deletePost('${post.id}')" title="Delete post">Delete</button>`
+           <button class="btn-action btn-retract" onclick="event.stopPropagation(); retractPost('${post.id}')" title="Retract post">Retract</button>`
         : '';
 
       // Show "edited" indicator if post is an edit
@@ -523,24 +523,24 @@ async function unmuteUser(publicKey) {
 }
 
 // =========================================================================
-// 6i. POST EDIT & DELETE
+// 6i. POST EDIT & RETRACT
 // =========================================================================
 
-// Delete a post
-async function deletePost(postId) {
-  // Visitors cannot delete - show invite popup
+// Retract a post - publicly take back what you said
+async function retractPost(postId) {
+  // Visitors cannot retract - show invite popup
   if (!requireMembership()) return;
 
-  if (!confirm('Are you sure you want to delete this post?\n\nThis action creates a deletion request that will be gossiped to the network. The original post still exists cryptographically but will be hidden from feeds.')) {
+  if (!confirm('Are you sure you want to retract this post?\n\nRetracting is an act of accountability - you\'re publicly taking back what you said. The original post still exists cryptographically but will be hidden from feeds.')) {
     return;
   }
 
   try {
-    await apiCall(`/post/${postId}`, 'DELETE', { reason: 'retracted' });
-    // Reload feed directly to remove the deleted post
+    await apiCall(`/post/${postId}/retract`, 'POST', { reason: 'retracted' });
+    // Reload feed to remove the retracted post
     await loadFeedWithCurrentFilter();
   } catch (error) {
-    alert(`Could not delete post: ${error.message}`);
+    alert(`Could not retract post: ${error.message}`);
   }
 }
 

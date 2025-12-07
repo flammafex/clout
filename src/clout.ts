@@ -716,17 +716,19 @@ export class Clout {
   }
 
   /**
-   * Delete (retract) a post
+   * Retract a post
    *
-   * Creates a signed deletion request that is gossiped to the network.
+   * Creates a signed retraction request that is gossiped to the network.
    * The original post still exists cryptographically, but nodes that
-   * receive this signal should hide it from feeds.
+   * receive this signal should hide it from feeds. This is an act of
+   * taking responsibility - you're publicly acknowledging you want to
+   * take back what you said, while accepting it can't be truly erased.
    *
-   * @param postId - ID of the post to delete
-   * @param reason - Optional reason for deletion
-   * @returns The deletion package
+   * @param postId - ID of the post to retract
+   * @param reason - Optional reason for retraction
+   * @returns The retraction package
    */
-  async deletePost(postId: string, reason?: 'retracted' | 'edited' | 'mistake' | 'other'): Promise<import('./clout-types.js').PostDeletePackage> {
+  async retractPost(postId: string, reason?: 'retracted' | 'edited' | 'mistake' | 'other'): Promise<import('./clout-types.js').PostDeletePackage> {
     // 1. Verify we own this post
     const allPosts = this.store ? await this.store.getFeed() : [];
     const post = allPosts.find(p => p.id === postId);
@@ -736,49 +738,56 @@ export class Clout {
     }
 
     if (post.author !== this.publicKeyHex) {
-      throw new Error(`Cannot delete post ${postId}: you are not the author`);
+      throw new Error(`Cannot retract post ${postId}: you are not the author`);
     }
 
-    // 2. Create deletion payload
-    const deletedAt = Date.now();
-    const deletionPayload = { postId, deletedAt };
-    const payloadHash = Crypto.hashObject(deletionPayload);
+    // 2. Create retraction payload
+    const retractedAt = Date.now();
+    const retractionPayload = { postId, deletedAt: retractedAt }; // Keep deletedAt for wire compatibility
+    const payloadHash = Crypto.hashObject(retractionPayload);
 
-    // 3. Sign the deletion
-    const signature = Crypto.hash(JSON.stringify(deletionPayload), this.privateKey);
+    // 3. Sign the retraction
+    const signature = Crypto.hash(JSON.stringify(retractionPayload), this.privateKey);
 
-    // 4. Get Witness attestation for the deletion
+    // 4. Get Witness attestation for the retraction
     const proof = await this.witness.timestamp(payloadHash);
 
-    // 5. Create the deletion package
-    const deletion: import('./clout-types.js').PostDeletePackage = {
+    // 5. Create the retraction package
+    const retraction: import('./clout-types.js').PostDeletePackage = {
       postId,
       author: this.publicKeyHex,
       signature,
       proof,
-      deletedAt,
-      reason
+      deletedAt: retractedAt,
+      reason: reason || 'retracted'
     };
 
-    // 6. Store deletion locally (both CRDT and file store)
-    this.state.addPostDeletion(deletion);
+    // 6. Store retraction locally (both CRDT and file store)
+    this.state.addPostDeletion(retraction);
 
     // Also persist to file store for cross-restart persistence
     if (this.store && 'addDeletion' in this.store) {
-      await (this.store as any).addDeletion(deletion);
+      await (this.store as any).addDeletion(retraction);
     }
 
-    // 7. Gossip the deletion to the network
+    // 7. Gossip the retraction to the network
     if (this.gossip) {
       await this.gossip.publish({
         type: 'post-delete',
-        postDelete: deletion,
-        timestamp: deletedAt
+        postDelete: retraction,
+        timestamp: retractedAt
       });
     }
 
-    console.log(`[Clout] 🗑️ Deleted post ${postId.slice(0, 8)}...`);
-    return deletion;
+    console.log(`[Clout] ↩️ Retracted post ${postId.slice(0, 8)}...`);
+    return retraction;
+  }
+
+  /**
+   * @deprecated Use retractPost instead
+   */
+  async deletePost(postId: string, reason?: 'retracted' | 'edited' | 'mistake' | 'other'): Promise<import('./clout-types.js').PostDeletePackage> {
+    return this.retractPost(postId, reason);
   }
 
   /**
@@ -786,7 +795,7 @@ export class Clout {
    *
    * Since posts are content-addressed (ID = hash of content), editing
    * creates a new post with new content/ID that references the original.
-   * The original post is automatically soft-deleted with reason 'edited'.
+   * The original post is automatically retracted with reason 'edited'.
    *
    * @param originalPostId - ID of the post to edit
    * @param newContent - New content for the post
@@ -2059,17 +2068,31 @@ export class Clout {
   }
 
   /**
-   * Check if a post has been deleted
+   * Check if a post has been retracted
    */
-  isPostDeleted(postId: string): boolean {
+  isPostRetracted(postId: string): boolean {
     return this.state.isPostDeleted(postId);
   }
 
   /**
-   * Get all post deletions
+   * @deprecated Use isPostRetracted instead
+   */
+  isPostDeleted(postId: string): boolean {
+    return this.isPostRetracted(postId);
+  }
+
+  /**
+   * Get all post retractions
+   */
+  getPostRetractions(): import('./clout-types.js').PostDeletePackage[] {
+    return this.state.getPostDeletions();
+  }
+
+  /**
+   * @deprecated Use getPostRetractions instead
    */
   getPostDeletions(): import('./clout-types.js').PostDeletePackage[] {
-    return this.state.getPostDeletions();
+    return this.getPostRetractions();
   }
 
   /**

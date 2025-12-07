@@ -181,21 +181,22 @@ export class FileSystemStore implements CloutStore {
   }
 
   /**
-   * Save a post deletion
+   * Save a post retraction
+   * (Field name kept as 'deletions' for storage compatibility)
    */
-  async addDeletion(deletion: PostDeletePackage): Promise<void> {
+  async addDeletion(retraction: PostDeletePackage): Promise<void> {
     if (!this.data.deletions) {
       this.data.deletions = {};
     }
 
-    if (!this.data.deletions[deletion.postId]) {
-      this.data.deletions[deletion.postId] = deletion;
+    if (!this.data.deletions[retraction.postId]) {
+      this.data.deletions[retraction.postId] = retraction;
       this.save();
     }
   }
 
   /**
-   * Get all deletions
+   * Get all post retractions
    */
   async getDeletions(): Promise<PostDeletePackage[]> {
     if (!this.data.deletions) {
@@ -205,7 +206,7 @@ export class FileSystemStore implements CloutStore {
   }
 
   /**
-   * Check if a post is deleted
+   * Check if a post is retracted
    */
   isDeleted(postId: string): boolean {
     return !!(this.data.deletions && this.data.deletions[postId]);
