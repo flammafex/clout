@@ -27,9 +27,11 @@ interface SerializedTicket {
   expiry: number;
   proof: string;           // base64
   signature: {             // Attestation serialized
+    hash: string;
     timestamp: number;
-    signature: string;     // base64
-    witnessId?: string;
+    signatures: string[];
+    witnessIds: string[];
+    raw?: any;
   };
   durationHours: number;
   delegatedFrom?: string;
@@ -289,7 +291,7 @@ export class FileSystemStore implements CloutStore {
     owner: string;
     expiry: number;
     proof: Uint8Array;
-    signature: { timestamp: number; signature: Uint8Array; witnessId?: string };
+    signature: { hash: string; timestamp: number; signatures: string[]; witnessIds: string[]; raw?: any };
     durationHours: number;
     delegatedFrom?: string;
   }): void {
@@ -299,9 +301,11 @@ export class FileSystemStore implements CloutStore {
       expiry: ticket.expiry,
       proof: Buffer.from(ticket.proof).toString('base64'),
       signature: {
+        hash: ticket.signature.hash,
         timestamp: ticket.signature.timestamp,
-        signature: Buffer.from(ticket.signature.signature).toString('base64'),
-        witnessId: ticket.signature.witnessId
+        signatures: ticket.signature.signatures,
+        witnessIds: ticket.signature.witnessIds,
+        raw: ticket.signature.raw
       },
       durationHours: ticket.durationHours,
       delegatedFrom: ticket.delegatedFrom
@@ -319,7 +323,7 @@ export class FileSystemStore implements CloutStore {
     owner: string;
     expiry: number;
     proof: Uint8Array;
-    signature: { timestamp: number; signature: Uint8Array; witnessId?: string };
+    signature: { hash: string; timestamp: number; signatures: string[]; witnessIds: string[]; raw?: any };
     durationHours: number;
     delegatedFrom?: string;
   } | null {
@@ -337,15 +341,17 @@ export class FileSystemStore implements CloutStore {
       return null;
     }
 
-    // Deserialize base64 back to Uint8Array
+    // Deserialize base64 back to Uint8Array for proof, keep signature as-is
     return {
       owner: serialized.owner,
       expiry: serialized.expiry,
       proof: new Uint8Array(Buffer.from(serialized.proof, 'base64')),
       signature: {
+        hash: serialized.signature.hash,
         timestamp: serialized.signature.timestamp,
-        signature: new Uint8Array(Buffer.from(serialized.signature.signature, 'base64')),
-        witnessId: serialized.signature.witnessId
+        signatures: serialized.signature.signatures,
+        witnessIds: serialized.signature.witnessIds,
+        raw: serialized.signature.raw
       },
       durationHours: serialized.durationHours,
       delegatedFrom: serialized.delegatedFrom
