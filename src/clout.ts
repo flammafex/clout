@@ -119,6 +119,7 @@ export class Clout {
 
     // 4. Initialize Reputation Validator (The Filter)
     this.reputationValidator = new ReputationValidator({
+      selfPublicKey: this.publicKeyHex,
       trustGraph: this.trustGraph,
       witness: this.witness,
       maxHops: config.maxHops ?? 3,

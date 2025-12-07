@@ -13,6 +13,7 @@ import type { WitnessClient } from './types.js';
 import type { PostPackage, ReputationScore, TrustSignal } from './clout-types.js';
 
 export interface ReputationConfig {
+  readonly selfPublicKey: string; // User's own public key (for distance 0)
   readonly trustGraph: Set<string>;
   readonly witness: WitnessClient;
   readonly maxHops?: number; // Maximum graph distance to accept (default: 3)
@@ -33,6 +34,7 @@ interface TrustPath {
  * In Clout: Validator filters spam using reputation scores
  */
 export class ReputationValidator {
+  private readonly selfPublicKey: string;
   private readonly trustGraph: Set<string>;
   private readonly witness: WitnessClient;
   private readonly maxHops: number;
@@ -42,6 +44,7 @@ export class ReputationValidator {
   private readonly trustSignals = new Map<string, TrustSignal>(); // Observed trust signals
 
   constructor(config: ReputationConfig) {
+    this.selfPublicKey = config.selfPublicKey;
     this.trustGraph = config.trustGraph;
     this.witness = config.witness;
     this.maxHops = config.maxHops ?? 3;
@@ -137,6 +140,16 @@ export class ReputationValidator {
    * - Path diversity bonus (multiple paths increase trust)
    */
   computeReputation(publicKey: string): ReputationScore {
+    // Self always has distance 0 and perfect score
+    if (publicKey === this.selfPublicKey) {
+      return {
+        distance: 0,
+        pathCount: 1,
+        score: 1.0,
+        visible: true
+      };
+    }
+
     // Find all paths to this user
     const paths = this.findTrustPaths(publicKey);
 
