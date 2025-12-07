@@ -251,11 +251,15 @@ export class AuthManager {
 
 /**
  * Public routes that don't require authentication
+ * These routes are accessible to visitors without an identity
  */
 export const PUBLIC_ROUTES = [
   '/api/health',
   '/api/auth/login',
-  '/api/auth/status'
+  '/api/auth/status',
+  '/api/feed',           // Visitors can view the public feed
+  '/api/thread',         // Visitors can view threads
+  '/api/reactions/emojis' // Visitors can see available reactions
 ];
 
 /**

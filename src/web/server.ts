@@ -36,6 +36,8 @@ export interface WebServerConfig {
   port?: number;
   /** Require authentication for API endpoints (default: true in production) */
   requireAuth?: boolean;
+  /** Allow visitors to view the feed without identity (default: true) */
+  allowVisitors?: boolean;
 }
 
 export class CloutWebServer {
@@ -46,9 +48,11 @@ export class CloutWebServer {
   private clout?: Clout;
   private initialized = false;
   private port: number;
+  private allowVisitors: boolean;
 
   constructor(config: WebServerConfig = {}) {
     this.port = config.port ?? 3000;
+    this.allowVisitors = config.allowVisitors ?? true; // Default: allow visitors
     this.app = express();
     this.identityManager = new IdentityManager();
     this.infraManager = new InfrastructureManager();
@@ -94,6 +98,7 @@ export class CloutWebServer {
    */
   private getClout = (): Clout | undefined => this.clout;
   private isInitialized = (): boolean => this.initialized;
+  private areVisitorsAllowed = (): boolean => this.allowVisitors;
 
   /**
    * Setup API routes
@@ -299,7 +304,7 @@ export class CloutWebServer {
     });
 
     // Mount route modules
-    this.app.use('/api', createFeedRoutes(this.getClout, this.isInitialized));
+    this.app.use('/api', createFeedRoutes(this.getClout, this.isInitialized, this.areVisitorsAllowed));
     this.app.use('/api', createTrustRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/media', createMediaRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/slides', createSlidesRoutes(this.getClout, this.isInitialized));
@@ -451,6 +456,7 @@ export class CloutWebServer {
         console.log(`\n🌐 Clout Web UI`);
         console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
         console.log(`Server running at http://localhost:${this.port}`);
+        console.log(`Mode: ${this.allowVisitors ? '🌍 Public (visitors allowed)' : '🔒 Private (identity required)'}`);
         console.log(`\nAPI Endpoints:`);
         console.log(`  GET  /api/health       - Health check`);
         console.log(`  POST /api/init         - Initialize Clout`);
@@ -475,6 +481,8 @@ export class CloutWebServer {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const port = parseInt(process.env.PORT || '3000', 10);
   const requireAuth = process.env.CLOUT_AUTH === 'true'; // Auth disabled by default for local use
-  const server = new CloutWebServer({ port, requireAuth });
+  // Allow visitors by default, set CLOUT_PRIVATE=true to disable visitor mode
+  const allowVisitors = process.env.CLOUT_PRIVATE !== 'true';
+  const server = new CloutWebServer({ port, requireAuth, allowVisitors });
   server.start().catch(console.error);
 }
