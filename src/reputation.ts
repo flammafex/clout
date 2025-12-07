@@ -283,8 +283,15 @@ export class ReputationValidator {
    *
    * Weight factors in:
    * 1. Distance-based decay: 1.0 -> 0.9 -> 0.6 -> 0.3
-   * 2. Custom trust weights (0.1-1.0)
-   * 3. Temporal decay (exponential decay over time)
+   * 2. Custom trust weights (0.1-1.0) - applied multiplicatively
+   * 3. Temporal decay - applied only to the oldest edge in the path
+   *
+   * Note on temporal decay: We apply decay based only on the oldest edge
+   * rather than multiplicatively. This is more intuitive because:
+   * - A path is only as "fresh" as its oldest link
+   * - Multiplicative decay unfairly penalizes longer paths
+   * - Example: A 3-hop path with 1-year-old edges would be 0.125 (0.5³)
+   *   multiplicatively, but 0.5 with oldest-edge-only approach
    */
   private calculatePathWeight(path: string[]): number {
     const distance = path.length;
@@ -299,30 +306,40 @@ export class ReputationValidator {
       default: baseScore = 0.0;
     }
 
-    // Factor in custom trust weights and temporal decay along the path
+    // Factor in custom trust weights along the path
+    // Collect edge timestamps to find oldest edge for decay
     let weightMultiplier = 1.0;
     let previousKey = 'self';
+    let oldestTimestamp: number | null = null;
 
     for (const currentKey of path) {
       const signalKey = `${previousKey}:${currentKey}`;
       const signal = this.trustSignals.get(signalKey);
 
       if (signal) {
-        // Apply custom trust weight
+        // Apply custom trust weight (multiplicative)
         if (signal.weight !== undefined) {
           weightMultiplier *= signal.weight;
         }
 
-        // Apply temporal decay
-        const decayMultiplier = this.calculateDecayMultiplier(signal.proof.timestamp);
-        weightMultiplier *= decayMultiplier;
+        // Track the oldest edge timestamp
+        if (oldestTimestamp === null || signal.proof.timestamp < oldestTimestamp) {
+          oldestTimestamp = signal.proof.timestamp;
+        }
       }
       // If no signal, assume 1.0 (direct trust from local graph with no decay)
 
       previousKey = currentKey;
     }
 
-    return baseScore * weightMultiplier;
+    // Apply temporal decay based only on the oldest edge
+    // This is more intuitive: a path is only as fresh as its oldest link
+    let decayMultiplier = 1.0;
+    if (oldestTimestamp !== null) {
+      decayMultiplier = this.calculateDecayMultiplier(oldestTimestamp);
+    }
+
+    return baseScore * weightMultiplier * decayMultiplier;
   }
 
   /**
