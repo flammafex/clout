@@ -291,26 +291,6 @@ export class ActionDispatcher {
    */
   constructor();
   /**
-   * Dispatch an action (LEGACY - JSON-based, has 19% overhead)
-   *
-   * **DEPRECATED**: Use typed methods instead (e.g., stackDraw(), stackShuffle())
-   * for zero-overhead dispatch.
-   *
-   * This method is kept for backward compatibility but adds JSON serialization
-   * overhead. New code should use the typed methods below.
-   *
-   * Actions are JSON objects with `type` and optional payload fields
-   *
-   * Example:
-   * ```js
-   * dispatcher.dispatch(JSON.stringify({
-   *   type: "stack:draw",
-   *   count: 5
-   * }));
-   * ```
-   */
-  dispatch(action_json: string): string;
-  /**
    * End the game (typed, zero overhead)
    */
   gameEnd(winner?: string | null, reason?: string | null): string;
@@ -530,13 +510,32 @@ export class Chronicle {
    */
   loadFromBase64(base64: string): void;
   /**
-   * Receive a sync message from a peer
+   * Receive a sync message and update the document
+   *
+   * Takes:
+   * - message_base64: The sync message from the peer (base64 encoded)
+   * - sync_state_bytes: Optional serialized SyncState
+   *
+   * Returns: JSON with updated sync state and any response message
    */
-  receiveSyncMessage(message: Uint8Array): void;
+  receiveSyncMessage(message_base64: string, sync_state_bytes?: Uint8Array | null): string;
   /**
-   * Get sync state for a peer (incremental sync)
+   * Generate a sync message for incremental synchronization
+   *
+   * Takes an optional serialized SyncState from a previous sync.
+   * Returns a tuple: (sync_message, new_sync_state) as JSON.
+   *
+   * Usage:
+   * ```js
+   * // First sync (no prior state)
+   * const result = chronicle.generateSyncMessage(null);
+   * const { message, syncState } = JSON.parse(result);
+   *
+   * // Subsequent syncs (use saved sync state)
+   * const result2 = chronicle.generateSyncMessage(syncState);
+   * ```
    */
-  generateSyncMessage(_sync_state?: Uint8Array | null): Uint8Array;
+  generateSyncMessage(sync_state_bytes?: Uint8Array | null): string;
   /**
    * Create a new Chronicle with an empty CRDT document
    */
@@ -560,23 +559,27 @@ export class Chronicle {
    * ```js
    * chronicle.change("draw-card", newStateJson);
    * ```
-   *
-   * The new state is merged into the document atomically with a message.
    */
-  change(message: string, new_state_json: string): void;
+  change(_message: string, new_state_json: string): void;
   /**
    * Get the current document state as JSON
    *
-   * Returns the complete HyperTokenState as a JSON string.
+   * Reads native Automerge fields and reconstructs HyperTokenState.
    */
   getState(): string;
   /**
    * Set the entire state (used for initialization)
    *
-   * Takes a JSON string of HyperTokenState and stores it in the CRDT.
-   * The state is validated before being stored.
+   * Takes a JSON string of HyperTokenState and stores each field
+   * natively in the CRDT for proper conflict resolution.
    */
   setState(state_json: string): void;
+  /**
+   * Simple full-document sync (for backwards compatibility)
+   *
+   * Merges the given binary document into this one.
+   */
+  syncFull(other_doc_bytes: Uint8Array): void;
 }
 
 export class GameStateManager {
@@ -1044,7 +1047,6 @@ export interface InitOutput {
   readonly actiondispatcher_batchFind: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
   readonly actiondispatcher_batchForEach: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
   readonly actiondispatcher_batchShuffle: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
-  readonly actiondispatcher_dispatch: (a: number, b: number, c: number, d: number) => void;
   readonly actiondispatcher_gameEnd: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
   readonly actiondispatcher_gameGetState: (a: number, b: number) => void;
   readonly actiondispatcher_gameNextPhase: (a: number, b: number, c: number, d: number) => void;
@@ -1124,6 +1126,7 @@ export interface InitOutput {
   readonly chronicle_loadFromBase64: (a: number, b: number, c: number, d: number) => void;
   readonly chronicle_merge: (a: number, b: number, c: number, d: number) => void;
   readonly chronicle_new: () => number;
+  readonly chronicle_receiveSyncMessage: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
   readonly chronicle_save: (a: number, b: number) => void;
   readonly chronicle_saveToBase64: (a: number, b: number) => void;
   readonly chronicle_setState: (a: number, b: number, c: number, d: number) => void;
@@ -1217,7 +1220,7 @@ export interface InitOutput {
   readonly tokenops_split: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
   readonly tokenops_transform: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
   readonly version: (a: number) => void;
-  readonly chronicle_receiveSyncMessage: (a: number, b: number, c: number, d: number) => void;
+  readonly chronicle_syncFull: (a: number, b: number, c: number, d: number) => void;
   readonly agentmanager_transferToken: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
   readonly space_new: () => number;
   readonly tokenops_new: () => number;

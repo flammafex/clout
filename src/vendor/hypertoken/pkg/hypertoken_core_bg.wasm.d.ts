@@ -37,7 +37,6 @@ export const actiondispatcher_batchFilter: (a: number, b: number, c: number, d: 
 export const actiondispatcher_batchFind: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
 export const actiondispatcher_batchForEach: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
 export const actiondispatcher_batchShuffle: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
-export const actiondispatcher_dispatch: (a: number, b: number, c: number, d: number) => void;
 export const actiondispatcher_gameEnd: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
 export const actiondispatcher_gameGetState: (a: number, b: number) => void;
 export const actiondispatcher_gameNextPhase: (a: number, b: number, c: number, d: number) => void;
@@ -117,6 +116,7 @@ export const chronicle_load: (a: number, b: number, c: number, d: number) => voi
 export const chronicle_loadFromBase64: (a: number, b: number, c: number, d: number) => void;
 export const chronicle_merge: (a: number, b: number, c: number, d: number) => void;
 export const chronicle_new: () => number;
+export const chronicle_receiveSyncMessage: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
 export const chronicle_save: (a: number, b: number) => void;
 export const chronicle_saveToBase64: (a: number, b: number) => void;
 export const chronicle_setState: (a: number, b: number, c: number, d: number) => void;
@@ -210,7 +210,7 @@ export const tokenops_merge: (a: number, b: number, c: number, d: number, e: num
 export const tokenops_split: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const tokenops_transform: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
 export const version: (a: number) => void;
-export const chronicle_receiveSyncMessage: (a: number, b: number, c: number, d: number) => void;
+export const chronicle_syncFull: (a: number, b: number, c: number, d: number) => void;
 export const agentmanager_transferToken: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
 export const space_new: () => number;
 export const tokenops_new: () => number;

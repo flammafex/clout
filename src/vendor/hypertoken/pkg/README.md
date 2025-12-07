@@ -32,7 +32,7 @@ This is the Rust implementation of HyperToken's core logic, providing **10-100x 
 |-----------|-----------|-----------|-------------|
 | Stack shuffle (52 cards, 100 iterations) | 618 ms | 46.5 ms | **13.3x** |
 | Stack shuffle (with worker) | N/A | <0.2 ms | **Non-blocking** |
-| Chronicle merge | 1.4 ms | <0.2 ms | **7x** |
+| Chronicle merge | TBD | TBD | **TBD** (benchmark pending) |
 | Memory usage (large simulation) | 377 MB | <50 MB | **8x** |
 
 ---
@@ -336,7 +336,7 @@ When adding new features to the Rust core:
 | Stack | 10 | ✅ Complete | 13.3x faster |
 | Space | 14 | ✅ Complete | 10-100x faster |
 | Source | 7 | ✅ Complete | 10-100x faster |
-| Chronicle | - | ✅ Complete | 7x faster |
+| Chronicle | - | ✅ Complete | Native fields (benchmark pending) |
 | **Action Modules** |
 | Agent | 16 | ✅ Complete | 10-100x faster |
 | TokenOps | 5 | ✅ Complete | 10-100x faster |
