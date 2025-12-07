@@ -62,11 +62,13 @@ export class FileSystemStore implements CloutStore {
     // Prevent multiple initializations - this fixes race condition where
     // initializeDataLayer() calls init() after posts have been added
     if (this.initialized) {
+      console.log(`[FileStore] Already initialized at ${this.path}`);
       return;
     }
     this.initialized = true;
     this.ensureDir();
     this.load();
+    console.log(`[FileStore] ✅ Initialized at ${this.path} (existing posts: ${Object.keys(this.data.posts).length})`);
   }
 
   private ensureDir(): void {
@@ -89,19 +91,26 @@ export class FileSystemStore implements CloutStore {
   }
 
   private save(): void {
-    writeFileSync(this.path, JSON.stringify(this.data, null, 2), 'utf-8');
+    try {
+      writeFileSync(this.path, JSON.stringify(this.data, null, 2), 'utf-8');
+    } catch (error) {
+      console.error(`[FileStore] ❌ Failed to save to ${this.path}:`, error);
+      throw error;
+    }
   }
 
   async addPost(post: PostPackage): Promise<void> {
     if (!this.data.posts[post.id]) {
       this.data.posts[post.id] = post;
       this.save();
+      console.log(`[FileStore] 📝 Saved post ${post.id.slice(0, 8)} (total: ${Object.keys(this.data.posts).length})`);
     }
   }
 
   async getFeed(): Promise<PostPackage[]> {
     const posts = Object.values(this.data.posts)
       .sort((a, b) => b.proof.timestamp - a.proof.timestamp);
+    console.log(`[FileStore] 📖 getFeed returning ${posts.length} posts`);
     return posts;
   }
 
