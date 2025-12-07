@@ -572,7 +572,10 @@ export class Crypto {
 
     // 4. Sign the commitment + metadata
     // This binds the signature to this specific trust signal
-    const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${weight}:${timestamp}`;
+    // Note: weight.toFixed(2) ensures consistent float representation across
+    // signing and verification, preventing precision-related signature failures
+    const canonicalWeight = weight.toFixed(2);
+    const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${canonicalWeight}:${timestamp}`;
     const signatureBytes = new TextEncoder().encode(signatureInput);
     const signature = this.sign(signatureBytes, trusterPrivateKey);
 
@@ -633,7 +636,9 @@ export class Crypto {
       }
 
       // 3. Verify the signature
-      const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${weight}:${timestamp}`;
+      // Note: weight.toFixed(2) ensures consistent float representation
+      const canonicalWeight = weight.toFixed(2);
+      const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${canonicalWeight}:${timestamp}`;
       const signatureBytes = new TextEncoder().encode(signatureInput);
       const trusterPubBytes = this.fromHex(trusterPublicKey);
 
@@ -670,7 +675,10 @@ export class Crypto {
     timestamp: number
   ): boolean {
     try {
-      const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${weight}:${timestamp}`;
+      // Note: weight.toFixed(2) ensures consistent float representation
+      // to match the canonical form used during signing
+      const canonicalWeight = weight.toFixed(2);
+      const signatureInput = `CLOUT_TRUST_SIGNAL_V1:${trusteeCommitment}:${canonicalWeight}:${timestamp}`;
       const signatureBytes = new TextEncoder().encode(signatureInput);
       const trusterPubBytes = this.fromHex(trusterPublicKey);
 
