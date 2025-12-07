@@ -1043,6 +1043,110 @@ export class Clout {
   }
 
   /**
+   * Revoke trust from a previously trusted user (Unfollow)
+   *
+   * Creates a revocation signal that is gossiped to the network.
+   * The revocation is also stored locally and reflected in the trust graph.
+   *
+   * @param trusteeKey - Public key of the user to untrust
+   */
+  async revokeTrust(trusteeKey: string): Promise<void> {
+    // 1. Check if we actually trust this user
+    if (!this.trustGraph.has(trusteeKey)) {
+      throw new Error(`Cannot revoke trust: ${trusteeKey.slice(0, 8)} is not in trust graph`);
+    }
+
+    // 2. Remove from local graph immediately
+    this.trustGraph.delete(trusteeKey);
+
+    // 3. Create and publish revocation signal
+    if (this.gossip) {
+      const timestamp = Date.now();
+
+      if (this.useEncryptedTrustSignals) {
+        // Privacy-preserving encrypted revocation signal
+        const encrypted = Crypto.createEncryptedTrustSignal(
+          this.privateKey,
+          this.publicKeyHex,
+          trusteeKey,
+          0, // Weight 0 indicates revocation
+          timestamp
+        );
+
+        // Get witness proof for the commitment
+        const proof = await this.witness.timestamp(encrypted.trusteeCommitment);
+
+        const encryptedSignal: EncryptedTrustSignal = {
+          truster: this.publicKeyHex,
+          trusteeCommitment: encrypted.trusteeCommitment,
+          encryptedTrustee: encrypted.encryptedTrustee,
+          signature: encrypted.signature,
+          proof,
+          weight: 0, // Weight 0 = revocation
+          version: 'encrypted-v1'
+        };
+
+        await this.gossip.publish({
+          type: 'trust-encrypted',
+          encryptedTrustSignal: encryptedSignal,
+          timestamp
+        });
+
+        // Store revocation locally
+        const localSignal: TrustSignal = {
+          truster: this.publicKeyHex,
+          trustee: trusteeKey,
+          signature: encrypted.signature,
+          proof,
+          weight: 0,
+          revoked: true
+        };
+        this.state.addTrustSignal(localSignal);
+
+        console.log(`[Clout] 🔓 Revoked trust for ${trusteeKey.slice(0, 8)} (encrypted signal)`);
+      } else {
+        // Legacy plaintext revocation signal
+        const signalPayload = {
+          truster: this.publicKeyHex,
+          trustee: trusteeKey,
+          weight: 0,
+          revoked: true,
+          timestamp
+        };
+
+        const payloadHash = Crypto.hashObject(signalPayload);
+        const signature = Crypto.hash(payloadHash, this.privateKey);
+        const proof = await this.witness.timestamp(payloadHash);
+
+        const signal: TrustSignal = {
+          truster: this.publicKeyHex,
+          trustee: trusteeKey,
+          signature,
+          proof,
+          weight: 0,
+          revoked: true
+        };
+
+        await this.gossip.publish({
+          type: 'trust',
+          trustSignal: signal,
+          timestamp
+        });
+
+        this.state.addTrustSignal(signal);
+        console.log(`[Clout] 🔓 Revoked trust for ${trusteeKey.slice(0, 8)} (plaintext signal)`);
+      }
+
+      // Update the profile in the state to reflect the updated trust graph
+      this.state.updateProfile({
+        publicKey: this.publicKeyHex,
+        trustGraph: this.trustGraph,
+        trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
+      });
+    }
+  }
+
+  /**
    * Create an invitation for another user
    * (Mock implementation for test compatibility)
    */
