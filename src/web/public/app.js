@@ -1161,6 +1161,9 @@ async function loadTrustedUsers() {
       const displayName = user.displayName || user.publicKeyShort + '...';
       const isMuted = user.isMuted || false;
       const isSelf = user.isSelf || false;
+      const weight = user.weight ?? 1.0;
+      const weightLabel = getWeightLabel(weight);
+      const weightClass = weight >= 0.9 ? 'weight-full' : weight >= 0.5 ? 'weight-medium' : 'weight-low';
 
       // Self entry has special styling - no mute/nickname buttons
       if (isSelf) {
@@ -1184,11 +1187,16 @@ async function loadTrustedUsers() {
         ? `<button class="btn-small btn-unmute" onclick="unmuteUser('${user.publicKey}')" title="Unmute">🔊</button>`
         : `<button class="btn-small btn-mute" onclick="muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Mute">🔇</button>`;
 
+      const weightBadge = weight < 1.0
+        ? `<span class="weight-badge ${weightClass}" title="${weightLabel}">${weight.toFixed(1)}</span>`
+        : '';
+
       return `
         <div class="trusted-user-card ${isMuted ? 'muted' : ''}">
           <div class="trusted-user-info">
             <div class="trusted-user-name ${hasNickname ? 'has-nickname' : ''} ${isMuted ? 'muted-name' : ''}" title="${user.publicKey}">
               ${escapeHtml(displayName)}
+              ${weightBadge}
               ${isMuted ? '<span class="muted-badge">muted</span>' : ''}
             </div>
             <div class="trusted-user-key-small">${user.publicKeyShort}...</div>
@@ -1464,14 +1472,25 @@ async function trustUser() {
     return;
   }
 
+  // Get weight from slider (0.1 to 1.0)
+  const weightSlider = $('trust-weight');
+  const weight = weightSlider ? parseInt(weightSlider.value, 10) / 100 : 1.0;
+
   try {
     $('trust-btn').disabled = true;
     $('trust-btn').textContent = 'Adding...';
 
-    await apiCall('/trust', 'POST', { publicKey });
+    await apiCall('/trust', 'POST', { publicKey, weight });
 
-    showResult('trust-result', `Added ${publicKey.slice(0, 8)}... to your circle!`, true);
+    const weightLabel = getWeightLabel(weight);
+    showResult('trust-result', `Added ${publicKey.slice(0, 8)}... with ${weightLabel} (${weight.toFixed(1)})`, true);
     $('trust-public-key').value = '';
+
+    // Reset weight slider to default
+    if (weightSlider) {
+      weightSlider.value = 100;
+      updateTrustWeightDisplay();
+    }
 
     // Reload the trusted users list
     await loadTrustedUsers();
@@ -1480,6 +1499,31 @@ async function trustUser() {
   } finally {
     $('trust-btn').disabled = false;
     $('trust-btn').textContent = 'Trust';
+  }
+}
+
+// Get human-readable label for trust weight
+function getWeightLabel(weight) {
+  if (weight >= 0.9) return 'Full Trust';
+  if (weight >= 0.7) return 'High Trust';
+  if (weight >= 0.5) return 'Medium Trust';
+  if (weight >= 0.3) return 'Low Trust';
+  return 'Minimal Trust';
+}
+
+// Update trust weight display when slider changes
+function updateTrustWeightDisplay() {
+  const slider = $('trust-weight');
+  const valueDisplay = $('trust-weight-value');
+  const labelDisplay = $('trust-weight-label');
+
+  if (!slider || !valueDisplay) return;
+
+  const weight = parseInt(slider.value, 10) / 100;
+  valueDisplay.textContent = weight.toFixed(1);
+
+  if (labelDisplay) {
+    labelDisplay.textContent = getWeightLabel(weight);
   }
 }
 
@@ -2405,6 +2449,12 @@ document.addEventListener('DOMContentLoaded', () => {
       $('post-cw-text').focus();
     }
   });
+
+  // Trust weight slider
+  const trustWeightSlider = $('trust-weight');
+  if (trustWeightSlider) {
+    trustWeightSlider.addEventListener('input', updateTrustWeightDisplay);
+  }
 
   // Profile event listeners
   $('edit-profile-btn').addEventListener('click', showProfileEdit);

@@ -30,8 +30,12 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const publicKey = validatePublicKey(req.body.publicKey);
-      await getClout()!.trust(publicKey);
-      res.json({ success: true });
+      // Weight is optional, defaults to 1.0 (full trust)
+      const weight = typeof req.body.weight === 'number'
+        ? Math.max(0.1, Math.min(1.0, req.body.weight))
+        : 1.0;
+      await getClout()!.trust(publicKey, weight);
+      res.json({ success: true, data: { publicKey, weight } });
     } catch (error: any) {
       res.status(400).json({ success: false, error: error.message });
     }
@@ -57,7 +61,8 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         tags: [],
         isMuted: false,
         distance: 0,
-        isSelf: true
+        isSelf: true,
+        weight: 1.0  // Self always has full trust
       };
 
       const trustedKeys = Array.from(profile.trustGraph).filter(k => k !== myKey);
@@ -66,6 +71,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         const tags = clout.getTagsForUser(publicKey);
         const nickname = clout.getNickname(publicKey);
         const isMuted = clout.isMuted(publicKey);
+        const weight = clout.getTrustWeight(publicKey) ?? 1.0;
         return {
           publicKey,
           publicKeyShort: publicKey.slice(0, 12),
@@ -75,7 +81,8 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           tags,
           isMuted,
           distance: 1,
-          isSelf: false
+          isSelf: false,
+          weight
         };
       });
 

@@ -227,6 +227,13 @@
               >
               <button id="trust-btn" class="btn btn-primary">Trust</button>
             </div>
+            <div class="trust-weight-row">
+              <label for="trust-weight">Trust Weight:</label>
+              <input type="range" id="trust-weight" min="10" max="100" value="100" class="range trust-weight-slider">
+              <span id="trust-weight-value" class="trust-weight-display">1.0</span>
+              <span class="trust-weight-label" id="trust-weight-label">Full Trust</span>
+            </div>
+            <p class="help-text-small">Higher weight = more influence on your feed. Use lower weights for new acquaintances.</p>
             <div id="trust-result" class="result-message" style="display: none;"></div>
           </div>
 
