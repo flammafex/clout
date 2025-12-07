@@ -264,7 +264,7 @@ function setupTabs() {
       if (tab === 'feed') loadFeed();
       if (tab === 'slides') loadSlides();
       if (tab === 'settings') loadSettings();
-      if (tab === 'trust') { loadTrustedUsers(); loadStats(); }
+      if (tab === 'trust') { loadTrustedUsers(); loadStats(); loadSettings(); }
       if (tab === 'profile') { loadProfile(); loadIdentity(); loadIdentities(); }
     });
   });
