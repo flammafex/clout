@@ -304,47 +304,57 @@ export class WitnessAdapter implements WitnessClient {
    *
    * Validates threshold signatures from witness nodes.
    * Supports both Ed25519 multi-sig and BLS12-381 aggregated signatures.
+   *
+   * Multi-gateway: Tries all gateways and returns first successful verification.
    */
   async verify(attestation: Attestation): Promise<boolean> {
     await this.init();
 
     // Attempt real verification if gateway is available
     if (this.config) {
-      try {
-        // If we have the raw SignedAttestation, use it directly
-        // Otherwise, try to reconstruct (may fail if signatures aren't in correct format)
-        const witnessAttestation = attestation.raw || {
-          attestation: {
-            hash: attestation.hash,
-            timestamp: attestation.timestamp,
-            network_id: this.networkId,
-            sequence: 0
-          },
-          signatures: attestation.signatures.map((sig, idx) => ({
-            witness_id: attestation.witnessIds[idx],
-            signature: sig
-          }))
-        };
+      // If we have the raw SignedAttestation, use it directly
+      // Otherwise, try to reconstruct (may fail if signatures aren't in correct format)
+      const witnessAttestation = attestation.raw || {
+        attestation: {
+          hash: attestation.hash,
+          timestamp: attestation.timestamp,
+          network_id: this.networkId,
+          sequence: 0
+        },
+        signatures: attestation.signatures.map((sig, idx) => ({
+          witness_id: attestation.witnessIds[idx],
+          signature: sig
+        }))
+      };
 
-        const response = await this.fetch(`${this.gatewayUrls}/v1/verify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ attestation: witnessAttestation })
-        });
+      // Try all gateways (consistent with timestamp() and other methods)
+      for (const gatewayUrl of this.gatewayUrls) {
+        try {
+          const response = await this.fetch(`${gatewayUrl}/v1/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ attestation: witnessAttestation })
+          });
 
-        if (response.ok) {
-          const data = await response.json();
-          return data.valid === true;
-        }
-      } catch (error) {
-        console.warn('[Witness] Gateway verification failed, trying local verification:', error);
-
-        // Try local BLS verification if we have the raw attestation with BLS format
-        if (attestation.raw && this.config) {
-          const blsResult = this.verifyBLSLocal(attestation);
-          if (blsResult !== null) {
-            return blsResult;
+          if (response.ok) {
+            const data = await response.json();
+            if (data.valid === true) {
+              return true;
+            }
+            // Gateway responded but said invalid - continue to try other gateways
+            // in case of split-brain or partial network issues
           }
+        } catch (error) {
+          console.warn(`[Witness] Gateway ${gatewayUrl} verification failed:`, error);
+          continue;
+        }
+      }
+
+      // All gateways failed - try local BLS verification as fallback
+      if (attestation.raw) {
+        const blsResult = this.verifyBLSLocal(attestation);
+        if (blsResult !== null) {
+          return blsResult;
         }
       }
     }
