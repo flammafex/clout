@@ -121,19 +121,20 @@ export class FreebirdAdmin {
 
   /**
    * List all invitations
+   * Returns null if the request fails (to distinguish from "no invitations")
    */
-  async listInvitations(): Promise<Invitation[]> {
+  async listInvitations(): Promise<Invitation[] | null> {
     try {
       const response = await this.request<{ invitations: Invitation[] }>('/admin/invitations');
       return response.invitations || [];
     } catch (error) {
-      // If endpoint doesn't exist or fails, return empty array
+      // If endpoint doesn't exist or fails, return null to indicate failure
       if (error instanceof Error && error.message.includes('404')) {
         console.log(`[FreebirdAdmin] ℹ️ List invitations not available`);
-        return [];
+      } else {
+        console.warn(`[FreebirdAdmin] Failed to list invitations: ${error}`);
       }
-      console.warn(`[FreebirdAdmin] Failed to list invitations: ${error}`);
-      return [];
+      return null;
     }
   }
 
