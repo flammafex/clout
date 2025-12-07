@@ -25,15 +25,83 @@ export interface DelegatedPass {
  */
 export type ReputationGetter = (publicKey: string) => number;
 
+/**
+ * Callback for delegation changes (for persistence)
+ * Called when a delegation is created, consumed, or expires.
+ *
+ * @param delegation - The delegation that changed, or null if removed
+ * @param recipient - The recipient's public key
+ */
+export type DelegationChangeCallback = (delegation: DelegatedPass | null, recipient: string) => void;
+
+/**
+ * Configuration options for TicketBooth
+ */
+export interface TicketBoothConfig {
+  freebird: FreebirdClient;
+  witness: WitnessClient;
+
+  /**
+   * Optional callback to persist delegation changes
+   * Called when delegations are created, consumed, or expire
+   */
+  onDelegationChange?: DelegationChangeCallback;
+
+  /**
+   * Optional initial delegations from persistence
+   * Map of recipient public key -> DelegatedPass
+   */
+  persistedDelegations?: Map<string, DelegatedPass>;
+}
+
 export class TicketBooth {
   private freebird: FreebirdClient;
   private witness: WitnessClient;
   private readonly delegations = new Map<string, DelegatedPass>(); // recipient -> delegation
   private reputationGetter?: ReputationGetter;
+  private readonly onDelegationChange?: DelegationChangeCallback;
 
-  constructor(freebird: FreebirdClient, witness: WitnessClient) {
-    this.freebird = freebird;
-    this.witness = witness;
+  constructor(freebird: FreebirdClient, witness: WitnessClient, config?: Partial<TicketBoothConfig>);
+  constructor(config: TicketBoothConfig);
+  constructor(
+    freebirdOrConfig: FreebirdClient | TicketBoothConfig,
+    witness?: WitnessClient,
+    config?: Partial<TicketBoothConfig>
+  ) {
+    // Handle both old and new constructor signatures for backward compatibility
+    if ('freebird' in freebirdOrConfig && 'witness' in freebirdOrConfig) {
+      // New config object style
+      const cfg = freebirdOrConfig as TicketBoothConfig;
+      this.freebird = cfg.freebird;
+      this.witness = cfg.witness;
+      this.onDelegationChange = cfg.onDelegationChange;
+
+      // Load persisted delegations
+      if (cfg.persistedDelegations) {
+        for (const [recipient, delegation] of cfg.persistedDelegations) {
+          // Only load non-expired delegations
+          if (Date.now() <= delegation.expiry) {
+            this.delegations.set(recipient, delegation);
+          }
+        }
+        console.log(`[TicketBooth] Loaded ${this.delegations.size} persisted delegations`);
+      }
+    } else {
+      // Old style: separate freebird and witness arguments
+      this.freebird = freebirdOrConfig as FreebirdClient;
+      this.witness = witness!;
+      this.onDelegationChange = config?.onDelegationChange;
+
+      // Load persisted delegations from config
+      if (config?.persistedDelegations) {
+        for (const [recipient, delegation] of config.persistedDelegations) {
+          if (Date.now() <= delegation.expiry) {
+            this.delegations.set(recipient, delegation);
+          }
+        }
+        console.log(`[TicketBooth] Loaded ${this.delegations.size} persisted delegations`);
+      }
+    }
   }
 
   /**
@@ -205,6 +273,11 @@ export class TicketBooth {
     // Store delegation
     this.delegations.set(recipient, delegation);
 
+    // Persist the new delegation
+    if (this.onDelegationChange) {
+      this.onDelegationChange(delegation, recipient);
+    }
+
     console.log(
       `[TicketBooth] 🎁 ${delegatorKey.slice(0, 8)} delegated ${durationHours}h pass to ${recipient.slice(0, 8)}`
     );
@@ -228,6 +301,10 @@ export class TicketBooth {
     // Verify delegation hasn't expired
     if (Date.now() > delegation.expiry) {
       this.delegations.delete(userKey);
+      // Persist the removal
+      if (this.onDelegationChange) {
+        this.onDelegationChange(null, userKey);
+      }
       throw new Error('Delegation expired');
     }
 
@@ -242,6 +319,10 @@ export class TicketBooth {
       const currentReputation = this.reputationGetter(delegation.delegator);
       if (currentReputation < delegation.requiredReputation) {
         this.delegations.delete(userKey);
+        // Persist the removal
+        if (this.onDelegationChange) {
+          this.onDelegationChange(null, userKey);
+        }
         throw new Error(
           `Delegator reputation dropped below threshold: ` +
           `${currentReputation.toFixed(2)} < ${delegation.requiredReputation}`
@@ -266,6 +347,11 @@ export class TicketBooth {
 
     // Consume delegation (one-time use)
     this.delegations.delete(userKey);
+
+    // Persist the removal (delegation consumed)
+    if (this.onDelegationChange) {
+      this.onDelegationChange(null, userKey);
+    }
 
     console.log(
       `[TicketBooth] 🎫 Minted delegated ticket for ${userKey.slice(0, 8)} ` +
@@ -292,6 +378,10 @@ export class TicketBooth {
     // Check if expired
     if (Date.now() > delegation.expiry) {
       this.delegations.delete(userPublicKey);
+      // Persist the removal
+      if (this.onDelegationChange) {
+        this.onDelegationChange(null, userPublicKey);
+      }
       return false;
     }
 

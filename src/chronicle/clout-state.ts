@@ -8,6 +8,48 @@ import { Chronicle } from '../vendor/hypertoken/Chronicle.js'; // This is actual
 import { Emitter } from './events.js';
 import type { CloutState, PostPackage, TrustSignal, ReactionPackage, CloutProfile, PostDeletePackage } from '../clout-types.js';
 
+/**
+ * Sanitize an object for Automerge storage
+ *
+ * This function removes `undefined` values (which Automerge doesn't support)
+ * while preserving Uint8Array fields (which Automerge handles natively as bytes).
+ *
+ * The old approach `JSON.parse(JSON.stringify(obj))` corrupted Uint8Array fields
+ * by converting them to empty objects `{}` or numeric-keyed objects.
+ */
+function sanitizeForAutomerge<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+
+  // Preserve Uint8Array as-is (Automerge supports bytes natively)
+  if (obj instanceof Uint8Array) {
+    return obj;
+  }
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj
+      .filter(item => item !== undefined)
+      .map(item => sanitizeForAutomerge(item)) as T;
+  }
+
+  // Handle plain objects
+  if (typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      // Skip undefined values (Automerge throws RangeError on undefined)
+      if (value !== undefined) {
+        result[key] = sanitizeForAutomerge(value);
+      }
+    }
+    return result as T;
+  }
+
+  // Primitives pass through unchanged
+  return obj;
+}
+
 // Default empty state
 const INITIAL_STATE: CloutState = {
   myPosts: [],
@@ -41,8 +83,8 @@ export class CloutStateManager extends Emitter {
     }
 
     // Initialize the WASM-backed Chronicle
-    // We sanitize startState to ensure no undefined values exist
-    this.chronicle = new Chronicle(JSON.parse(JSON.stringify(startState)));
+    // We sanitize startState to ensure no undefined values exist while preserving Uint8Array fields
+    this.chronicle = new Chronicle(sanitizeForAutomerge(startState));
 
     // Forward events from Chronicle to Clout listeners
     this.chronicle.on("state:changed", (payload: any) => {
@@ -67,9 +109,8 @@ export class CloutStateManager extends Emitter {
     this.chronicle.change("add post", (doc: any) => {
       const exists = doc.myPosts.some((p: any) => p.id === post.id);
       if (!exists) {
-        // FIX: Sanitize post to remove 'undefined' fields (e.g. replyTo)
-        // Automerge throws RangeError if it encounters undefined
-        const cleanPost = JSON.parse(JSON.stringify(post));
+        // Sanitize post to remove 'undefined' fields while preserving Uint8Array (signature, etc.)
+        const cleanPost = sanitizeForAutomerge(post);
         doc.myPosts.push(cleanPost);
       }
     });
@@ -82,8 +123,8 @@ export class CloutStateManager extends Emitter {
       );
       if (idx !== -1) doc.myTrustSignals.splice(idx, 1);
 
-      // FIX: Sanitize signal
-      const cleanSignal = JSON.parse(JSON.stringify(signal));
+      // Sanitize signal while preserving Uint8Array (signature)
+      const cleanSignal = sanitizeForAutomerge(signal);
       doc.myTrustSignals.push(cleanSignal);
     });
   }
@@ -101,7 +142,7 @@ export class CloutStateManager extends Emitter {
 
       // Only add if not removed
       if (!reaction.removed) {
-        const cleanReaction = JSON.parse(JSON.stringify(reaction));
+        const cleanReaction = sanitizeForAutomerge(reaction);
         doc.myReactions.push(cleanReaction);
       }
     });
@@ -118,7 +159,7 @@ export class CloutStateManager extends Emitter {
       );
 
       if (!exists) {
-        const cleanDeletion = JSON.parse(JSON.stringify(deletion));
+        const cleanDeletion = sanitizeForAutomerge(deletion);
         doc.myPostDeletions.push(cleanDeletion);
       }
     });
@@ -142,11 +183,11 @@ export class CloutStateManager extends Emitter {
 
   updateProfile(profile: CloutProfile): void {
     this.chronicle.change("update profile", (doc: any) => {
-      // FIX: Sanitize profile and convert Set to Array
-      const cleanProfile = JSON.parse(JSON.stringify({
+      // Sanitize profile and convert Set to Array
+      const cleanProfile = sanitizeForAutomerge({
           ...profile,
           trustGraph: Array.from(profile.trustGraph)
-      }));
+      });
       doc.profile = cleanProfile;
     });
   }
