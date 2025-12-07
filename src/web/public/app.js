@@ -463,6 +463,9 @@ async function loadFeed() {
         </div>
       `;
     }).join('');
+
+    // Load tag filter pills after feed loads
+    loadTagFilterPills();
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
   }
@@ -780,8 +783,15 @@ function clearSearch() {
 // =========================================================================
 
 let currentFilter = 'all';
+let currentTagFilter = null; // Track active tag filter
 
 async function loadFeedWithCurrentFilter() {
+  // If we have a tag filter active, use that
+  if (currentTagFilter) {
+    await loadFeedByTag(currentTagFilter);
+    return;
+  }
+
   switch (currentFilter) {
     case 'bookmarks':
       await loadBookmarks();
@@ -797,12 +807,95 @@ async function loadFeedWithCurrentFilter() {
   }
 }
 
+// Load and display tag filter pills
+async function loadTagFilterPills() {
+  try {
+    const data = await apiCall('/tags');
+    const container = $('tag-filter-pills');
+    const wrapper = $('tag-filters');
+
+    if (!data.tags || data.tags.length === 0) {
+      wrapper.style.display = 'none';
+      return;
+    }
+
+    // Show the tag filter section
+    wrapper.style.display = 'flex';
+
+    // Build pills HTML
+    container.innerHTML = data.tags.map(tag => `
+      <button class="tag-pill${currentTagFilter === tag.tag ? ' active' : ''}"
+              onclick="filterByTag('${escapeHtml(tag.tag)}')"
+              title="${tag.count} users">
+        ${escapeHtml(tag.tag)}
+      </button>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading tag pills:', error);
+    $('tag-filters').style.display = 'none';
+  }
+}
+
+// Filter feed by tag
+async function filterByTag(tag) {
+  // Toggle tag filter - clicking same tag clears filter
+  if (currentTagFilter === tag) {
+    currentTagFilter = null;
+  } else {
+    currentTagFilter = tag;
+  }
+
+  // Update pill states
+  $$('.tag-pill').forEach(pill => {
+    pill.classList.toggle('active', pill.textContent.trim() === currentTagFilter);
+  });
+
+  // Clear the main filter buttons active state if using tag filter
+  if (currentTagFilter) {
+    $$('.filter-btn').forEach(btn => btn.classList.remove('active'));
+  } else {
+    // Re-activate 'all' filter
+    currentFilter = 'all';
+    document.querySelector('.filter-btn[data-filter="all"]').classList.add('active');
+  }
+
+  await loadFeedWithCurrentFilter();
+}
+
+// Load feed filtered by tag
+async function loadFeedByTag(tag) {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall(`/feed/tag/${encodeURIComponent(tag)}`);
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">🏷️</div>
+          <h4>No posts from "${escapeHtml(tag)}"</h4>
+          <p>Posts from users tagged "${escapeHtml(tag)}" will appear here.</p>
+          <button class="btn btn-secondary" onclick="filterByTag('${escapeHtml(tag)}')">Clear Filter</button>
+        </div>
+      `;
+      return;
+    }
+
+    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading tagged posts: ${error.message}</p>`;
+  }
+}
+
 async function setFeedFilter(filter) {
   currentFilter = filter;
+  currentTagFilter = null; // Clear tag filter when using main filters
 
   // Update active button
   $$('.filter-btn').forEach(btn => btn.classList.remove('active'));
   document.querySelector(`.filter-btn[data-filter="${filter}"]`).classList.add('active');
+
+  // Clear tag pill active state
+  $$('.tag-pill').forEach(pill => pill.classList.remove('active'));
 
   await loadFeedWithCurrentFilter();
 }
@@ -2044,8 +2137,9 @@ async function addTag() {
     $('new-tag-name').value = '';
     $('new-tag-user').value = '';
 
-    // Reload tags
+    // Reload tags in Trust tab and Feed tag pills
     await loadTags();
+    loadTagFilterPills();
   } catch (error) {
     showResult('tag-result', `Error: ${error.message}`, false);
   } finally {

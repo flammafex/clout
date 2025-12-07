@@ -79,6 +79,14 @@
             </div>
           </div>
 
+          <!-- Tag Filter (populated dynamically) -->
+          <div id="tag-filters" class="tag-filters" style="display: none;">
+            <span class="tag-filter-label">Tags:</span>
+            <div id="tag-filter-pills" class="tag-filter-pills">
+              <!-- Tag pills added by JS -->
+            </div>
+          </div>
+
           <!-- Search Bar -->
           <div class="search-bar">
             <input type="text" id="feed-search" class="input" placeholder="Search posts, authors...">
@@ -254,6 +262,50 @@
                   <p>Within your wider web of trust</p>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Trust Settings -->
+          <div class="form-card">
+            <h3>Trust Settings</h3>
+
+            <div class="setting-item">
+              <label for="settings-max-hops">Maximum Trust Distance</label>
+              <select id="settings-max-hops" class="select">
+                <option value="1">1 hop (direct follows only)</option>
+                <option value="2">2 hops (friends of friends)</option>
+                <option value="3" selected>3 hops (extended network)</option>
+              </select>
+              <p class="help-text-small">Control how far into your trust network you see posts from</p>
+            </div>
+
+            <div class="setting-item">
+              <label for="settings-min-reputation">Minimum Reputation Score</label>
+              <input type="range" id="settings-min-reputation" min="0" max="100" value="30" class="range">
+              <span id="settings-min-reputation-value">0.30</span>
+              <p class="help-text-small">Only show posts from users with at least this reputation score</p>
+            </div>
+
+            <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
+            <div id="settings-result" class="result-message" style="display: none;"></div>
+          </div>
+
+          <!-- Trust Tags Management -->
+          <div class="form-card">
+            <h3>Trust Tags</h3>
+            <p class="help-text">Organize your trusted users with tags. Use tags to filter your feed.</p>
+
+            <div class="tags-manager">
+              <div class="tags-list" id="tags-list">
+                <p class="empty-state">No tags yet</p>
+              </div>
+
+              <div class="add-tag-form">
+                <input type="text" id="new-tag-name" class="input" placeholder="Tag name (e.g. family, work)">
+                <input type="text" id="new-tag-user" class="input" placeholder="User public key">
+                <button id="add-tag-btn" class="btn btn-primary">Add Tag</button>
+              </div>
+              <div id="tag-result" class="result-message" style="display: none;"></div>
             </div>
           </div>
         </div>
@@ -461,7 +513,7 @@
         <div class="section">
           <h2>⚙️ Settings</h2>
 
-          <!-- NSFW Settings -->
+          <!-- Content Settings -->
           <div class="settings-card">
             <h3>Content Filtering</h3>
 
@@ -471,45 +523,6 @@
                 <span class="checkbox-text">Show NSFW content</span>
               </label>
               <p class="help-text-small">Enable to see posts marked as Not Safe For Work</p>
-            </div>
-
-            <div class="setting-item">
-              <label for="settings-max-hops">Maximum Trust Distance</label>
-              <select id="settings-max-hops" class="select">
-                <option value="1">1 hop (direct follows only)</option>
-                <option value="2">2 hops (friends of friends)</option>
-                <option value="3" selected>3 hops (extended network)</option>
-              </select>
-              <p class="help-text-small">Control how far into your trust network you see posts from</p>
-            </div>
-
-            <div class="setting-item">
-              <label for="settings-min-reputation">Minimum Reputation Score</label>
-              <input type="range" id="settings-min-reputation" min="0" max="100" value="30" class="range">
-              <span id="settings-min-reputation-value">0.30</span>
-              <p class="help-text-small">Only show posts from users with at least this reputation score</p>
-            </div>
-
-            <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
-            <div id="settings-result" class="result-message" style="display: none;"></div>
-          </div>
-
-          <!-- Trust Tags Management -->
-          <div class="settings-card">
-            <h3>Trust Tags</h3>
-            <p class="help-text">Organize your trusted users with tags (local only, not synced)</p>
-
-            <div class="tags-manager">
-              <div class="tags-list" id="tags-list">
-                <p class="empty-state">No tags yet</p>
-              </div>
-
-              <div class="add-tag-form">
-                <input type="text" id="new-tag-name" class="input" placeholder="New tag name">
-                <input type="text" id="new-tag-user" class="input" placeholder="User public key">
-                <button id="add-tag-btn" class="btn btn-primary">Add Tag</button>
-              </div>
-              <div id="tag-result" class="result-message" style="display: none;"></div>
             </div>
           </div>
 
@@ -532,21 +545,6 @@
                 <button id="import-backup-btn" class="btn">Select Backup File</button>
                 <div id="import-result" class="result-message" style="display: none;"></div>
               </div>
-            </div>
-          </div>
-
-          <!-- Admin Section (only shown when admin key is available) -->
-          <div id="admin-section" class="settings-card" style="display: none;">
-            <h3>🔐 Administration</h3>
-            <p class="help-text">Manage invitations and network settings via the Freebird Admin Dashboard</p>
-
-            <div class="admin-links">
-              <a id="freebird-admin-link" href="http://localhost:8081/admin" target="_blank" class="btn btn-primary">
-                🎟️ Open Freebird Admin
-              </a>
-              <p class="help-text-small" style="margin-top: 0.5rem;">
-                Create and manage invitation codes, view user stats, and configure anti-Sybil settings.
-              </p>
             </div>
           </div>
         </div>

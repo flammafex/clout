@@ -1966,6 +1966,53 @@ h2 {
   color: white;
 }
 
+/* Tag Filters */
+.tag-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-card);
+  border-radius: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.tag-filter-label {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.tag-filter-pills {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.tag-pill {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 1rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.2s;
+}
+
+.tag-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+.tag-pill.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
 /* =========================================================================
    NEW POSTS BANNER
    ========================================================================= */

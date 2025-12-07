@@ -415,6 +415,14 @@ export class CloutWebServer {
 
       // Check if invitations already exist
       const existingInvites = await freebirdAdmin.listInvitations();
+
+      // Only bootstrap if we successfully got an empty list (count === 0)
+      // If listInvitations returned null (error), skip bootstrap to be safe
+      if (existingInvites === null) {
+        console.log(`[Bootstrap] Could not check existing invitations, skipping bootstrap`);
+        return;
+      }
+
       if (existingInvites.length > 0) {
         console.log(`[Bootstrap] ${existingInvites.length} invitations already exist, skipping bootstrap`);
         return;
