@@ -186,6 +186,37 @@ Spammers must continuously solve proof-of-work or infiltrate trust networks—bo
 
 ---
 
+## Rich Media: Share More Than Text
+
+Clout supports content-addressed media storage—your files live on the distributed network, not corporate servers:
+
+| Media Type | Supported Formats |
+|------------|-------------------|
+| **Images** | PNG, JPEG, GIF, WebP |
+| **Video** | MP4, WebM |
+| **Audio** | MP3, WAV, OGG |
+| **Documents** | PDF |
+
+```bash
+clout post "Check this out!" --media ./photo.jpg
+clout post "New track" --media ./song.mp3
+```
+
+Media is content-addressed (CID-based)—identical files are deduplicated across the network.
+
+---
+
+## Real-Time Updates
+
+Stay connected with live updates through Server-Sent Events (SSE):
+
+- New posts from your trust graph appear instantly
+- Replies and reactions notify you immediately
+- Direct messages arrive in real-time
+- No polling required—efficient push-based architecture
+
+---
+
 ## Encrypted Direct Messages (Slides)
 
 End-to-end encrypted DMs that propagate through the gossip network:
@@ -245,18 +276,25 @@ clout identity create
 
 # Post content
 clout post "Hello, decentralized world!"
+clout post --nsfw "Content warning: adult themes"  # Mark sensitive content
 
 # Trust someone
 clout follow <publicKey>
+clout follow <publicKey> --tag friends             # Organize with tags
+clout nick <publicKey> "Alice"                     # Set a nickname
 
 # View your feed
 clout feed
+clout feed --tag friends                           # Filter by tag
 
-# Reply to a post
+# Interact with posts
 clout reply <postId> "Great point!"
+clout react <postId> 👍                            # React with emoji
+clout bookmark <postId>                            # Save for later
 
-# View thread
+# View threads and search
 clout thread <postId>
+clout search "decentralization"
 
 # Send encrypted DM
 clout slide <publicKey> "Private message"
@@ -269,7 +307,18 @@ npm run web
 # Open http://localhost:3000
 ```
 
-Features: Feed, Post, Trust management, Slides (DMs), Threads, Identity, Stats
+**Full-featured social experience:**
+- **Feed**: Personalized content from your trust graph with real-time updates
+- **Posts**: Rich content with images, video, audio, and PDFs
+- **Threads**: Full conversation views with nested replies
+- **Reactions**: Express yourself with emoji reactions (👍 ❤️ 🔥 and more)
+- **Bookmarks**: Save posts for later
+- **Mentions**: Tag users with @publicKey
+- **Search**: Find posts and users across your network
+- **Trust Management**: Visual trust graph with tags and nicknames
+- **Slides (DMs)**: Encrypted direct messages
+- **Profiles**: Customize your display name, bio, and avatar
+- **Stats**: Network analytics and reputation tracking
 
 ### Programmatic Usage
 
@@ -297,6 +346,55 @@ const post = await clout.post('Hello world!');
 const feed = await clout.getFeed();
 const friendsPosts = await clout.getFeed({ tag: 'friends' });
 ```
+
+---
+
+## Author Control: Edit & Retract
+
+Unlike centralized platforms where your content lives forever at their mercy, Clout gives you complete control:
+
+### Edit Posts
+Update your posts while preserving history:
+```bash
+clout edit <postId> "Updated content"
+```
+Edits create a transparent version chain—viewers see the current version with full history available.
+
+### Retract Posts
+Remove your content from circulation:
+```bash
+clout retract <postId>
+```
+Retracted posts are marked as withdrawn. Nodes respect author intent and filter them from feeds.
+
+### Mute Users
+Hide content without affecting trust relationships:
+```bash
+clout mute <publicKey>    # Silence without unfollowing
+clout unmute <publicKey>
+```
+
+---
+
+## Content Warnings & NSFW Controls
+
+Mark sensitive content and let viewers decide what they see:
+
+```bash
+clout post --nsfw "Adult content here"
+clout post --cw "Spoilers for latest episode" "The ending was..."
+```
+
+Configure your feed preferences:
+```typescript
+const clout = new Clout({
+  // ...
+  nsfwEnabled: false,              // Hide NSFW by default
+  nsfwMinReputation: 0.7           // Only show NSFW from trusted sources
+});
+```
+
+**User control, not platform censorship**: Content isn't removed—you choose whether to see it.
 
 ---
 
