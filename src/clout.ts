@@ -96,6 +96,11 @@ export class Clout {
   private mediaStorageEnabled: boolean;
   private readonly useEncryptedTrustSignals: boolean;
 
+  // Gossip message backpressure handling
+  private readonly messageQueue: ContentGossipMessage[] = [];
+  private readonly maxQueueSize = 1000;
+  private processingQueue = false;
+
   constructor(config: CloutConfig) {
     this.publicKeyHex = config.publicKey;
     this.privateKey = config.privateKey;
@@ -199,13 +204,53 @@ export class Clout {
     await this.loadSavedBookmarks();
 
     // Subscribe to gossip to populate local store
+    // Uses bounded queue with backpressure to prevent unbounded memory growth
     if (this.gossip) {
       this.gossip.subscribe(async (msg: ContentGossipMessage) => {
-        await this.handleGossipMessage(msg);
+        this.enqueueGossipMessage(msg);
       });
 
       // Initialize CRDT state synchronization
       this.stateSync.initialize();
+    }
+  }
+
+  /**
+   * Enqueue a gossip message with backpressure handling
+   *
+   * If the queue is full, drops the oldest message to make room.
+   * This prevents unbounded memory growth under high message load.
+   */
+  private enqueueGossipMessage(msg: ContentGossipMessage): void {
+    if (this.messageQueue.length >= this.maxQueueSize) {
+      console.warn('[Clout] Message queue full, dropping oldest message');
+      this.messageQueue.shift();
+    }
+    this.messageQueue.push(msg);
+    this.processMessageQueue(); // Don't await - process async
+  }
+
+  /**
+   * Process queued gossip messages
+   *
+   * Processes messages one at a time to prevent overwhelming downstream handlers.
+   * Only one processing loop runs at a time (controlled by processingQueue flag).
+   */
+  private async processMessageQueue(): Promise<void> {
+    if (this.processingQueue) return;
+    this.processingQueue = true;
+
+    try {
+      while (this.messageQueue.length > 0) {
+        const msg = this.messageQueue.shift()!;
+        try {
+          await this.handleGossipMessage(msg);
+        } catch (err) {
+          console.error('[Clout] Error processing queued message:', err);
+        }
+      }
+    } finally {
+      this.processingQueue = false;
     }
   }
 
