@@ -31,6 +31,49 @@ Modern social platforms share the same fundamental flaws:
 
 ---
 
+## BE A PART OF IT - Quick Start
+
+Get running in one command:
+
+```bash
+git clone https://github.com/flammafex/clout && cd clout
+docker compose up --build
+```
+
+Open **http://localhost:3000** — you're now running your own Clout node.
+
+### CLI Commands
+
+```bash
+# Create your identity
+docker compose run --rm cli identity create
+
+# Post to the network
+docker compose run --rm cli post "Hello, decentralized world!"
+
+# View your feed
+docker compose run --rm cli feed
+
+# Trust someone
+docker compose run --rm cli follow <publicKey>
+
+# Send encrypted DM
+docker compose run --rm cli slide <publicKey> "Private message"
+```
+
+### What Gets Deployed
+
+| Service | Purpose |
+|---------|---------|
+| **Clout** | Web UI + API (port 3000) |
+| **Witness Cluster** | Distributed timestamping (3 nodes) |
+| **Freebird** | Anti-spam tokens (issuer + verifier) |
+| **HyperToken Relay** | P2P message routing |
+
+All services run locally—no external dependencies, no data leaves your machine.
+
+---
+
 ## The Auto-Shadowban: Transparent Content Filtering
 
 Clout's core innovation is the **auto-shadowban**—content filtering that's transparent, user-controlled, and impossible to weaponize against you.
@@ -186,6 +229,37 @@ Spammers must continuously solve proof-of-work or infiltrate trust networks—bo
 
 ---
 
+## Rich Media: Share More Than Text
+
+Clout supports content-addressed media storage—your files live on the distributed network, not corporate servers:
+
+| Media Type | Supported Formats |
+|------------|-------------------|
+| **Images** | PNG, JPEG, GIF, WebP |
+| **Video** | MP4, WebM |
+| **Audio** | MP3, WAV, OGG |
+| **Documents** | PDF |
+
+```bash
+clout post "Check this out!" --media ./photo.jpg
+clout post "New track" --media ./song.mp3
+```
+
+Media is content-addressed (CID-based)—identical files are deduplicated across the network.
+
+---
+
+## Real-Time Updates
+
+Stay connected with live updates through Server-Sent Events (SSE):
+
+- New posts from your trust graph appear instantly
+- Replies and reactions notify you immediately
+- Direct messages arrive in real-time
+- No polling required—efficient push-based architecture
+
+---
+
 ## Encrypted Direct Messages (Slides)
 
 End-to-end encrypted DMs that propagate through the gossip network:
@@ -228,50 +302,24 @@ clout.importState(backup);
 
 ---
 
-## BE A PART OF IT - Quick Start
+## Web Interface Features
 
-### Installation
+**Full-featured social experience:**
+- **Feed**: Personalized content from your trust graph with real-time updates
+- **Posts**: Rich content with images, video, audio, and PDFs
+- **Threads**: Full conversation views with nested replies
+- **Reactions**: Express yourself with emoji reactions (👍 ❤️ 🔥 and more)
+- **Bookmarks**: Save posts for later
+- **Mentions**: Tag users with @publicKey
+- **Search**: Find posts and users across your network
+- **Trust Management**: Visual trust graph with tags and nicknames
+- **Slides (DMs)**: Encrypted direct messages
+- **Profiles**: Customize your display name, bio, and avatar
+- **Stats**: Network analytics and reputation tracking
 
-```bash
-npm install
-npm run build
-```
+---
 
-### CLI Usage
-
-```bash
-# Create identity
-clout identity create
-
-# Post content
-clout post "Hello, decentralized world!"
-
-# Trust someone
-clout follow <publicKey>
-
-# View your feed
-clout feed
-
-# Reply to a post
-clout reply <postId> "Great point!"
-
-# View thread
-clout thread <postId>
-
-# Send encrypted DM
-clout slide <publicKey> "Private message"
-```
-
-### Web Interface
-
-```bash
-npm run web
-# Open http://localhost:3000
-```
-
-Features: Feed, Post, Trust management, Slides (DMs), Threads, Identity, Stats
-
-### Programmatic Usage
+## Programmatic Usage
 
 ```typescript
 import { Clout, Crypto, FreebirdAdapter, WitnessAdapter } from 'clout';
@@ -297,6 +345,55 @@ const post = await clout.post('Hello world!');
 const feed = await clout.getFeed();
 const friendsPosts = await clout.getFeed({ tag: 'friends' });
 ```
+
+---
+
+## Author Control: Edit & Retract
+
+Unlike centralized platforms where your content lives forever at their mercy, Clout gives you complete control:
+
+### Edit Posts
+Update your posts while preserving history:
+```bash
+clout edit <postId> "Updated content"
+```
+Edits create a transparent version chain—viewers see the current version with full history available.
+
+### Retract Posts
+Remove your content from circulation:
+```bash
+clout retract <postId>
+```
+Retracted posts are marked as withdrawn. Nodes respect author intent and filter them from feeds.
+
+### Mute Users
+Hide content without affecting trust relationships:
+```bash
+clout mute <publicKey>    # Silence without unfollowing
+clout unmute <publicKey>
+```
+
+---
+
+## Content Warnings & NSFW Controls
+
+Mark sensitive content and let viewers decide what they see:
+
+```bash
+clout post --nsfw "Adult content here"
+clout post --cw "Spoilers for latest episode" "The ending was..."
+```
+
+Configure your feed preferences:
+```typescript
+const clout = new Clout({
+  // ...
+  nsfwEnabled: false,              // Hide NSFW by default
+  nsfwMinReputation: 0.7           // Only show NSFW from trusted sources
+});
+```
+
+**User control, not platform censorship**: Content isn't removed—you choose whether to see it.
 
 ---
 

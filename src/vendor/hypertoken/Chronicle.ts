@@ -17,12 +17,12 @@
 /**
  * ChronicleWasm: Fully Rust-backed Chronicle implementation
  *
- * This implementation uses Rust automerge-rs as the CRDT backend,
- * providing 7x performance improvement for merge/save/load operations.
+ * This implementation uses Rust automerge-rs as the CRDT backend.
+ * Binary sync is used to preserve CRDT history and merge metadata
+ * when transferring state between WASM and TypeScript layers.
  *
- * The Rust Chronicle stores the entire CloutState as JSON within
- * the CRDT document, maintaining all conflict-free merge semantics while
- * delivering native performance.
+ * The Rust Chronicle stores the entire CloutState within
+ * the CRDT document, maintaining all conflict-free merge semantics.
  */
 
 import * as A from "@automerge/automerge";
@@ -92,14 +92,12 @@ export class ChronicleWasm extends Emitter {
   }
 
   get state(): A.Doc<CloutState> {
-    // If using WASM, sync from WASM to TypeScript doc
+    // If using WASM, sync from WASM to TypeScript doc using binary format
     if (this._useWasm && this._wasmChronicle) {
       try {
-        const stateJson = this._wasmChronicle.getState();
-        const state = JSON.parse(stateJson) as CloutState;
-
-        // Update TypeScript doc to match WASM state
-        this._doc = A.from<CloutState>(state);
+        // Use binary sync to preserve CRDT history/metadata
+        const binary = this._wasmChronicle.save();
+        this._doc = A.load<CloutState>(new Uint8Array(binary));
       } catch (error) {
         console.error("❌ Failed to get state from WASM Chronicle:", error);
       }
@@ -126,8 +124,9 @@ export class ChronicleWasm extends Emitter {
         // Store new state in WASM
         this._wasmChronicle.change(message, JSON.stringify(newState));
 
-        // Update TypeScript doc for compatibility
-        this._doc = A.from<CloutState>(newState);
+        // Use binary sync to preserve CRDT history/metadata
+        const binary = this._wasmChronicle.save();
+        this._doc = A.load<CloutState>(new Uint8Array(binary));
 
         this.emit("state:changed", { doc: this._doc, source });
       } catch (error) {
@@ -166,13 +165,12 @@ export class ChronicleWasm extends Emitter {
         // Save remote doc to binary
         const remoteBinary = A.save(remoteDoc);
 
-        // Merge in WASM (7x faster than TypeScript)
+        // Merge in WASM
         this._wasmChronicle.merge(remoteBinary);
 
-        // Update TypeScript doc from WASM result
-        const mergedStateJson = this._wasmChronicle.getState();
-        const mergedState = JSON.parse(mergedStateJson) as CloutState;
-        this._doc = A.from<CloutState>(mergedState);
+        // Use binary sync to preserve CRDT history/metadata
+        const binary = this._wasmChronicle.save();
+        this._doc = A.load<CloutState>(new Uint8Array(binary));
 
         this.emit("state:changed", { doc: this._doc, source: "merge" });
       } catch (error) {
@@ -191,7 +189,6 @@ export class ChronicleWasm extends Emitter {
   save(): Uint8Array {
     if (this._useWasm && this._wasmChronicle) {
       try {
-        // Use WASM for faster serialization (7x faster)
         const binary = this._wasmChronicle.save();
         return new Uint8Array(binary);
       } catch (error) {
@@ -206,13 +203,11 @@ export class ChronicleWasm extends Emitter {
   load(binary: Uint8Array): void {
     if (this._useWasm && this._wasmChronicle) {
       try {
-        // Use WASM for faster deserialization (7x faster)
         this._wasmChronicle.load(binary);
 
-        // Sync to TypeScript doc
-        const stateJson = this._wasmChronicle.getState();
-        const state = JSON.parse(stateJson) as CloutState;
-        this._doc = A.from<CloutState>(state);
+        // Use binary sync to preserve CRDT history/metadata
+        const savedBinary = this._wasmChronicle.save();
+        this._doc = A.load<CloutState>(new Uint8Array(savedBinary));
 
         this.emit("state:changed", { doc: this._doc, source: "load" });
       } catch (error) {
@@ -248,10 +243,9 @@ export class ChronicleWasm extends Emitter {
         // Use WASM base64 decoding
         this._wasmChronicle.loadFromBase64(base64);
 
-        // Sync to TypeScript doc
-        const stateJson = this._wasmChronicle.getState();
-        const state = JSON.parse(stateJson) as CloutState;
-        this._doc = A.from<CloutState>(state);
+        // Use binary sync to preserve CRDT history/metadata
+        const binary = this._wasmChronicle.save();
+        this._doc = A.load<CloutState>(new Uint8Array(binary));
 
         this.emit("state:changed", { doc: this._doc, source: "load" });
       } catch (error) {
