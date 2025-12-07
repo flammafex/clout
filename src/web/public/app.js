@@ -2094,6 +2094,9 @@ async function loadSettings() {
     $('media-filter-videos-hops').value = videoHops;
     $('media-filter-audio-hops').value = audioHops;
 
+    // Load auto follow-back setting
+    $('settings-auto-follow-back').checked = data.trustSettings?.autoFollowBack || false;
+
     // Show admin section if available
     if (data.admin && data.admin.enabled) {
       $('admin-section').style.display = 'block';
@@ -2121,7 +2124,8 @@ async function saveSettings() {
     const settings = {
       showNsfw: $('settings-nsfw-enabled').checked,
       maxHops: parseInt($('settings-max-hops').value),
-      minReputation: parseInt($('settings-min-reputation').value) / 100
+      minReputation: parseInt($('settings-min-reputation').value) / 100,
+      autoFollowBack: $('settings-auto-follow-back').checked
     };
 
     await apiCall('/settings', 'POST', settings);
