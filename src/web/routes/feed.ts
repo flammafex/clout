@@ -129,14 +129,14 @@ export function createFeedRoutes(getClout: () => Clout | undefined, isInitialize
 
       const post = await clout.post(content || '', options);
 
-      // Include ticket info in response (for UI timer)
+      // Always include ticket info if there's an active ticket (for UI timer)
       const ticketInfo = clout.getTicketInfo();
 
       res.json({
         success: true,
         data: {
           ...post.getPackage(),
-          ticketInfo: ticketJustMinted ? ticketInfo : undefined
+          ticketInfo: ticketInfo || undefined
         }
       });
     } catch (error: any) {
