@@ -22,9 +22,10 @@ function sanitizeForAutomerge<T>(obj: T): T {
     return obj;
   }
 
-  // Preserve Uint8Array as-is (Automerge supports bytes natively)
+  // Preserve Uint8Array as a defensive copy (Automerge supports bytes natively)
+  // We copy to prevent mutation of the original array after insertion
   if (obj instanceof Uint8Array) {
-    return obj;
+    return new Uint8Array(obj) as T;
   }
 
   // Handle arrays
