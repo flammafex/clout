@@ -90,6 +90,10 @@ export class RelayServer {
   private readonly authenticatedWs = new Set<WebSocket>();
   /** Map WebSocket to authenticated publicKey for sender verification */
   private readonly wsToPublicKey = new Map<WebSocket, string>();
+  /** Track recent message IDs for deduplication (reduces bandwidth) */
+  private readonly recentMessageIds = new Map<string, number>();
+  /** How long to remember message IDs for deduplication (5 minutes) */
+  private readonly messageDedupeExpiry = 5 * 60 * 1000;
 
   constructor(config: RelayServerConfig) {
     this.config = config;
@@ -457,6 +461,16 @@ export class RelayServer {
       return;
     }
 
+    // Deduplicate messages by ID to reduce bandwidth
+    const messageId = payload?.id;
+    if (messageId && typeof messageId === 'string') {
+      if (this.recentMessageIds.has(messageId)) {
+        // Already forwarded this message recently, skip
+        return;
+      }
+      this.recentMessageIds.set(messageId, Date.now());
+    }
+
     const recipient = this.clients.get(to);
     if (!recipient) {
       this.sendError(ws, `Recipient ${to.slice(0, 8)} not connected`);
@@ -534,12 +548,28 @@ export class RelayServer {
       const now = Date.now();
       const TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
+      // Clean up expired auth challenges (prevents memory leak from abandoned connections)
+      for (const [ws, pending] of this.pendingAuth.entries()) {
+        if (now - pending.issuedAt > this.challengeExpiry) {
+          console.log('[RelayServer] Cleaning up expired auth challenge');
+          this.pendingAuth.delete(ws);
+          ws.close(4002, 'Authentication timeout');
+        }
+      }
+
       // Remove stale clients
       for (const [publicKey, client] of this.clients.entries()) {
         if (now - client.lastSeen > TIMEOUT) {
           console.log(`[RelayServer] Removing stale client ${publicKey.slice(0, 8)}`);
           client.ws.close();
           this.clients.delete(publicKey);
+        }
+      }
+
+      // Clean up old message IDs for deduplication
+      for (const [messageId, timestamp] of this.recentMessageIds.entries()) {
+        if (now - timestamp > this.messageDedupeExpiry) {
+          this.recentMessageIds.delete(messageId);
         }
       }
 
