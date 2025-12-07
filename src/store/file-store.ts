@@ -51,6 +51,7 @@ interface LocalData {
 export class FileSystemStore implements CloutStore {
   private path: string;
   private data: LocalData;
+  private initialized = false;
 
   constructor(customPath?: string) {
     this.path = customPath || join(getCloutDataDir(), 'local-data.json');
@@ -58,8 +59,16 @@ export class FileSystemStore implements CloutStore {
   }
 
   async init(): Promise<void> {
+    // Prevent multiple initializations - this fixes race condition where
+    // initializeDataLayer() calls init() after posts have been added
+    if (this.initialized) {
+      console.log(`[FileStore] ⏭️ init() already called, skipping reload`);
+      return;
+    }
+    this.initialized = true;
     this.ensureDir();
     this.load();
+    console.log(`[FileStore] 🔄 init() completed - loaded ${Object.keys(this.data.posts).length} posts`);
   }
 
   private ensureDir(): void {
@@ -89,12 +98,17 @@ export class FileSystemStore implements CloutStore {
     if (!this.data.posts[post.id]) {
       this.data.posts[post.id] = post;
       this.save();
+      console.log(`[FileStore] ✅ Added post ${post.id.slice(0, 8)} to store (total: ${Object.keys(this.data.posts).length})`);
+    } else {
+      console.log(`[FileStore] ⏭️ Post ${post.id.slice(0, 8)} already exists, skipping`);
     }
   }
 
   async getFeed(): Promise<PostPackage[]> {
-    return Object.values(this.data.posts)
+    const posts = Object.values(this.data.posts)
       .sort((a, b) => b.proof.timestamp - a.proof.timestamp);
+    console.log(`[FileStore] 📖 getFeed returning ${posts.length} posts: [${posts.map(p => p.id.slice(0, 8)).join(', ')}]`);
+    return posts;
   }
 
   async addSlide(slide: SlidePackage): Promise<void> {
