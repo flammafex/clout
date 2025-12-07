@@ -6,7 +6,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { hkdf } from '@noble/hashes/hkdf';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 import { randomBytes } from 'crypto';
-import { x25519, ed25519 } from '@noble/curves/ed25519';
+import { x25519, ed25519, edwardsToMontgomeryPub, edwardsToMontgomeryPriv } from '@noble/curves/ed25519';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha';
 import { managedNonce } from '@noble/ciphers/webcrypto';
 
@@ -527,6 +527,53 @@ export class Crypto {
     return ed25519.getPublicKey(privateKey);
   }
 
+  /**
+   * Get X25519 public key from private key (for encryption)
+   *
+   * @param privateKey - 32-byte private key
+   * @returns 32-byte X25519 public key
+   */
+  static getX25519PublicKey(privateKey: Uint8Array): Uint8Array {
+    return x25519.getPublicKey(privateKey);
+  }
+
+  /**
+   * Convert Ed25519 public key to X25519 public key
+   *
+   * Ed25519 (signing) and X25519 (encryption) use different curve representations
+   * but are mathematically related. This allows using a single identity key (Ed25519)
+   * while deriving the corresponding encryption key (X25519) when needed.
+   *
+   * IMPORTANT: The resulting X25519 key corresponds to the Ed25519 scalar
+   * (sha512(seed)[0:32]), not the raw seed. Use ed25519PrivToX25519 for
+   * private key conversion to ensure they match.
+   *
+   * @param ed25519PublicKey - 32-byte Ed25519 public key (or hex string)
+   * @returns 32-byte X25519 public key
+   */
+  static ed25519ToX25519(ed25519PublicKey: Uint8Array | string): Uint8Array {
+    const pubBytes = typeof ed25519PublicKey === 'string'
+      ? this.fromHex(ed25519PublicKey)
+      : ed25519PublicKey;
+    return edwardsToMontgomeryPub(pubBytes);
+  }
+
+  /**
+   * Convert Ed25519 private key (seed) to X25519 private key (scalar)
+   *
+   * Ed25519 derives its scalar by hashing the seed: scalar = sha512(seed)[0:32]
+   * This function extracts that scalar for use with X25519 operations.
+   *
+   * Use this alongside ed25519ToX25519 for public keys to ensure the
+   * private and public keys correspond to each other.
+   *
+   * @param ed25519PrivateKey - 32-byte Ed25519 seed
+   * @returns 32-byte X25519 scalar (derived from Ed25519 scalar)
+   */
+  static ed25519PrivToX25519(ed25519PrivateKey: Uint8Array): Uint8Array {
+    return edwardsToMontgomeryPriv(ed25519PrivateKey);
+  }
+
   // =================================================================
   //  ENCRYPTED TRUST SIGNAL HELPERS
   // =================================================================
@@ -566,9 +613,11 @@ export class Crypto {
 
     // 3. Encrypt trustee data for the trustee
     // The trustee needs both their key and the nonce to verify commitment
+    // Note: trusteePublicKey is an Ed25519 identity key, but encryption uses X25519
+    // We auto-convert to ensure callers can just pass their identity key
     const trusteeData = JSON.stringify({ trustee: trusteePublicKey, nonce });
-    const trusteePubBytes = this.fromHex(trusteePublicKey);
-    const encrypted = this.encrypt(trusteeData, trusteePubBytes);
+    const trusteeX25519Key = this.ed25519ToX25519(trusteePublicKey);
+    const encrypted = this.encrypt(trusteeData, trusteeX25519Key);
 
     // 4. Sign the commitment + metadata
     // This binds the signature to this specific trust signal
@@ -599,12 +648,12 @@ export class Crypto {
    *
    * @param encryptedTrustee - The encrypted trustee data
    * @param trusteeCommitment - The commitment to verify
-   * @param trusterPublicKey - Truster's public key for signature verification
+   * @param trusterPublicKey - Truster's public key for signature verification (Ed25519)
    * @param signature - The signature to verify
    * @param weight - Trust weight from the signal
    * @param timestamp - Timestamp from the proof
    * @param recipientPrivateKey - Your private key (to decrypt)
-   * @param recipientPublicKey - Your public key (for HKDF)
+   * @param recipientPublicKey - Your Ed25519 public key (optional, will be derived if not provided)
    * @returns Decrypted trustee key if valid, null if invalid
    */
   static decryptTrustSignal(
@@ -615,15 +664,21 @@ export class Crypto {
     weight: number,
     timestamp: number,
     recipientPrivateKey: Uint8Array,
-    recipientPublicKey: Uint8Array
+    recipientPublicKey?: Uint8Array
   ): { trustee: string; nonce: string } | null {
     try {
       // 1. Decrypt the trustee data
+      // The encryption used Ed25519 public key converted to X25519 via edwardsToMontgomeryPub.
+      // We must use the corresponding X25519 private key (Ed25519 scalar) for decryption.
+      const x25519PrivKey = this.ed25519PrivToX25519(recipientPrivateKey);
+      const x25519PubKey = recipientPublicKey
+        ? this.ed25519ToX25519(recipientPublicKey)
+        : x25519.getPublicKey(x25519PrivKey);  // Derive from converted private key
       const decrypted = this.decrypt(
         encryptedTrustee.ephemeralPublicKey,
         encryptedTrustee.ciphertext,
-        recipientPrivateKey,
-        recipientPublicKey
+        x25519PrivKey,  // Use converted private key
+        x25519PubKey
       );
 
       const { trustee, nonce } = JSON.parse(decrypted);
