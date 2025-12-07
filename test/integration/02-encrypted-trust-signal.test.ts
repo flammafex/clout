@@ -7,49 +7,29 @@
  * 3. Third parties can verify signature but NOT see trustee identity
  * 4. Invalid recipients cannot decrypt the signal
  *
- * Note: This test uses separate key types:
- * - Ed25519 keys for signing/identity (via ed25519.getPublicKey)
- * - X25519 keys for encryption (via x25519.getPublicKey)
- * Both are derived from the same 32-byte private key.
+ * Note: The Crypto API now handles Ed25519 to X25519 key conversion automatically.
+ * Callers can pass Ed25519 identity keys directly, and encryption/decryption
+ * will convert them to X25519 internally.
  */
 
 /// <reference types="node" />
 
 import { Crypto } from '../../src/crypto.js';
-import { x25519, ed25519 } from '@noble/curves/ed25519';
 
 interface TestKeypair {
   privateKey: Uint8Array;
-  // Ed25519 public key - for signature verification
-  ed25519PublicKey: Uint8Array;
-  ed25519PublicKeyHex: string;
-  // X25519 public key - for encryption/decryption
-  x25519PublicKey: Uint8Array;
-  x25519PublicKeyHex: string;
+  publicKey: Uint8Array;     // Ed25519 public key (identity)
+  publicKeyHex: string;
 }
 
 function generateKeypair(name: string): TestKeypair {
   const privateKey = Crypto.randomBytes(32);
+  const publicKey = Crypto.getPublicKey(privateKey);  // Ed25519
+  const publicKeyHex = Crypto.toHex(publicKey);
 
-  // Ed25519 public key for signing
-  const ed25519PublicKey = ed25519.getPublicKey(privateKey);
-  const ed25519PublicKeyHex = Crypto.toHex(ed25519PublicKey);
+  console.log(`[Test] Generated keypair for ${name}: ${publicKeyHex.slice(0, 16)}...`);
 
-  // X25519 public key for encryption
-  const x25519PublicKey = x25519.getPublicKey(privateKey);
-  const x25519PublicKeyHex = Crypto.toHex(x25519PublicKey);
-
-  console.log(`[Test] Generated keypair for ${name}:`);
-  console.log(`       Ed25519 (signing): ${ed25519PublicKeyHex.slice(0, 16)}...`);
-  console.log(`       X25519 (encrypt):  ${x25519PublicKeyHex.slice(0, 16)}...`);
-
-  return {
-    privateKey,
-    ed25519PublicKey,
-    ed25519PublicKeyHex,
-    x25519PublicKey,
-    x25519PublicKeyHex
-  };
+  return { privateKey, publicKey, publicKeyHex };
 }
 
 async function runTests() {
@@ -73,13 +53,11 @@ async function runTests() {
     const weight = 0.85;
     const timestamp = Date.now();
 
-    // Note: createEncryptedTrustSignal uses:
-    // - Ed25519 private key for signing
-    // - X25519 public key for encrypting to trustee
+    // Note: createEncryptedTrustSignal now auto-converts Ed25519 to X25519
     const encryptedSignal = Crypto.createEncryptedTrustSignal(
       alice.privateKey,
-      alice.ed25519PublicKeyHex,  // For signature verification
-      bob.x25519PublicKeyHex,      // For encryption to Bob
+      alice.publicKeyHex,  // Ed25519 identity key
+      bob.publicKeyHex,    // Ed25519 identity key (auto-converted to X25519)
       weight,
       timestamp
     );
@@ -105,22 +83,23 @@ async function runTests() {
     // ===== Test 2: Bob (trustee) can decrypt and verify =====
     console.log('\nTest 2: Bob (trustee) decrypts and verifies the signal...');
 
+    // Note: decryptTrustSignal now auto-converts Ed25519 to X25519
     const decryptedByBob = Crypto.decryptTrustSignal(
       encryptedSignal.encryptedTrustee,
       encryptedSignal.trusteeCommitment,
-      alice.ed25519PublicKeyHex,  // Truster's signing key for verification
+      alice.publicKeyHex,  // Ed25519 identity key for signature verification
       encryptedSignal.signature,
       weight,
       timestamp,
       bob.privateKey,
-      bob.x25519PublicKey  // Bob's encryption key
+      bob.publicKey  // Ed25519 public key (auto-converted to X25519)
     );
 
     if (!decryptedByBob) {
       throw new Error('Bob failed to decrypt signal meant for him');
     }
-    if (decryptedByBob.trustee !== bob.x25519PublicKeyHex) {
-      throw new Error(`Decrypted trustee mismatch: ${decryptedByBob.trustee} !== ${bob.x25519PublicKeyHex}`);
+    if (decryptedByBob.trustee !== bob.publicKeyHex) {
+      throw new Error(`Decrypted trustee mismatch: ${decryptedByBob.trustee} !== ${bob.publicKeyHex}`);
     }
 
     console.log(`  Decrypted trustee: ${decryptedByBob.trustee.slice(0, 16)}...`);
@@ -134,7 +113,7 @@ async function runTests() {
     // Charlie verifies signature is valid
     const signatureValid = Crypto.verifyEncryptedTrustSignature(
       encryptedSignal.trusteeCommitment,
-      alice.ed25519PublicKeyHex,
+      alice.publicKeyHex,
       encryptedSignal.signature,
       weight,
       timestamp
@@ -149,12 +128,12 @@ async function runTests() {
     const decryptedByCharlie = Crypto.decryptTrustSignal(
       encryptedSignal.encryptedTrustee,
       encryptedSignal.trusteeCommitment,
-      alice.ed25519PublicKeyHex,
+      alice.publicKeyHex,
       encryptedSignal.signature,
       weight,
       timestamp,
       charlie.privateKey,
-      charlie.x25519PublicKey
+      charlie.publicKey
     );
 
     if (decryptedByCharlie !== null) {
@@ -172,7 +151,7 @@ async function runTests() {
 
     const tamperedValid = Crypto.verifyEncryptedTrustSignature(
       encryptedSignal.trusteeCommitment,
-      alice.ed25519PublicKeyHex,
+      alice.publicKeyHex,
       tamperedSignature,
       weight,
       timestamp
@@ -190,7 +169,7 @@ async function runTests() {
 
     const wrongWeightValid = Crypto.verifyEncryptedTrustSignature(
       encryptedSignal.trusteeCommitment,
-      alice.ed25519PublicKeyHex,
+      alice.publicKeyHex,
       encryptedSignal.signature,
       0.99, // Wrong weight
       timestamp
@@ -211,8 +190,8 @@ async function runTests() {
 
     const trickySignal = Crypto.createEncryptedTrustSignal(
       alice.privateKey,
-      alice.ed25519PublicKeyHex,
-      bob.x25519PublicKeyHex,
+      alice.publicKeyHex,
+      bob.publicKeyHex,
       trickyWeight,
       timestamp
     );
@@ -220,7 +199,7 @@ async function runTests() {
     // Verification should work even with tricky float
     const trickyValid = Crypto.verifyEncryptedTrustSignature(
       trickySignal.trusteeCommitment,
-      alice.ed25519PublicKeyHex,
+      alice.publicKeyHex,
       trickySignal.signature,
       trickyWeight,
       timestamp
@@ -234,12 +213,12 @@ async function runTests() {
     const trickyDecrypted = Crypto.decryptTrustSignal(
       trickySignal.encryptedTrustee,
       trickySignal.trusteeCommitment,
-      alice.ed25519PublicKeyHex,
+      alice.publicKeyHex,
       trickySignal.signature,
       trickyWeight,
       timestamp,
       bob.privateKey,
-      bob.x25519PublicKey
+      bob.publicKey
     );
 
     if (!trickyDecrypted) {
@@ -255,16 +234,16 @@ async function runTests() {
 
     const signal1 = Crypto.createEncryptedTrustSignal(
       alice.privateKey,
-      alice.ed25519PublicKeyHex,
-      bob.x25519PublicKeyHex,
+      alice.publicKeyHex,
+      bob.publicKeyHex,
       weight,
       timestamp
     );
 
     const signal2 = Crypto.createEncryptedTrustSignal(
       alice.privateKey,
-      alice.ed25519PublicKeyHex,
-      bob.x25519PublicKeyHex,
+      alice.publicKeyHex,
+      bob.publicKeyHex,
       weight,
       timestamp
     );
@@ -275,6 +254,53 @@ async function runTests() {
     console.log(`  Signal 1 commitment: ${signal1.trusteeCommitment.slice(0, 16)}...`);
     console.log(`  Signal 2 commitment: ${signal2.trusteeCommitment.slice(0, 16)}...`);
     console.log('  Passed: Commitments are unique (prevents linking)');
+    passed++;
+
+    // ===== Test 8: Decryption works without explicit public key =====
+    console.log('\nTest 8: Decryption works without explicit public key (derived from private)...');
+
+    const decryptedNoExplicitKey = Crypto.decryptTrustSignal(
+      encryptedSignal.encryptedTrustee,
+      encryptedSignal.trusteeCommitment,
+      alice.publicKeyHex,
+      encryptedSignal.signature,
+      weight,
+      timestamp,
+      bob.privateKey
+      // Note: No public key passed - will be derived internally
+    );
+
+    if (!decryptedNoExplicitKey) {
+      throw new Error('Decryption should work without explicit public key');
+    }
+    console.log('  Decryption without explicit public key: PASSED');
+    console.log('  Passed: Public key correctly derived from private key');
+    passed++;
+
+    // ===== Test 9: Key conversion utility works correctly =====
+    console.log('\nTest 9: ed25519ToX25519 conversion produces matching key pairs...');
+
+    // Ed25519 and X25519 use different scalars from the same seed:
+    // - Ed25519 scalar = sha512(seed)[0:32]
+    // - Raw X25519 scalar = seed directly
+    // So ed25519ToX25519(ed25519Pub) !== x25519.getPublicKey(seed)
+    // But: ed25519ToX25519(ed25519Pub) == x25519.getPublicKey(ed25519PrivToX25519(seed))
+
+    const ed25519Pub = Crypto.getPublicKey(bob.privateKey);
+    const x25519PubFromEd25519 = Crypto.ed25519ToX25519(ed25519Pub);
+
+    // Convert private key and derive X25519 public key from it
+    const x25519Priv = Crypto.ed25519PrivToX25519(bob.privateKey);
+    const x25519PubFromConvertedPriv = Crypto.getX25519PublicKey(x25519Priv);
+
+    // These should match - the converted public key should correspond to the converted private key
+    if (Crypto.toHex(x25519PubFromEd25519) !== Crypto.toHex(x25519PubFromConvertedPriv)) {
+      throw new Error('ed25519ToX25519(pubkey) should match x25519.getPublicKey(ed25519PrivToX25519(privkey))');
+    }
+    console.log(`  Ed25519 public key:     ${Crypto.toHex(ed25519Pub).slice(0, 16)}...`);
+    console.log(`  X25519 (from Ed25519):  ${Crypto.toHex(x25519PubFromEd25519).slice(0, 16)}...`);
+    console.log(`  X25519 (from priv):     ${Crypto.toHex(x25519PubFromConvertedPriv).slice(0, 16)}...`);
+    console.log('  Passed: Key conversions produce matching key pairs');
     passed++;
 
     // ===== Results =====
