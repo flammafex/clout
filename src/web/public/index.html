@@ -533,6 +533,62 @@
             </div>
           </div>
 
+          <!-- Media Trust Settings -->
+          <div class="settings-card">
+            <h3>Media Trust Settings</h3>
+            <p class="help-text">Set stricter trust requirements for media content. This helps filter potentially untrusted rich media while still seeing text posts from your extended network.</p>
+
+            <div class="media-filters">
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🖼️</span>
+                  <span>Images</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-images-hops">Max Distance:</label>
+                  <select id="media-filter-images-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🎬</span>
+                  <span>Videos</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-videos-hops">Max Distance:</label>
+                  <select id="media-filter-videos-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🎵</span>
+                  <span>Audio</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-audio-hops">Max Distance:</label>
+                  <select id="media-filter-audio-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <button id="save-media-filters-btn" class="btn btn-primary">Save Media Settings</button>
+            <div id="media-filter-result" class="result-message" style="display: none;"></div>
+          </div>
+
           <!-- Data Management -->
           <div class="settings-card">
             <h3>Data Management</h3>

@@ -1164,6 +1164,50 @@ h2 {
   accent-color: var(--primary);
 }
 
+/* Media Filters */
+.media-filters {
+  margin-bottom: 1rem;
+}
+
+.media-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  background: var(--bg-card);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.media-filter-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.media-icon {
+  font-size: 1.2rem;
+}
+
+.media-filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.media-filter-controls label {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.select-small {
+  width: auto;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
 /* Tags Management */
 .tags-manager {
   margin-top: 1rem;

@@ -2081,6 +2081,19 @@ async function loadSettings() {
     $('settings-min-reputation').value = Math.round(minRep * 100);
     $('settings-min-reputation-value').textContent = minRep.toFixed(2);
 
+    // Load content type filters (media settings)
+    const filters = data.trustSettings?.contentTypeFilters || {};
+    const defaultHops = data.trustSettings?.maxHops || 3;
+
+    // Map content type patterns to select values
+    const imageHops = filters['image/*']?.maxHops ?? defaultHops;
+    const videoHops = filters['video/*']?.maxHops ?? defaultHops;
+    const audioHops = filters['audio/*']?.maxHops ?? defaultHops;
+
+    $('media-filter-images-hops').value = imageHops;
+    $('media-filter-videos-hops').value = videoHops;
+    $('media-filter-audio-hops').value = audioHops;
+
     // Show admin section if available
     if (data.admin && data.admin.enabled) {
       $('admin-section').style.display = 'block';
@@ -2118,6 +2131,68 @@ async function saveSettings() {
   } finally {
     $('save-settings-btn').disabled = false;
     $('save-settings-btn').textContent = 'Save Settings';
+  }
+}
+
+// Save Media Filter Settings
+async function saveMediaFilters() {
+  // Visitors cannot save settings - show invite popup
+  if (!requireMembership()) return;
+
+  try {
+    $('save-media-filters-btn').disabled = true;
+    $('save-media-filters-btn').textContent = 'Saving...';
+
+    const imageHops = parseInt($('media-filter-images-hops').value);
+    const videoHops = parseInt($('media-filter-videos-hops').value);
+    const audioHops = parseInt($('media-filter-audio-hops').value);
+    const defaultHops = parseInt($('settings-max-hops').value) || 3;
+
+    // Only set filters for media types that differ from default
+    const promises = [];
+
+    if (imageHops !== defaultHops) {
+      promises.push(apiCall('/settings/content-filter', 'POST', {
+        contentType: 'image/*',
+        maxHops: imageHops,
+        minReputation: 0.3
+      }));
+    }
+
+    if (videoHops !== defaultHops) {
+      promises.push(apiCall('/settings/content-filter', 'POST', {
+        contentType: 'video/*',
+        maxHops: videoHops,
+        minReputation: 0.3
+      }));
+    }
+
+    if (audioHops !== defaultHops) {
+      promises.push(apiCall('/settings/content-filter', 'POST', {
+        contentType: 'audio/*',
+        maxHops: audioHops,
+        minReputation: 0.3
+      }));
+    }
+
+    // If set to default, we should still save (to ensure they're applied)
+    if (promises.length === 0) {
+      // Save all with their current values
+      promises.push(
+        apiCall('/settings/content-filter', 'POST', { contentType: 'image/*', maxHops: imageHops, minReputation: 0.3 }),
+        apiCall('/settings/content-filter', 'POST', { contentType: 'video/*', maxHops: videoHops, minReputation: 0.3 }),
+        apiCall('/settings/content-filter', 'POST', { contentType: 'audio/*', maxHops: audioHops, minReputation: 0.3 })
+      );
+    }
+
+    await Promise.all(promises);
+
+    showResult('media-filter-result', 'Media settings saved!', true);
+  } catch (error) {
+    showResult('media-filter-result', `Error: ${error.message}`, false);
+  } finally {
+    $('save-media-filters-btn').disabled = false;
+    $('save-media-filters-btn').textContent = 'Save Media Settings';
   }
 }
 
@@ -2387,6 +2462,9 @@ function setupSettings() {
 
   // Save settings button
   $('save-settings-btn').addEventListener('click', saveSettings);
+
+  // Save media filters button
+  $('save-media-filters-btn').addEventListener('click', saveMediaFilters);
 
   // Add tag button
   $('add-tag-btn').addEventListener('click', addTag);
