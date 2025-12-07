@@ -1087,6 +1087,23 @@ export class Clout {
   }
 
   /**
+   * Get the trust weight for a directly trusted user
+   * Returns the weight (0.1-1.0) or null if not directly trusted
+   */
+  getTrustWeight(publicKey: string): number | null {
+    if (!this.trustGraph.has(publicKey)) {
+      return null;
+    }
+
+    // Look up the trust signal for this user
+    const state = this.state.getState();
+    const signal = state.myTrustSignals?.find(s => s.trustee === publicKey);
+
+    // Return the weight from the signal, or default to 1.0
+    return signal?.weight ?? 1.0;
+  }
+
+  /**
    * Get the current user's profile (from Chronicle state)
    */
   getProfile(): CloutProfile {

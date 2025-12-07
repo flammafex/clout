@@ -227,6 +227,13 @@
               >
               <button id="trust-btn" class="btn btn-primary">Trust</button>
             </div>
+            <div class="trust-weight-row">
+              <label for="trust-weight">Trust Weight:</label>
+              <input type="range" id="trust-weight" min="10" max="100" value="100" class="range trust-weight-slider">
+              <span id="trust-weight-value" class="trust-weight-display">1.0</span>
+              <span class="trust-weight-label" id="trust-weight-label">Full Trust</span>
+            </div>
+            <p class="help-text-small">Higher weight = more influence on your feed. Use lower weights for new acquaintances.</p>
             <div id="trust-result" class="result-message" style="display: none;"></div>
           </div>
 
@@ -284,6 +291,14 @@
               <input type="range" id="settings-min-reputation" min="0" max="100" value="30" class="range">
               <span id="settings-min-reputation-value">0.30</span>
               <p class="help-text-small">Only show posts from users with at least this reputation score</p>
+            </div>
+
+            <div class="setting-item">
+              <label class="checkbox-label">
+                <input type="checkbox" id="settings-auto-follow-back">
+                <span class="checkbox-text">Auto follow-back</span>
+              </label>
+              <p class="help-text-small">Automatically trust anyone who trusts you first</p>
             </div>
 
             <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
@@ -524,6 +539,62 @@
               </label>
               <p class="help-text-small">Enable to see posts marked as Not Safe For Work</p>
             </div>
+          </div>
+
+          <!-- Media Trust Settings -->
+          <div class="settings-card">
+            <h3>Media Trust Settings</h3>
+            <p class="help-text">Set stricter trust requirements for media content. This helps filter potentially untrusted rich media while still seeing text posts from your extended network.</p>
+
+            <div class="media-filters">
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🖼️</span>
+                  <span>Images</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-images-hops">Max Distance:</label>
+                  <select id="media-filter-images-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🎬</span>
+                  <span>Videos</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-videos-hops">Max Distance:</label>
+                  <select id="media-filter-videos-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🎵</span>
+                  <span>Audio</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-audio-hops">Max Distance:</label>
+                  <select id="media-filter-audio-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <button id="save-media-filters-btn" class="btn btn-primary">Save Media Settings</button>
+            <div id="media-filter-result" class="result-message" style="display: none;"></div>
           </div>
 
           <!-- Data Management -->

@@ -1161,6 +1161,9 @@ async function loadTrustedUsers() {
       const displayName = user.displayName || user.publicKeyShort + '...';
       const isMuted = user.isMuted || false;
       const isSelf = user.isSelf || false;
+      const weight = user.weight ?? 1.0;
+      const weightLabel = getWeightLabel(weight);
+      const weightClass = weight >= 0.9 ? 'weight-full' : weight >= 0.5 ? 'weight-medium' : 'weight-low';
 
       // Self entry has special styling - no mute/nickname buttons
       if (isSelf) {
@@ -1184,11 +1187,16 @@ async function loadTrustedUsers() {
         ? `<button class="btn-small btn-unmute" onclick="unmuteUser('${user.publicKey}')" title="Unmute">🔊</button>`
         : `<button class="btn-small btn-mute" onclick="muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Mute">🔇</button>`;
 
+      const weightBadge = weight < 1.0
+        ? `<span class="weight-badge ${weightClass}" title="${weightLabel}">${weight.toFixed(1)}</span>`
+        : '';
+
       return `
         <div class="trusted-user-card ${isMuted ? 'muted' : ''}">
           <div class="trusted-user-info">
             <div class="trusted-user-name ${hasNickname ? 'has-nickname' : ''} ${isMuted ? 'muted-name' : ''}" title="${user.publicKey}">
               ${escapeHtml(displayName)}
+              ${weightBadge}
               ${isMuted ? '<span class="muted-badge">muted</span>' : ''}
             </div>
             <div class="trusted-user-key-small">${user.publicKeyShort}...</div>
@@ -1464,14 +1472,25 @@ async function trustUser() {
     return;
   }
 
+  // Get weight from slider (0.1 to 1.0)
+  const weightSlider = $('trust-weight');
+  const weight = weightSlider ? parseInt(weightSlider.value, 10) / 100 : 1.0;
+
   try {
     $('trust-btn').disabled = true;
     $('trust-btn').textContent = 'Adding...';
 
-    await apiCall('/trust', 'POST', { publicKey });
+    await apiCall('/trust', 'POST', { publicKey, weight });
 
-    showResult('trust-result', `Added ${publicKey.slice(0, 8)}... to your circle!`, true);
+    const weightLabel = getWeightLabel(weight);
+    showResult('trust-result', `Added ${publicKey.slice(0, 8)}... with ${weightLabel} (${weight.toFixed(1)})`, true);
     $('trust-public-key').value = '';
+
+    // Reset weight slider to default
+    if (weightSlider) {
+      weightSlider.value = 100;
+      updateTrustWeightDisplay();
+    }
 
     // Reload the trusted users list
     await loadTrustedUsers();
@@ -1480,6 +1499,31 @@ async function trustUser() {
   } finally {
     $('trust-btn').disabled = false;
     $('trust-btn').textContent = 'Trust';
+  }
+}
+
+// Get human-readable label for trust weight
+function getWeightLabel(weight) {
+  if (weight >= 0.9) return 'Full Trust';
+  if (weight >= 0.7) return 'High Trust';
+  if (weight >= 0.5) return 'Medium Trust';
+  if (weight >= 0.3) return 'Low Trust';
+  return 'Minimal Trust';
+}
+
+// Update trust weight display when slider changes
+function updateTrustWeightDisplay() {
+  const slider = $('trust-weight');
+  const valueDisplay = $('trust-weight-value');
+  const labelDisplay = $('trust-weight-label');
+
+  if (!slider || !valueDisplay) return;
+
+  const weight = parseInt(slider.value, 10) / 100;
+  valueDisplay.textContent = weight.toFixed(1);
+
+  if (labelDisplay) {
+    labelDisplay.textContent = getWeightLabel(weight);
   }
 }
 
@@ -2037,6 +2081,22 @@ async function loadSettings() {
     $('settings-min-reputation').value = Math.round(minRep * 100);
     $('settings-min-reputation-value').textContent = minRep.toFixed(2);
 
+    // Load content type filters (media settings)
+    const filters = data.trustSettings?.contentTypeFilters || {};
+    const defaultHops = data.trustSettings?.maxHops || 3;
+
+    // Map content type patterns to select values
+    const imageHops = filters['image/*']?.maxHops ?? defaultHops;
+    const videoHops = filters['video/*']?.maxHops ?? defaultHops;
+    const audioHops = filters['audio/*']?.maxHops ?? defaultHops;
+
+    $('media-filter-images-hops').value = imageHops;
+    $('media-filter-videos-hops').value = videoHops;
+    $('media-filter-audio-hops').value = audioHops;
+
+    // Load auto follow-back setting
+    $('settings-auto-follow-back').checked = data.trustSettings?.autoFollowBack || false;
+
     // Show admin section if available
     if (data.admin && data.admin.enabled) {
       $('admin-section').style.display = 'block';
@@ -2064,7 +2124,8 @@ async function saveSettings() {
     const settings = {
       showNsfw: $('settings-nsfw-enabled').checked,
       maxHops: parseInt($('settings-max-hops').value),
-      minReputation: parseInt($('settings-min-reputation').value) / 100
+      minReputation: parseInt($('settings-min-reputation').value) / 100,
+      autoFollowBack: $('settings-auto-follow-back').checked
     };
 
     await apiCall('/settings', 'POST', settings);
@@ -2074,6 +2135,68 @@ async function saveSettings() {
   } finally {
     $('save-settings-btn').disabled = false;
     $('save-settings-btn').textContent = 'Save Settings';
+  }
+}
+
+// Save Media Filter Settings
+async function saveMediaFilters() {
+  // Visitors cannot save settings - show invite popup
+  if (!requireMembership()) return;
+
+  try {
+    $('save-media-filters-btn').disabled = true;
+    $('save-media-filters-btn').textContent = 'Saving...';
+
+    const imageHops = parseInt($('media-filter-images-hops').value);
+    const videoHops = parseInt($('media-filter-videos-hops').value);
+    const audioHops = parseInt($('media-filter-audio-hops').value);
+    const defaultHops = parseInt($('settings-max-hops').value) || 3;
+
+    // Only set filters for media types that differ from default
+    const promises = [];
+
+    if (imageHops !== defaultHops) {
+      promises.push(apiCall('/settings/content-filter', 'POST', {
+        contentType: 'image/*',
+        maxHops: imageHops,
+        minReputation: 0.3
+      }));
+    }
+
+    if (videoHops !== defaultHops) {
+      promises.push(apiCall('/settings/content-filter', 'POST', {
+        contentType: 'video/*',
+        maxHops: videoHops,
+        minReputation: 0.3
+      }));
+    }
+
+    if (audioHops !== defaultHops) {
+      promises.push(apiCall('/settings/content-filter', 'POST', {
+        contentType: 'audio/*',
+        maxHops: audioHops,
+        minReputation: 0.3
+      }));
+    }
+
+    // If set to default, we should still save (to ensure they're applied)
+    if (promises.length === 0) {
+      // Save all with their current values
+      promises.push(
+        apiCall('/settings/content-filter', 'POST', { contentType: 'image/*', maxHops: imageHops, minReputation: 0.3 }),
+        apiCall('/settings/content-filter', 'POST', { contentType: 'video/*', maxHops: videoHops, minReputation: 0.3 }),
+        apiCall('/settings/content-filter', 'POST', { contentType: 'audio/*', maxHops: audioHops, minReputation: 0.3 })
+      );
+    }
+
+    await Promise.all(promises);
+
+    showResult('media-filter-result', 'Media settings saved!', true);
+  } catch (error) {
+    showResult('media-filter-result', `Error: ${error.message}`, false);
+  } finally {
+    $('save-media-filters-btn').disabled = false;
+    $('save-media-filters-btn').textContent = 'Save Media Settings';
   }
 }
 
@@ -2344,6 +2467,9 @@ function setupSettings() {
   // Save settings button
   $('save-settings-btn').addEventListener('click', saveSettings);
 
+  // Save media filters button
+  $('save-media-filters-btn').addEventListener('click', saveMediaFilters);
+
   // Add tag button
   $('add-tag-btn').addEventListener('click', addTag);
 
@@ -2405,6 +2531,12 @@ document.addEventListener('DOMContentLoaded', () => {
       $('post-cw-text').focus();
     }
   });
+
+  // Trust weight slider
+  const trustWeightSlider = $('trust-weight');
+  if (trustWeightSlider) {
+    trustWeightSlider.addEventListener('input', updateTrustWeightDisplay);
+  }
 
   // Profile event listeners
   $('edit-profile-btn').addEventListener('click', showProfileEdit);
