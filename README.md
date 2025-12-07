@@ -31,6 +31,49 @@ Modern social platforms share the same fundamental flaws:
 
 ---
 
+## BE A PART OF IT - Quick Start
+
+Get running in one command:
+
+```bash
+git clone https://github.com/flammafex/clout && cd clout
+docker compose up --build
+```
+
+Open **http://localhost:3000** — you're now running your own Clout node.
+
+### CLI Commands
+
+```bash
+# Create your identity
+docker compose run --rm cli identity create
+
+# Post to the network
+docker compose run --rm cli post "Hello, decentralized world!"
+
+# View your feed
+docker compose run --rm cli feed
+
+# Trust someone
+docker compose run --rm cli follow <publicKey>
+
+# Send encrypted DM
+docker compose run --rm cli slide <publicKey> "Private message"
+```
+
+### What Gets Deployed
+
+| Service | Purpose |
+|---------|---------|
+| **Clout** | Web UI + API (port 3000) |
+| **Witness Cluster** | Distributed timestamping (3 nodes) |
+| **Freebird** | Anti-spam tokens (issuer + verifier) |
+| **HyperToken Relay** | P2P message routing |
+
+All services run locally—no external dependencies, no data leaves your machine.
+
+---
+
 ## The Auto-Shadowban: Transparent Content Filtering
 
 Clout's core innovation is the **auto-shadowban**—content filtering that's transparent, user-controlled, and impossible to weaponize against you.
@@ -259,53 +302,7 @@ clout.importState(backup);
 
 ---
 
-## BE A PART OF IT - Quick Start
-
-### Installation
-
-```bash
-npm install
-npm run build
-```
-
-### CLI Usage
-
-```bash
-# Create identity
-clout identity create
-
-# Post content
-clout post "Hello, decentralized world!"
-clout post --nsfw "Content warning: adult themes"  # Mark sensitive content
-
-# Trust someone
-clout follow <publicKey>
-clout follow <publicKey> --tag friends             # Organize with tags
-clout nick <publicKey> "Alice"                     # Set a nickname
-
-# View your feed
-clout feed
-clout feed --tag friends                           # Filter by tag
-
-# Interact with posts
-clout reply <postId> "Great point!"
-clout react <postId> 👍                            # React with emoji
-clout bookmark <postId>                            # Save for later
-
-# View threads and search
-clout thread <postId>
-clout search "decentralization"
-
-# Send encrypted DM
-clout slide <publicKey> "Private message"
-```
-
-### Web Interface
-
-```bash
-npm run web
-# Open http://localhost:3000
-```
+## Web Interface Features
 
 **Full-featured social experience:**
 - **Feed**: Personalized content from your trust graph with real-time updates
@@ -320,7 +317,9 @@ npm run web
 - **Profiles**: Customize your display name, bio, and avatar
 - **Stats**: Network analytics and reputation tracking
 
-### Programmatic Usage
+---
+
+## Programmatic Usage
 
 ```typescript
 import { Clout, Crypto, FreebirdAdapter, WitnessAdapter } from 'clout';
