@@ -149,25 +149,30 @@ export class CloutStateManager extends Emitter {
     });
   }
 
-  addPostDeletion(deletion: PostDeletePackage): void {
-    this.chronicle.change("add post deletion", (doc: any) => {
-      // Ensure myPostDeletions exists
+  /**
+   * Add a post retraction to CRDT state
+   * (Function name kept as addPostDeletion for CRDT field compatibility)
+   */
+  addPostDeletion(retraction: PostDeletePackage): void {
+    this.chronicle.change("add post retraction", (doc: any) => {
+      // Ensure myPostDeletions exists (field name kept for CRDT compatibility)
       if (!doc.myPostDeletions) doc.myPostDeletions = [];
 
-      // Check if deletion already exists for this post
+      // Check if retraction already exists for this post
       const exists = doc.myPostDeletions.some(
-        (d: any) => d.postId === deletion.postId
+        (d: any) => d.postId === retraction.postId
       );
 
       if (!exists) {
-        const cleanDeletion = sanitizeForAutomerge(deletion);
-        doc.myPostDeletions.push(cleanDeletion);
+        const cleanRetraction = sanitizeForAutomerge(retraction);
+        doc.myPostDeletions.push(cleanRetraction);
       }
     });
   }
 
   /**
-   * Check if a post has been deleted
+   * Check if a post has been retracted
+   * (Function name kept for backward compatibility)
    */
   isPostDeleted(postId: string): boolean {
     const state = this.getState();
@@ -175,7 +180,8 @@ export class CloutStateManager extends Emitter {
   }
 
   /**
-   * Get all post deletions
+   * Get all post retractions
+   * (Function name kept for backward compatibility)
    */
   getPostDeletions(): PostDeletePackage[] {
     const state = this.getState();
