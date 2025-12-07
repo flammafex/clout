@@ -61,3 +61,16 @@ To update these vendored files:
 2. Copy the latest versions of the files
 3. Re-apply the modifications listed above
 4. Test that compilation and integration still work
+
+## WASM Module Update Required
+
+The current vendored WASM module stores state as a JSON string internally, which breaks field-level CRDT merge semantics. When changes are made, the entire state is serialized to JSON and stored as a single CRDT field, losing the ability to merge individual field changes correctly.
+
+To restore proper CRDT functionality:
+
+1. Update the WASM module from HyperToken's latest build that uses native Automerge document structure
+2. The updated module should expose binary save/load methods that preserve the full Automerge document format
+3. Rebuild with: `cd hypertoken && cargo build --release --target wasm32-unknown-unknown`
+4. Copy the updated `.wasm` file to this vendor directory
+
+Until the WASM module is updated, the Chronicle implementation uses binary sync via `A.load()` to preserve as much CRDT history as possible when transferring state between WASM and TypeScript layers.
