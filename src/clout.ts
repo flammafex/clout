@@ -330,6 +330,18 @@ export class Clout {
     this.stateSync.destroy();
   }
 
+  /**
+   * Force state synchronization with peers
+   *
+   * Call this when recovering from a network partition (e.g., relay reconnection)
+   * to immediately broadcast our state and request peer states.
+   *
+   * This is useful for faster partition healing after disconnection.
+   */
+  async forceSync(): Promise<void> {
+    await this.stateSync.forceSync();
+  }
+
   // =================================================================
   //  SECTION 1: ECONOMICS (Day Pass)
   // =================================================================

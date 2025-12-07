@@ -52,6 +52,7 @@ export interface RelayClientConfig {
 }
 
 type MessageHandler = (message: RelayMessage) => void;
+type ReconnectHandler = () => void;
 
 /**
  * Client for connecting to Clout relay server
@@ -64,7 +65,9 @@ export class RelayClient implements PeerDiscovery {
   private connected = false;
   private authenticated = false;
   private usingTor = false;
+  private wasConnectedBefore = false;
   private messageHandlers: MessageHandler[] = [];
+  private reconnectHandlers: ReconnectHandler[] = [];
   private reconnectTimer?: NodeJS.Timeout;
   private authResolve?: () => void;
   private authReject?: (error: Error) => void;
@@ -174,6 +177,7 @@ export class RelayClient implements PeerDiscovery {
           // No auth challenge received - server doesn't require auth
           console.log('[RelayClient] No auth challenge received - server may not require auth');
           this.register();
+          this.wasConnectedBefore = true;
           resolve();
         }
       }, 2000);
@@ -296,6 +300,7 @@ export class RelayClient implements PeerDiscovery {
 
       // Now register with relay
       this.register();
+      this.wasConnectedBefore = true;
 
       // Resolve connect promise
       if (this.authResolve) {
@@ -332,6 +337,16 @@ export class RelayClient implements PeerDiscovery {
    */
   onMessage(handler: MessageHandler): void {
     this.messageHandlers.push(handler);
+  }
+
+  /**
+   * Add reconnect handler
+   *
+   * Called when the client reconnects after a disconnection.
+   * Useful for triggering state sync after network partition heals.
+   */
+  onReconnect(handler: ReconnectHandler): void {
+    this.reconnectHandlers.push(handler);
   }
 
   /**
@@ -423,9 +438,23 @@ export class RelayClient implements PeerDiscovery {
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
-      this.connect().catch(err => {
-        console.warn('[RelayClient] Reconnect failed:', err);
-      });
+      this.connect()
+        .then(() => {
+          // Notify reconnect handlers for state sync
+          if (this.wasConnectedBefore) {
+            console.log('[RelayClient] Reconnected - triggering sync handlers');
+            for (const handler of this.reconnectHandlers) {
+              try {
+                handler();
+              } catch (err) {
+                console.warn('[RelayClient] Reconnect handler error:', err);
+              }
+            }
+          }
+        })
+        .catch(err => {
+          console.warn('[RelayClient] Reconnect failed:', err);
+        });
     }, 5000);
   }
 

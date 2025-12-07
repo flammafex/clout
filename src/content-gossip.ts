@@ -32,6 +32,14 @@ export interface ContentGossipConfig {
   readonly maxHops?: number; // Maximum graph distance to accept
 
   /**
+   * Maximum allowed clock skew in milliseconds (default: 60000 = 60 seconds)
+   *
+   * Posts/slides with timestamps more than this amount in the future are rejected.
+   * Set higher for networks with poor time synchronization.
+   */
+  readonly maxClockSkew?: number;
+
+  /**
    * Signing key for gossip message authentication
    * If provided, all outgoing messages will be signed and
    * incoming messages will be verified before processing.
@@ -182,6 +190,7 @@ export class ContentGossip {
   private readonly pruneInterval: number;
   private readonly maxPostAge: number;
   private readonly maxHops: number;
+  private readonly maxClockSkew: number;
 
   // Rate limiting configuration
   private readonly rateLimitMaxMessages: number;
@@ -225,6 +234,7 @@ export class ContentGossip {
     this.pruneInterval = config.pruneInterval ?? 3600_000; // 1 hour
     this.maxPostAge = config.maxPostAge ?? (30 * 24 * 3600 * 1000); // 30 days
     this.maxHops = config.maxHops ?? 3; // Up to 3 degrees of separation
+    this.maxClockSkew = config.maxClockSkew ?? 60_000; // 60 seconds default
     this.signingKey = config.signingKey;
     this.requireSignatures = config.requireSignatures ?? false;
     this.encryptionKey = config.encryptionKey;
@@ -413,8 +423,8 @@ export class ContentGossip {
       return;
     }
 
-    if (post.proof.timestamp > now + 5000) {
-      console.log(`[ContentGossip] Rejecting future post`);
+    if (post.proof.timestamp > now + this.maxClockSkew) {
+      console.log(`[ContentGossip] Rejecting future post (clock skew > ${this.maxClockSkew}ms)`);
       return;
     }
 
@@ -638,8 +648,8 @@ export class ContentGossip {
       return;
     }
 
-    if (slide.proof.timestamp > now + 5000) {
-      console.log(`[ContentGossip] Rejecting future slide`);
+    if (slide.proof.timestamp > now + this.maxClockSkew) {
+      console.log(`[ContentGossip] Rejecting future slide (clock skew > ${this.maxClockSkew}ms)`);
       return;
     }
 
