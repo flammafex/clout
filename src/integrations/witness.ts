@@ -12,6 +12,26 @@ import type { WitnessClient, Attestation, TorConfig } from '../types.js';
 import { bls12_381 } from '@noble/curves/bls12-381';
 import { TorProxy } from '../tor.js';
 
+/**
+ * Normalize a timestamp to milliseconds
+ *
+ * Handles ambiguity between seconds and milliseconds by checking magnitude.
+ * Timestamps before year 2100 in seconds (~4.1 billion) are converted to ms.
+ * This provides a safety net for inconsistent timestamp units from external APIs.
+ *
+ * @param timestamp - Raw timestamp (possibly seconds or milliseconds)
+ * @returns Timestamp in milliseconds
+ */
+export function normalizeTimestampMs(timestamp: number): number {
+  // If timestamp looks like seconds (before year 2100 in seconds = ~4.1 billion)
+  // Year 2100 in seconds: 4102444800
+  // Year 2000 in milliseconds: 946684800000
+  if (timestamp < 4_200_000_000) {
+    return timestamp * 1000; // Convert seconds to milliseconds
+  }
+  return timestamp; // Already in milliseconds
+}
+
 export interface WitnessAdapterConfig {
   readonly gatewayUrl?: string; // Single gateway (backward compatibility)
   readonly gatewayUrls?: string[]; // Multiple gateways for quorum
@@ -226,7 +246,7 @@ export class WitnessAdapter implements WitnessClient {
             return {
               hash: hashString,
               timestamp: data.attestation?.attestation?.timestamp
-                ? data.attestation.attestation.timestamp * 1000  // Convert seconds to milliseconds
+                ? normalizeTimestampMs(data.attestation.attestation.timestamp)
                 : Date.now(),
               signatures,
               witnessIds,
@@ -644,7 +664,7 @@ export class WitnessAdapter implements WitnessClient {
             return {
               hash: hashString,
               timestamp: data.attestation?.attestation?.timestamp
-                ? data.attestation.attestation.timestamp * 1000  // Convert seconds to milliseconds
+                ? normalizeTimestampMs(data.attestation.attestation.timestamp)
                 : Date.now(),
               signatures: data.attestation?.signatures?.map((sig: any) =>
                 typeof sig.signature === 'string' ? sig.signature : JSON.stringify(sig.signature)
