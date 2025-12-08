@@ -3,7 +3,7 @@
  */
 
 import { Router } from 'express';
-import type { Clout } from '../../clout.js';
+import { Clout } from '../../clout.js';
 
 export function createMediaRoutes(getClout: () => Clout | undefined, isInitialized: () => boolean): Router {
   const router = Router();
@@ -43,7 +43,7 @@ export function createMediaRoutes(getClout: () => Clout | undefined, isInitializ
     }
   });
 
-  // Get Media by CID
+  // Get Media by CID (local storage only)
   router.get('/:cid', async (req, res) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
@@ -69,6 +69,68 @@ export function createMediaRoutes(getClout: () => Clout | undefined, isInitializ
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); // CIDs are immutable
       if (metadata?.filename) {
         res.setHeader('Content-Disposition', `inline; filename="${metadata.filename}"`);
+      }
+
+      res.send(Buffer.from(data));
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get Media for a specific post (with P2P fetch support)
+  // Uses contentTypeFilters to determine if P2P fetch is allowed based on author hop distance
+  router.get('/post/:postId', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const postId = req.params.postId;
+      const feed = await clout.getFeed();
+      const post = feed.find(p => p.id === postId);
+
+      if (!post) {
+        return res.status(404).json({
+          success: false,
+          error: 'Post not found'
+        });
+      }
+
+      // Check if post has media
+      if (!Clout.postHasMedia(post)) {
+        return res.status(404).json({
+          success: false,
+          error: 'Post has no media'
+        });
+      }
+
+      // Resolve media (will try local first, then P2P if allowed by contentTypeFilters)
+      const data = await clout.resolvePostMedia(post, true);
+
+      if (!data) {
+        // Media not available - could be beyond hop distance or author offline
+        const cid = Clout.extractMediaCid(post);
+        const authorReputation = (clout as any).reputationValidator.computeReputation(post.author);
+
+        return res.status(403).json({
+          success: false,
+          error: 'Media not available',
+          reason: authorReputation.distance > 1
+            ? `Author is ${authorReputation.distance} hops away. Adjust Media Trust Settings to fetch from further.`
+            : 'Author is offline or media not found'
+        });
+      }
+
+      // Get metadata for content-type
+      const cid = Clout.extractMediaCid(post);
+      const metadata = cid ? clout.getMediaMetadata(cid) : null;
+      const contentType = post.media?.mimeType || metadata?.mimeType || 'application/octet-stream';
+
+      // Set appropriate headers
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', data.length);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      if (metadata?.filename || post.media?.filename) {
+        res.setHeader('Content-Disposition', `inline; filename="${metadata?.filename || post.media?.filename}"`);
       }
 
       res.send(Buffer.from(data));

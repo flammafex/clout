@@ -2299,22 +2299,27 @@ function renderPostContent(post) {
 
   // Check if post has media
   if (post.media && post.media.cid) {
-    const mediaUrl = `${API_BASE}/media/${post.media.cid}`;
+    // Use P2P-enabled media endpoint with post ID for hop-aware fetching
+    const mediaUrl = `${API_BASE}/media/post/${post.id}`;
+    const fallbackUrl = `${API_BASE}/media/${post.media.cid}`;
     const mimeType = post.media.mimeType;
 
     // Remove media link from content display
     content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
 
-    // Add media element
+    // Add media element with P2P-aware error handling
     let mediaHtml = '';
+    const hopDistance = post.reputation?.distance ?? 999;
+    const mediaErrorHandler = `onload="this.classList.add('loaded')" onerror="handleMediaError(this, '${post.id}', ${hopDistance})"`;
+
     if (mimeType.startsWith('image/')) {
-      mediaHtml = `<div class="post-media"><img src="${mediaUrl}" alt="Post media" loading="lazy"></div>`;
+      mediaHtml = `<div class="post-media" data-post-id="${post.id}"><img src="${mediaUrl}" alt="Post media" loading="lazy" ${mediaErrorHandler}></div>`;
     } else if (mimeType.startsWith('video/')) {
-      mediaHtml = `<div class="post-media"><video src="${mediaUrl}" controls preload="metadata"></video></div>`;
+      mediaHtml = `<div class="post-media" data-post-id="${post.id}"><video src="${mediaUrl}" controls preload="metadata" ${mediaErrorHandler}></video></div>`;
     } else if (mimeType.startsWith('audio/')) {
-      mediaHtml = `<div class="post-media"><audio src="${mediaUrl}" controls></audio></div>`;
+      mediaHtml = `<div class="post-media" data-post-id="${post.id}"><audio src="${mediaUrl}" controls ${mediaErrorHandler}></audio></div>`;
     } else if (mimeType === 'application/pdf') {
-      mediaHtml = `<div class="post-media post-media-file"><a href="${mediaUrl}" target="_blank" class="media-link">📄 View PDF</a></div>`;
+      mediaHtml = `<div class="post-media post-media-file" data-post-id="${post.id}"><a href="${mediaUrl}" target="_blank" class="media-link">📄 View PDF</a></div>`;
     }
 
     return content.trim() + mediaHtml;
@@ -2332,6 +2337,31 @@ function renderPostContent(post) {
   }
 
   return content;
+}
+
+// Handle media load errors with helpful messages for hop-distance issues
+function handleMediaError(element, postId, hopDistance) {
+  const container = element.parentElement;
+  if (!container) return;
+
+  let message = 'Media unavailable';
+  let suggestion = '';
+
+  if (hopDistance > 1) {
+    message = `Media from ${hopDistance}-hop author`;
+    suggestion = 'Adjust Media Trust Settings to view';
+  } else {
+    message = 'Media unavailable';
+    suggestion = 'Author may be offline';
+  }
+
+  container.innerHTML = `
+    <div class="media-unavailable">
+      <span class="media-unavailable-icon">🔒</span>
+      <span class="media-unavailable-text">${message}</span>
+      <span class="media-unavailable-hint">${suggestion}</span>
+    </div>
+  `;
 }
 
 // Character counter for post
