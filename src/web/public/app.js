@@ -2108,7 +2108,7 @@ async function loadProfile() {
     $('profile-name-display').textContent = profile.metadata?.displayName || '(No name set)';
     $('profile-bio-display').textContent = profile.metadata?.bio || '';
     $('profile-avatar-display').innerHTML = renderAvatar(profile.metadata?.avatar);
-    $('profile-key-display').textContent = profile.publicKey.slice(0, 16) + '...';
+    $('identity-public-key').textContent = profile.publicKey;
 
     // Show bio only if it exists
     if (profile.metadata?.bio) {

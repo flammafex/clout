@@ -1913,8 +1913,16 @@ export class Clout {
     reactions: Map<string, { count: number; weightedCount: number; reactors: string[] }>;
     myReaction?: string;
   } {
-    const state = this.state.getState();
-    const allReactions = state.myReactions || [];
+    // Read from file store (persistent) rather than CRDT state
+    // This ensures reactions persist correctly across requests
+    let allReactions: import('./clout-types.js').ReactionPackage[] = [];
+    if (this.store && 'getReactionsSync' in this.store) {
+      allReactions = (this.store as any).getReactionsSync() || [];
+    } else {
+      // Fallback to CRDT state
+      const state = this.state.getState();
+      allReactions = state.myReactions || [];
+    }
 
     // Filter reactions for this post
     const postReactions = allReactions.filter(r => r.postId === postId && !r.removed);
@@ -1947,8 +1955,15 @@ export class Clout {
    * Get my reaction to a specific post
    */
   getMyReaction(postId: string): string | undefined {
-    const state = this.state.getState();
-    const myReactions = (state.myReactions || []).filter(
+    // Read from file store for consistency with getReactionsForPost
+    let allReactions: import('./clout-types.js').ReactionPackage[] = [];
+    if (this.store && 'getReactionsSync' in this.store) {
+      allReactions = (this.store as any).getReactionsSync() || [];
+    } else {
+      const state = this.state.getState();
+      allReactions = state.myReactions || [];
+    }
+    const myReactions = allReactions.filter(
       r => r.reactor === this.publicKeyHex && r.postId === postId && !r.removed
     );
     return myReactions[0]?.emoji;
