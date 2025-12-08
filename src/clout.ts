@@ -8,6 +8,7 @@ import { ProfileStore } from './store/profile-store.js';
 import { CloutLocalData } from './clout/local-data.js';
 import { CloutMessaging } from './clout/messaging.js';
 import { CloutStateSync } from './clout/state-sync.js';
+import { CloutNode, type CloutNodeConfig } from './network/clout-node.js';
 import type { FreebirdClient, WitnessClient, Attestation } from './types.js';
 import {
   type TrustSignal,
@@ -70,6 +71,18 @@ export interface CloutConfig {
   mediaStoragePath?: string;
   /** Maximum media file size in bytes (default: 100MB) */
   maxMediaSize?: number;
+
+  // P2P Network Settings
+  /**
+   * Enable P2P networking for Chronicle blob growth
+   * When enabled, trusting someone triggers a peer connection
+   * and Chronicle merge - your blob grows!
+   */
+  enableP2P?: boolean;
+  /** Relay servers for bootstrap and signaling */
+  relayServers?: string[];
+  /** Enable DHT for decentralized peer discovery */
+  enableDHT?: boolean;
 }
 
 export class Clout {
@@ -89,6 +102,7 @@ export class Clout {
   private readonly localData: CloutLocalData;
   private readonly messaging: CloutMessaging;
   private readonly stateSync: CloutStateSync;
+  private cloutNode?: CloutNode;
 
   // State
   private currentTicket?: CloutTicket;
@@ -176,8 +190,44 @@ export class Clout {
       gossip: this.gossip
     });
 
-    // 9. Initialize Storage & Gossip Subscription
+    // 9. Initialize P2P Network (Chronicle blob growth)
+    if (config.enableP2P) {
+      this.initializeP2PNetwork(config);
+    }
+
+    // 10. Initialize Storage & Gossip Subscription
     this.initializeDataLayer();
+  }
+
+  /**
+   * Initialize P2P network for Chronicle blob growth
+   */
+  private async initializeP2PNetwork(config: CloutConfig): Promise<void> {
+    const nodeConfig: CloutNodeConfig = {
+      publicKey: this.publicKeyHex,
+      nodeType: 'light' as any, // Default to light node
+      trustGraph: this.trustGraph,
+      relayServers: config.relayServers,
+      enableDHT: config.enableDHT ?? true,
+      onPeerConnected: (peer) => {
+        console.log(`[Clout] 🔗 Peer connected: ${peer.publicKey.slice(0, 8)} - requesting Chronicle`);
+        // Request their Chronicle state when they connect
+        this.stateSync.forceSync();
+      },
+      onMessage: (peer, message) => {
+        // Handle incoming P2P messages (state sync is handled by StateSync)
+        this.enqueueGossipMessage(message as ContentGossipMessage);
+      }
+    };
+
+    this.cloutNode = new CloutNode(nodeConfig);
+
+    try {
+      await this.cloutNode.start();
+      console.log('[Clout] 🌐 P2P network started - Chronicle blob ready to grow!');
+    } catch (error) {
+      console.error('[Clout] Failed to start P2P network:', error);
+    }
   }
 
   /**
@@ -1148,6 +1198,12 @@ export class Clout {
         trustGraph: this.trustGraph,
         trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
       });
+    }
+
+    // 3. Trigger P2P connection to grow the Chronicle blob
+    if (this.cloutNode) {
+      console.log(`[Clout] 🫧 Growing blob - connecting to ${trusteeKey.slice(0, 8)}...`);
+      await this.cloutNode.updateTrustGraph(this.trustGraph);
     }
   }
 
@@ -2293,6 +2349,51 @@ export class Clout {
         postCount: gossipStats.postCount,
         slideCount
       }
+    };
+  }
+
+  /**
+   * Get Clout stats - metrics for your Chronicle blob
+   *
+   * The "game" element: who has the biggest blob?
+   * Clout grows through genuine trust relationships.
+   */
+  async getCloutStats(): Promise<{
+    chronicleSize: number;
+    trustReach: number;
+    uniqueAuthors: number;
+    myPostCount: number;
+    reactionCount: number;
+    connectedPeers: number;
+    blobDensity: number;
+  }> {
+    // Get Chronicle state
+    const state = this.state.getState();
+    const myPosts = state.myPosts || [];
+    const myReactions = state.myReactions || [];
+    const trustSignals = state.myTrustSignals || [];
+
+    // Get feed to count unique authors in our blob
+    const feed = this.store ? await this.store.getFeed() : [];
+    const uniqueAuthors = new Set(feed.map(p => p.author)).size;
+
+    // Get P2P network stats if available
+    const connectedPeers = this.cloutNode?.getPeers().length ?? 0;
+
+    // Calculate blob density (connections per user)
+    // Higher density = more interconnected community
+    const blobDensity = uniqueAuthors > 0
+      ? trustSignals.length / uniqueAuthors
+      : 0;
+
+    return {
+      chronicleSize: feed.length,           // Total posts in your blob
+      trustReach: this.trustGraph.size,     // Direct trust connections
+      uniqueAuthors,                        // Unique people in your feed
+      myPostCount: myPosts.length,          // Your own posts
+      reactionCount: myReactions.length,    // Your reactions
+      connectedPeers,                       // Active P2P connections
+      blobDensity: Math.round(blobDensity * 100) / 100
     };
   }
 
