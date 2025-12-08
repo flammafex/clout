@@ -16,6 +16,7 @@ import { Clout } from '../clout.js';
 import { Crypto } from '../crypto.js';
 import { tryLoadWasm } from '../vendor/hypertoken/WasmBridge.js';
 import { FileSystemStore } from '../store/file-store.js';
+import { UserDataStore } from '../store/user-data-store.js';
 import { AuthManager, isPublicRoute } from './auth.js';
 import {
   createFeedRoutes,
@@ -50,8 +51,8 @@ export class CloutWebServer {
   private initialized = false;
   private port: number;
   private allowVisitors: boolean;
-  // Per-user ticket storage for browser-identity mode
-  private userTickets: Map<string, any> = new Map();
+  // Per-user persistent data storage for browser-identity mode
+  private userDataStore: UserDataStore;
   // Mapping from invitation codes to inviter public keys
   private invitationCodeToInviter: Map<string, string> = new Map();
 
@@ -64,6 +65,7 @@ export class CloutWebServer {
     this.authManager = new AuthManager({
       requireAuth: config.requireAuth
     });
+    this.userDataStore = new UserDataStore();
 
     this.setupMiddleware();
     this.setupRoutes();
@@ -105,13 +107,16 @@ export class CloutWebServer {
   private isInitialized = (): boolean => this.initialized;
   private areVisitorsAllowed = (): boolean => this.allowVisitors;
 
-  // Per-user ticket storage helpers for browser-identity mode
+  // Per-user persistent data helpers for browser-identity mode
   private getUserTicket = async (publicKey: string): Promise<any> => {
-    return this.userTickets.get(publicKey) || null;
+    return await this.userDataStore.getTicket(publicKey);
   };
   private setUserTicket = async (publicKey: string, ticket: any): Promise<void> => {
-    this.userTickets.set(publicKey, ticket);
+    await this.userDataStore.setTicket(publicKey, ticket);
   };
+
+  // Get the user data store for route modules
+  private getUserDataStore = (): UserDataStore => this.userDataStore;
 
   /**
    * Setup API routes
@@ -379,7 +384,8 @@ export class CloutWebServer {
       getClout: this.getClout,
       isInitialized: this.isInitialized,
       getUserTicket: this.getUserTicket,
-      setUserTicket: this.setUserTicket
+      setUserTicket: this.setUserTicket,
+      getUserDataStore: this.getUserDataStore
     }));
 
     // Legacy slide endpoints (for backwards compatibility)
@@ -559,6 +565,9 @@ export class CloutWebServer {
   async start(): Promise<void> {
     // Initialize WASM backend for Chronicle (7x performance boost)
     await tryLoadWasm();
+
+    // Initialize per-user data store (persistent storage)
+    await this.userDataStore.init();
 
     // Load existing invitation mappings
     this.loadInvitationMappings();
