@@ -1540,6 +1540,12 @@ export class Clout {
         trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
       });
     }
+
+    // 4. Trigger P2P disconnection - shrink the Chronicle blob
+    if (this.cloutNode) {
+      console.log(`[Clout] 🔌 Shrinking blob - disconnecting from ${trusteeKey.slice(0, 8)}...`);
+      await this.cloutNode.updateTrustGraph(this.trustGraph);
+    }
   }
 
   /**
