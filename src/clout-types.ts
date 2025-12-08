@@ -89,6 +89,7 @@ export interface TrustSettings {
     /** Keep content for retracted posts longer to ensure propagation (default: 30) */
     readonly retractedDecayDays: number;
   };
+
 }
 
 /**
@@ -414,7 +415,7 @@ export interface SlidePackage {
  * In Clout: ContentGossipMessage spreads posts to propagate content
  */
 export interface ContentGossipMessage {
-  readonly type: 'post' | 'trust' | 'trust-encrypted' | 'revoke' | 'slide' | 'reaction' | 'post-delete' | 'state-sync' | 'state-request';
+  readonly type: 'post' | 'trust' | 'trust-encrypted' | 'revoke' | 'slide' | 'reaction' | 'post-delete' | 'state-sync' | 'state-request' | 'media-request' | 'media-response';
 
   /** For posts */
   readonly post?: PostPackage;
@@ -445,6 +446,28 @@ export interface ContentGossipMessage {
   readonly stateRequest?: {
     readonly publicKey: string;
     readonly currentVersion: number;
+  };
+
+  /** For requesting media from peer (P2P media fetch) */
+  readonly mediaRequest?: {
+    /** CID of the media being requested */
+    readonly cid: string;
+    /** Requester's public key */
+    readonly requester: string;
+    /** Post ID this media is attached to (for authorization check) */
+    readonly postId: string;
+  };
+
+  /** For responding to media request */
+  readonly mediaResponse?: {
+    /** CID of the media */
+    readonly cid: string;
+    /** Media data (null if not found or not authorized) */
+    readonly data: Uint8Array | null;
+    /** MIME type */
+    readonly mimeType?: string;
+    /** Error message if request failed */
+    readonly error?: string;
   };
 
   /** Message timestamp */
