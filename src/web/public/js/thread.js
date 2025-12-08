@@ -105,9 +105,9 @@ function renderThreadPost(post, isParent = false) {
   const reactions = post.reactions || {};
   const reactionsHtml = renderReactionsBar(post.id, reactions, post.myReaction, getReactionPalette());
 
-  // Mute button
+  // Redact button
   const muteBtn = !post.isAuthor
-    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Mute">Mute</button>`
+    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Redact">Redact</button>`
     : '';
 
   // Author actions

@@ -5,7 +5,7 @@
  * - Loading and displaying trusted users
  * - Adding/removing trust
  * - Nickname management
- * - Mute functionality
+ * - Redact functionality
  * - Quick trust from feed
  */
 
@@ -89,8 +89,8 @@ export async function loadTrustedUsers() {
       }
 
       const muteBtn = isMuted
-        ? `<button class="btn-small btn-unmute" onclick="window.cloutApp.unmuteUser('${user.publicKey}')" title="Unmute">&#x1F50A;</button>`
-        : `<button class="btn-small btn-mute" onclick="window.cloutApp.muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Mute">&#x1F507;</button>`;
+        ? `<button class="btn-small btn-unmute" onclick="window.cloutApp.unmuteUser('${user.publicKey}')" title="Unredact">&#x1F50A;</button>`
+        : `<button class="btn-small btn-mute" onclick="window.cloutApp.muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Redact">&#x1F507;</button>`;
 
       const weightBadge = weight < 1.0
         ? `<span class="weight-badge ${weightClass}" title="${weightLabel}">${weight.toFixed(1)}</span>`
@@ -102,7 +102,7 @@ export async function loadTrustedUsers() {
             <div class="trusted-user-name ${hasNickname ? 'has-nickname' : ''} ${isMuted ? 'muted-name' : ''}" title="${user.publicKey}">
               ${escapeHtml(displayName)}
               ${weightBadge}
-              ${isMuted ? '<span class="muted-badge">muted</span>' : ''}
+              ${isMuted ? '<span class="muted-badge">redacted</span>' : ''}
             </div>
             <div class="trusted-user-key-small">${user.publicKeyShort}...</div>
             ${tagsHtml}
@@ -190,12 +190,12 @@ export async function quickTrust(publicKey, requireMembership) {
 }
 
 /**
- * Mute a user
+ * Redact a user (hide their posts from your feed)
  */
 export async function muteUser(publicKey, displayName, requireMembership) {
   if (!requireMembership()) return;
 
-  if (!confirm(`Mute ${displayName || publicKey.slice(0, 8)}...?\n\nTheir posts will be hidden from your feed. You can unmute them anytime from the Trust tab.`)) {
+  if (!confirm(`Redact ${displayName || publicKey.slice(0, 8)}...?\n\nTheir posts will be hidden from your feed. You can unredact them anytime from the Trust tab.`)) {
     return;
   }
 
@@ -203,15 +203,15 @@ export async function muteUser(publicKey, displayName, requireMembership) {
     if (window.CloutUserData) {
       await window.CloutUserData.mute(publicKey);
     }
-    showResult('feed-list', `Muted ${displayName || publicKey.slice(0, 8)}...`, true);
+    showResult('feed-list', `Redacted ${displayName || publicKey.slice(0, 8)}...`, true);
     setTimeout(() => loadFeed(), 500);
   } catch (error) {
-    alert(`Could not mute user: ${error.message}`);
+    alert(`Could not redact user: ${error.message}`);
   }
 }
 
 /**
- * Unmute a user
+ * Unredact a user (show their posts in your feed again)
  */
 export async function unmuteUser(publicKey) {
   try {
@@ -219,9 +219,9 @@ export async function unmuteUser(publicKey) {
       await window.CloutUserData.unmute(publicKey);
     }
     await loadTrustedUsers();
-    showResult('trust-result', `Unmuted ${publicKey.slice(0, 8)}...`, true);
+    showResult('trust-result', `Unredacted ${publicKey.slice(0, 8)}...`, true);
   } catch (error) {
-    alert(`Could not unmute user: ${error.message}`);
+    alert(`Could not unredact user: ${error.message}`);
   }
 }
 
