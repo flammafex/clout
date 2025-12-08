@@ -448,6 +448,22 @@ async function loadFeed() {
           trustedKeys.has(post.author) || post.isAuthor
         );
         console.log(`[Feed] Filtered ${data.posts?.length || 0} posts to ${filteredPosts.length} from ${trustedKeys.size} trusted users`);
+
+        // Also filter out muted users from IndexedDB
+        const mutedUsers = await window.CloutUserData.getMutedUsers();
+        if (mutedUsers.length > 0) {
+          const mutedSet = new Set(mutedUsers);
+          const beforeMute = filteredPosts.length;
+          filteredPosts = filteredPosts.filter(post => !mutedSet.has(post.author));
+          console.log(`[Feed] Filtered out ${beforeMute - filteredPosts.length} posts from ${mutedUsers.length} muted users`);
+        }
+
+        // Overlay bookmark state from IndexedDB
+        const bookmarkIds = await window.CloutUserData.getBookmarks();
+        const bookmarkSet = new Set(bookmarkIds);
+        filteredPosts.forEach(post => {
+          post.isBookmarked = bookmarkSet.has(post.id);
+        });
       } catch (e) {
         console.warn('[Feed] Could not filter by trust graph:', e);
         // Fall back to showing all posts if trust filtering fails
@@ -644,7 +660,10 @@ async function muteUser(publicKey, displayName) {
     return;
   }
   try {
-    await apiCall('/mute', 'POST', { publicKey });
+    // Dark Social Graph: Store mute in IndexedDB, not server
+    if (window.CloutUserData) {
+      await window.CloutUserData.mute(publicKey);
+    }
     showResult('feed-list', `Muted ${displayName || publicKey.slice(0, 8)}...`, true);
     // Reload feed to remove their posts
     setTimeout(() => loadFeed(), 500);
@@ -656,7 +675,10 @@ async function muteUser(publicKey, displayName) {
 // Unmute a user
 async function unmuteUser(publicKey) {
   try {
-    await apiCall('/unmute', 'POST', { publicKey });
+    // Dark Social Graph: Remove mute from IndexedDB
+    if (window.CloutUserData) {
+      await window.CloutUserData.unmute(publicKey);
+    }
     // Reload trusted users list
     await loadTrustedUsers();
     showResult('trust-result', `Unmuted ${publicKey.slice(0, 8)}...`, true);
@@ -852,15 +874,18 @@ async function toggleBookmark(postId) {
   if (!requireMembership()) return;
 
   try {
-    // Check current state (we'll toggle it)
-    const response = await fetch(`/api/bookmarks`);
-    const data = await response.json();
-    const isCurrentlyBookmarked = data.data.posts.some(p => p.id === postId);
+    if (!window.CloutUserData) {
+      console.error('User data not available');
+      return;
+    }
+
+    // Dark Social Graph: Check bookmark state from IndexedDB
+    const isCurrentlyBookmarked = await window.CloutUserData.isBookmarked(postId);
 
     if (isCurrentlyBookmarked) {
-      await apiCall('/unbookmark', 'POST', { postId });
+      await window.CloutUserData.unbookmark(postId);
     } else {
-      await apiCall('/bookmark', 'POST', { postId });
+      await window.CloutUserData.bookmark(postId);
     }
 
     // Refresh feed to update bookmark icons
@@ -1046,9 +1071,15 @@ async function setFeedFilter(filter) {
 async function loadBookmarks() {
   showLoading('feed-list');
   try {
-    const data = await apiCall('/bookmarks');
+    if (!window.CloutUserData) {
+      $('feed-list').innerHTML = `<p class="empty-state">User data not available</p>`;
+      return;
+    }
 
-    if (!data.posts || data.posts.length === 0) {
+    // Dark Social Graph: Get bookmark IDs from IndexedDB
+    const bookmarkIds = await window.CloutUserData.getBookmarks();
+
+    if (!bookmarkIds || bookmarkIds.length === 0) {
       $('feed-list').innerHTML = `
         <div class="empty-state-helpful">
           <div class="empty-icon">🔖</div>
@@ -1059,7 +1090,25 @@ async function loadBookmarks() {
       return;
     }
 
-    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post)).join('');
+    // Fetch feed and filter to bookmarked posts
+    const data = await apiCall('/feed');
+    const bookmarkSet = new Set(bookmarkIds);
+    const bookmarkedPosts = (data.posts || []).filter(p => bookmarkSet.has(p.id));
+
+    if (bookmarkedPosts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">🔖</div>
+          <h4>No bookmarks found</h4>
+          <p>Your bookmarked posts may no longer be available.</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Mark as bookmarked for display
+    bookmarkedPosts.forEach(p => p.isBookmarked = true);
+    $('feed-list').innerHTML = bookmarkedPosts.map(post => renderFeedItem(post)).join('');
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading bookmarks: ${error.message}</p>`;
   }
@@ -1295,14 +1344,36 @@ async function loadTrustedUsers() {
       return;
     }
 
+    // Dark Social Graph: Load private data from IndexedDB
+    let localNicknames = new Map();
+    let localMuted = new Set();
+    let localTags = {};
+    if (window.CloutUserData) {
+      localNicknames = await window.CloutUserData.getAllNicknames();
+      const mutedList = await window.CloutUserData.getMutedUsers();
+      localMuted = new Set(mutedList);
+      localTags = await window.CloutUserData.getAllTagsWithUsers();
+    }
+
     container.innerHTML = data.users.map(user => {
-      const tags = user.tags || [];
+      // Override server data with IndexedDB data (Dark Social Graph)
+      const localNickname = localNicknames.get(user.publicKey);
+      const nickname = localNickname || user.nickname;
+      const isMuted = localMuted.has(user.publicKey);
+
+      // Get tags for this user from IndexedDB
+      const userTags = [];
+      for (const [tag, users] of Object.entries(localTags)) {
+        if (users.includes(user.publicKey)) {
+          userTags.push(tag);
+        }
+      }
+      const tags = userTags.length > 0 ? userTags : (user.tags || []);
       const tagsHtml = tags.length > 0
         ? `<div class="user-tags">${tags.map(t => `<span class="tag-badge-small">${escapeHtml(t)}</span>`).join('')}</div>`
         : '';
-      const hasNickname = !!user.nickname;
-      const displayName = user.displayName || user.publicKeyShort + '...';
-      const isMuted = user.isMuted || false;
+      const hasNickname = !!nickname;
+      const displayName = nickname || user.publicKeyShort + '...';
       const isSelf = user.isSelf || false;
       const weight = user.weight ?? 1.0;
       const weightLabel = getWeightLabel(weight);
@@ -1347,7 +1418,7 @@ async function loadTrustedUsers() {
           </div>
           <div class="trusted-user-actions">
             ${muteBtn}
-            <button class="btn-small btn-nickname" onclick="editNickname('${user.publicKey}', '${escapeHtml(user.nickname || '')}')" title="Set nickname">✏️</button>
+            <button class="btn-small btn-nickname" onclick="editNickname('${user.publicKey}', '${escapeHtml(nickname || '')}')" title="Set nickname">✏️</button>
             <button class="btn-small" onclick="copyToClipboard2('${user.publicKey}')">Copy</button>
           </div>
         </div>
@@ -1377,10 +1448,10 @@ async function editNickname(publicKey, currentNickname) {
   if (newNickname === null) return;
 
   try {
-    await apiCall('/nickname', 'POST', {
-      publicKey,
-      nickname: newNickname.trim()
-    });
+    // Dark Social Graph: Store nickname in IndexedDB, not server
+    if (window.CloutUserData) {
+      await window.CloutUserData.setNickname(publicKey, newNickname.trim());
+    }
 
     // Reload trusted users list and feed to reflect changes
     await loadTrustedUsers();
@@ -2363,18 +2434,27 @@ async function saveMediaFilters() {
   }
 }
 
-// Load Tags
+// Load Tags - Dark Social Graph: Read from IndexedDB
 async function loadTags() {
   try {
-    const data = await apiCall('/tags');
     const tagsList = $('tags-list');
 
-    if (!data.tags || data.tags.length === 0) {
+    if (!window.CloutUserData) {
       tagsList.innerHTML = '<p class="empty-state">No tags yet</p>';
       return;
     }
 
-    tagsList.innerHTML = data.tags.map(tag => `
+    const allTags = await window.CloutUserData.getAllTags();
+
+    if (!allTags || allTags.size === 0) {
+      tagsList.innerHTML = '<p class="empty-state">No tags yet</p>';
+      return;
+    }
+
+    // Convert Map to array for rendering
+    const tagsArray = Array.from(allTags.entries()).map(([tag, count]) => ({ tag, count }));
+
+    tagsList.innerHTML = tagsArray.map(tag => `
       <div class="tag-item">
         <span class="tag-name">${escapeHtml(tag.tag)}</span>
         <span class="tag-count">${tag.count} users</span>
@@ -2387,25 +2467,29 @@ async function loadTags() {
   }
 }
 
-// View users with a specific tag
+// View users with a specific tag - Dark Social Graph: Read from IndexedDB
 async function viewTagUsers(tag) {
   try {
-    const data = await apiCall(`/tags/${encodeURIComponent(tag)}/users`);
-    const users = data.users || [];
+    if (!window.CloutUserData) {
+      alert('User data not available');
+      return;
+    }
+
+    const users = await window.CloutUserData.getUsersByTag(tag);
 
     if (users.length === 0) {
       alert(`No users with tag "${tag}"`);
       return;
     }
 
-    const userList = users.map(u => `${u.short}... (${u.publicKey})`).join('\n');
+    const userList = users.map(u => `${u.slice(0, 12)}...`).join('\n');
     alert(`Users with tag "${tag}":\n\n${userList}`);
   } catch (error) {
     alert(`Error: ${error.message}`);
   }
 }
 
-// Add Tag
+// Add Tag - Dark Social Graph: Write to IndexedDB
 async function addTag() {
   const tag = $('new-tag-name').value.trim();
   const publicKey = $('new-tag-user').value.trim();
@@ -2417,7 +2501,10 @@ async function addTag() {
 
   try {
     $('add-tag-btn').disabled = true;
-    await apiCall('/tags', 'POST', { tag, publicKey });
+
+    if (window.CloutUserData) {
+      await window.CloutUserData.addTag(publicKey, tag);
+    }
 
     showResult('tag-result', `Tag "${tag}" added to user!`, true);
     $('new-tag-name').value = '';
