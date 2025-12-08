@@ -444,7 +444,7 @@ export function renderFeedItem(post, fullFeatures = true) {
     : '';
 
   const muteBtn = (!isYou && fullFeatures)
-    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Mute this user">Mute</button>`
+    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Redact this user">Redact</button>`
     : '';
 
   const authorActions = (post.isAuthor && fullFeatures)
