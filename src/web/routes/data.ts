@@ -116,7 +116,7 @@ export function createDataRoutes(
 
       const { displayName, bio, avatar } = req.body;
 
-      await clout.updateProfileMetadata({
+      await clout.setProfileMetadata({
         displayName: displayName || undefined,
         bio: bio || undefined,
         avatar: avatar || undefined
