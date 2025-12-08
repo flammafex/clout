@@ -60,7 +60,11 @@ ENV PORT=3000
 ENV CLOUT_AUTH=false
 ENV CLOUT_DATA_DIR=/data
 
-# External service URLs (override for Docker networking)
+# External service URLs
+# IMPORTANT: When using Docker Compose, override these with Docker service names:
+#   FREEBIRD_ISSUER_URL=http://freebird:8081
+#   WITNESS_GATEWAY_URL=http://witness:8080
+# The browser VOPRF proxy requires Clout to reach Freebird internally.
 ENV WITNESS_GATEWAY_URL=http://localhost:8080
 ENV WITNESS_NETWORK_ID=clout-testnet
 ENV FREEBIRD_ISSUER_URL=http://localhost:8081
