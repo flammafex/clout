@@ -185,7 +185,12 @@ export class CloutStateManager extends Emitter {
    */
   getPostDeletions(): PostDeletePackage[] {
     const state = this.getState();
-    return state.myPostDeletions || [];
+    const deletions = state.myPostDeletions;
+    // Ensure we always return an actual array (Automerge may return array-like objects)
+    if (!deletions) return [];
+    if (Array.isArray(deletions)) return deletions;
+    // Handle Automerge's array-like objects
+    return Array.from(deletions as any);
   }
 
   updateProfile(profile: CloutProfile): void {
