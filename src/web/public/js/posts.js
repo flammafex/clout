@@ -1,0 +1,415 @@
+/**
+ * Posts Module - Post creation, editing, and retracting
+ *
+ * Handles:
+ * - Creating new posts
+ * - Editing existing posts
+ * - Retracting posts
+ * - Reply functionality
+ * - Media upload handling
+ */
+
+import * as state from './state.js';
+import { apiCall, uploadMediaFile, API_BASE } from './api.js';
+import { $, $$, showResult, formatFileSize, isInvitationRequiredError, startDayPassTimer } from './ui.js';
+import { loadFeed, loadFeedWithCurrentFilter } from './feed.js';
+
+/**
+ * Create a new post
+ */
+export async function createPost(requireMembership, showInvitePopover) {
+  if (!requireMembership()) return;
+
+  // If editing, call saveEdit instead
+  if (state.editingPost) {
+    await saveEdit(requireMembership);
+    return;
+  }
+
+  const content = $('post-content').value.trim();
+  const nsfw = $('post-nsfw').checked;
+  const cwEnabled = $('post-cw-enabled').checked;
+  const contentWarning = cwEnabled ? $('post-cw-text').value.trim() : null;
+
+  if (!content && !state.pendingMedia) {
+    showResult('post-result', 'Please enter some content or attach media', false);
+    return;
+  }
+
+  if (cwEnabled && !contentWarning) {
+    showResult('post-result', 'Please enter a content warning description', false);
+    return;
+  }
+
+  try {
+    $('create-post-btn').disabled = true;
+    $('create-post-btn').textContent = 'Posting...';
+
+    const body = { content, nsfw };
+    if (state.replyingTo) {
+      body.replyTo = state.replyingTo;
+    }
+    if (state.pendingMedia && state.pendingMedia.cid) {
+      body.mediaCid = state.pendingMedia.cid;
+    }
+    if (contentWarning) {
+      body.contentWarning = contentWarning;
+    }
+
+    const postResult = await apiCall('/post', 'POST', body);
+
+    if (postResult.ticketInfo && postResult.ticketInfo.expiry) {
+      startDayPassTimer(postResult.ticketInfo.expiry);
+    }
+
+    const hasMedia = state.pendingMedia !== null;
+    showResult('post-result',
+      state.replyingTo
+        ? (hasMedia ? 'Reply with media posted!' : 'Reply posted!')
+        : (hasMedia ? 'Post with media created!' : 'Post created successfully!'),
+      true
+    );
+
+    // Reset form
+    $('post-content').value = '';
+    $('char-count').textContent = '0';
+    $('post-nsfw').checked = false;
+    $('post-cw-enabled').checked = false;
+    $('post-cw-text').value = '';
+    $('cw-input-wrapper').style.display = 'none';
+    clearMediaPreview();
+
+    if (state.replyingTo) {
+      cancelReply();
+    }
+
+    await loadFeed();
+  } catch (error) {
+    if (isInvitationRequiredError(error)) {
+      showInvitePopover();
+    } else {
+      showResult('post-result', `Error: ${error.message}`, false);
+    }
+  } finally {
+    $('create-post-btn').disabled = false;
+    $('create-post-btn').textContent = 'Post';
+  }
+}
+
+/**
+ * Start replying to a post
+ */
+export function startReply(postId, author, requireMembership) {
+  if (!requireMembership()) return;
+
+  state.setReplyingTo(postId);
+
+  // Switch to post tab
+  $$('.tab-btn').forEach(b => b.classList.remove('active'));
+  $$('.tab-btn')[1].classList.add('active');
+  $$('.tab-content').forEach(content => content.classList.remove('active'));
+  $('post-tab').classList.add('active');
+
+  $('post-content').placeholder = `Reply to ${author}...`;
+  $('post-content').focus();
+
+  const helpText = document.querySelector('.help-text');
+  helpText.innerHTML = `Replying to post ${postId.slice(0, 8)}... <button onclick="window.cloutApp.cancelReply()" class="btn btn-small">Cancel</button>`;
+}
+
+/**
+ * Cancel reply
+ */
+export function cancelReply() {
+  state.setReplyingTo(null);
+  $('post-content').placeholder = "What's on your mind?";
+  const helpText = document.querySelector('.help-text');
+  helpText.textContent = 'Share your thoughts with your trust network';
+}
+
+/**
+ * Start editing a post
+ */
+export function startEditPost(postId, requireMembership) {
+  if (!requireMembership()) return;
+
+  const cachedPost = state.getCachedPost(postId);
+  if (!cachedPost) {
+    alert('Could not find post to edit. Please refresh the feed.');
+    return;
+  }
+
+  const currentContent = cachedPost.content || '';
+  state.setEditingPost({ id: postId, content: currentContent });
+
+  // Switch to post tab
+  $$('.tab-btn').forEach(b => b.classList.remove('active'));
+  $$('.tab-btn')[1].classList.add('active');
+  $$('.tab-content').forEach(content => content.classList.remove('active'));
+  $('post-tab').classList.add('active');
+
+  $('post-content').value = currentContent;
+  $('post-content').placeholder = 'Edit your post...';
+  $('char-count').textContent = currentContent.length;
+  $('post-content').focus();
+
+  const helpText = document.querySelector('.help-text');
+  helpText.innerHTML = `Editing post ${postId.slice(0, 8)}... <button onclick="window.cloutApp.cancelEdit()" class="btn btn-small">Cancel</button>`;
+  $('create-post-btn').textContent = 'Save Edit';
+}
+
+/**
+ * Cancel edit
+ */
+export function cancelEdit() {
+  state.setEditingPost(null);
+  $('post-content').value = '';
+  $('post-content').placeholder = "What's on your mind?";
+  $('char-count').textContent = '0';
+  const helpText = document.querySelector('.help-text');
+  helpText.textContent = 'Share your thoughts with your trust network';
+  $('create-post-btn').textContent = 'Post';
+}
+
+/**
+ * Save edit
+ */
+async function saveEdit(requireMembership) {
+  if (!state.editingPost) return;
+
+  const content = $('post-content').value.trim();
+  const nsfw = $('post-nsfw').checked;
+  const cwEnabled = $('post-cw-enabled').checked;
+  const contentWarning = cwEnabled ? $('post-cw-text').value.trim() : null;
+
+  if (!content) {
+    showResult('post-result', 'Please enter some content', false);
+    return;
+  }
+
+  try {
+    $('create-post-btn').disabled = true;
+    $('create-post-btn').textContent = 'Saving...';
+
+    const body = { content, nsfw };
+    if (contentWarning) {
+      body.contentWarning = contentWarning;
+    }
+
+    await apiCall(`/post/${state.editingPost.id}`, 'PUT', body);
+
+    showResult('post-result', 'Post edited successfully!', true);
+    $('post-content').value = '';
+    $('char-count').textContent = '0';
+    $('post-nsfw').checked = false;
+    $('post-cw-enabled').checked = false;
+    $('post-cw-text').value = '';
+    $('cw-input-wrapper').style.display = 'none';
+
+    cancelEdit();
+    await loadFeed();
+  } catch (error) {
+    showResult('post-result', `Error: ${error.message}`, false);
+  } finally {
+    $('create-post-btn').disabled = false;
+    $('create-post-btn').textContent = 'Post';
+  }
+}
+
+/**
+ * Retract a post
+ */
+export async function retractPost(postId, requireMembership) {
+  if (!requireMembership()) return;
+
+  if (!confirm('Are you sure you want to retract this post?\n\nRetracting is an act of accountability - you\'re publicly taking back what you said. The original post still exists cryptographically but will be hidden from feeds.')) {
+    return;
+  }
+
+  try {
+    await apiCall(`/post/${postId}/retract`, 'POST', { reason: 'retracted' });
+    await loadFeedWithCurrentFilter();
+  } catch (error) {
+    alert(`Could not retract post: ${error.message}`);
+  }
+}
+
+// =========================================================================
+// Media Upload
+// =========================================================================
+
+/**
+ * Setup media upload handlers
+ */
+export function setupMediaUpload() {
+  const dropZone = $('media-drop-zone');
+  const fileInput = $('media-input');
+  const browseBtn = $('media-browse-btn');
+  const removeBtn = $('media-remove-btn');
+
+  browseBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      handleMediaFile(e.target.files[0]);
+    }
+  });
+
+  removeBtn.addEventListener('click', () => {
+    clearMediaPreview();
+  });
+
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+
+  dropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length > 0) {
+      handleMediaFile(e.dataTransfer.files[0]);
+    }
+  });
+}
+
+/**
+ * Handle selected media file
+ */
+async function handleMediaFile(file) {
+  const allowedTypes = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
+    'video/mp4', 'video/webm', 'video/ogg',
+    'audio/mpeg', 'audio/ogg', 'audio/wav',
+    'application/pdf'
+  ];
+
+  if (!allowedTypes.includes(file.type)) {
+    showResult('post-result', `Unsupported file type: ${file.type}`, false);
+    return;
+  }
+
+  if (file.size > 100 * 1024 * 1024) {
+    showResult('post-result', 'File too large. Maximum size is 100MB.', false);
+    return;
+  }
+
+  showMediaPreview(file);
+  await uploadMedia(file);
+}
+
+/**
+ * Show media preview
+ */
+function showMediaPreview(file) {
+  const preview = $('media-preview');
+  const dropZone = $('media-drop-zone');
+  const previewContent = $('media-preview-content');
+
+  $('media-preview-name').textContent = file.name;
+  $('media-preview-size').textContent = formatFileSize(file.size);
+
+  previewContent.innerHTML = '';
+
+  if (file.type.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.onload = () => URL.revokeObjectURL(img.src);
+    previewContent.appendChild(img);
+  } else if (file.type.startsWith('video/')) {
+    const video = document.createElement('video');
+    video.src = URL.createObjectURL(file);
+    video.controls = true;
+    video.muted = true;
+    previewContent.appendChild(video);
+  } else if (file.type.startsWith('audio/')) {
+    const audio = document.createElement('audio');
+    audio.src = URL.createObjectURL(file);
+    audio.controls = true;
+    previewContent.appendChild(audio);
+  } else {
+    const icon = document.createElement('div');
+    icon.className = 'file-icon';
+    icon.innerHTML = file.type === 'application/pdf' ? '&#x1F4C4; PDF' : '&#x1F4C1; File';
+    previewContent.appendChild(icon);
+  }
+
+  dropZone.style.display = 'none';
+  preview.style.display = 'block';
+}
+
+/**
+ * Upload media to server
+ */
+async function uploadMedia(file) {
+  const progressContainer = $('media-upload-progress');
+  const progressFill = $('progress-fill');
+  const progressText = $('progress-text');
+
+  progressContainer.style.display = 'block';
+  progressFill.style.width = '0%';
+  progressText.textContent = 'Uploading...';
+
+  try {
+    const result = await uploadMediaFile(file);
+    state.setPendingMedia(result);
+
+    progressFill.style.width = '100%';
+    progressText.textContent = 'Uploaded!';
+
+    setTimeout(() => {
+      progressContainer.style.display = 'none';
+    }, 1000);
+
+    console.log('Media uploaded:', state.pendingMedia);
+  } catch (error) {
+    console.error('Upload error:', error);
+    progressText.textContent = `Error: ${error.message}`;
+    progressFill.style.backgroundColor = '#ef4444';
+    state.setPendingMedia(null);
+  }
+}
+
+/**
+ * Clear media preview
+ */
+export function clearMediaPreview() {
+  const preview = $('media-preview');
+  const dropZone = $('media-drop-zone');
+  const previewContent = $('media-preview-content');
+  const progressContainer = $('media-upload-progress');
+  const fileInput = $('media-input');
+
+  preview.style.display = 'none';
+  dropZone.style.display = 'block';
+  previewContent.innerHTML = '';
+  progressContainer.style.display = 'none';
+  fileInput.value = '';
+  state.setPendingMedia(null);
+}
+
+/**
+ * Setup character counter
+ */
+export function setupCharCounter() {
+  const textarea = $('post-content');
+  const counter = $('char-count');
+
+  textarea.addEventListener('input', () => {
+    counter.textContent = textarea.value.length;
+  });
+
+  const bioTextarea = $('profile-bio');
+  const bioCounter = $('bio-char-count');
+  bioTextarea.addEventListener('input', () => {
+    bioCounter.textContent = bioTextarea.value.length;
+  });
+}

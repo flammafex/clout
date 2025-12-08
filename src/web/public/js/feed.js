@@ -1,0 +1,586 @@
+/**
+ * Feed Module - Feed loading, filtering, and rendering
+ *
+ * Handles:
+ * - Loading and rendering the main feed
+ * - Search functionality
+ * - Feed filters (bookmarks, replies, mentions, tags)
+ * - Trust-based filtering
+ */
+
+import * as state from './state.js';
+import { apiCall, API_BASE } from './api.js';
+import {
+  $, $$, showLoading, showResult, escapeHtml, formatRelativeTime,
+  renderAvatar, getReputationColor, switchToTab
+} from './ui.js';
+import { renderReactionsBar } from './reactions.js';
+
+/**
+ * Load and render the main feed
+ */
+export async function loadFeed() {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall('/feed');
+    const feedList = $('feed-list');
+
+    // Dark Social Graph: Filter posts client-side using browser's local trust graph
+    let filteredPosts = data.posts || [];
+    if (window.CloutUserData && window.userPublicKey) {
+      try {
+        const trustGraph = await window.CloutUserData.getTrustGraph();
+        console.log('[Feed] Trust graph from IndexedDB:', trustGraph);
+        const trustedKeys = new Set(trustGraph.map(t => t.trustedKey));
+        trustedKeys.add(window.userPublicKey);
+
+        filteredPosts = filteredPosts.filter(post =>
+          trustedKeys.has(post.author) || post.isAuthor
+        );
+        console.log(`[Feed] Filtered ${data.posts?.length || 0} posts to ${filteredPosts.length} from ${trustedKeys.size} trusted users`);
+
+        // Filter out muted users
+        const mutedUsers = await window.CloutUserData.getMutedUsers();
+        if (mutedUsers.length > 0) {
+          const mutedSet = new Set(mutedUsers);
+          const beforeMute = filteredPosts.length;
+          filteredPosts = filteredPosts.filter(post => !mutedSet.has(post.author));
+          console.log(`[Feed] Filtered out ${beforeMute - filteredPosts.length} posts from ${mutedUsers.length} muted users`);
+        }
+
+        // Overlay bookmark state from IndexedDB
+        const bookmarkIds = await window.CloutUserData.getBookmarks();
+        const bookmarkSet = new Set(bookmarkIds);
+        filteredPosts.forEach(post => {
+          post.isBookmarked = bookmarkSet.has(post.id);
+        });
+      } catch (e) {
+        console.warn('[Feed] Could not filter by trust graph:', e);
+      }
+    } else {
+      console.log('[Feed] No trust filtering:', { CloutUserData: !!window.CloutUserData, userPublicKey: !!window.userPublicKey });
+    }
+
+    // Cache posts for edit lookups
+    if (filteredPosts) {
+      filteredPosts.forEach(post => {
+        state.cachePost(post);
+      });
+    }
+
+    if (!filteredPosts || filteredPosts.length === 0) {
+      feedList.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">&#x1F3E0;</div>
+          <h4>Your feed is quiet</h4>
+          <p>Posts from people in your trust circle will appear here.</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" onclick="window.cloutApp.switchToTab('trust')">Add Someone to Trust</button>
+            <button class="btn btn-secondary" onclick="window.cloutApp.switchToTab('post')">Write Your First Post</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    feedList.innerHTML = filteredPosts.map(post => renderFeedItem(post, true)).join('');
+
+    // Load tag filter pills after feed loads
+    loadTagFilterPills();
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
+  }
+}
+
+/**
+ * Load feed in visitor mode
+ */
+export async function loadVisitorFeed() {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall('/feed');
+    const feedList = $('feed-list');
+
+    if (data.isVisitor) {
+      feedList.innerHTML = `
+        <div class="empty-state-helpful visitor-welcome">
+          <div class="empty-icon">&#x1F44B;</div>
+          <h4>Welcome to Clout</h4>
+          <p>${data.message || 'Clout is an invitation-only network. Get an invitation from someone you know to join the conversation.'}</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" onclick="window.cloutApp.showInvitePopover()">&#x1F39F; I Have an Invitation</button>
+          </div>
+          <p class="help-text" style="margin-top: 1rem;">
+            Don't have an invitation? Ask someone in the network to invite you.
+          </p>
+        </div>
+      `;
+    } else if (!data.posts || data.posts.length === 0) {
+      feedList.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">&#x1F3E0;</div>
+          <h4>Your feed is quiet</h4>
+          <p>Posts from people in your trust circle will appear here.</p>
+          <div class="empty-actions">
+            <button class="btn btn-primary" onclick="window.cloutApp.switchToTab('trust')">Add Someone to Trust</button>
+            <button class="btn btn-secondary" onclick="window.cloutApp.switchToTab('post')">Write Your First Post</button>
+          </div>
+        </div>
+      `;
+    } else {
+      feedList.innerHTML = data.posts.map(post => renderFeedItem(post, true)).join('');
+    }
+  } catch (error) {
+    const feedList = $('feed-list');
+    if (error.message?.includes('private') || error.message?.includes('Identity required')) {
+      $('main-app').style.display = 'none';
+      $('init-section').style.display = 'block';
+      feedList.innerHTML = '';
+    } else {
+      feedList.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">&#x274C;</div>
+          <h4>Unable to load feed</h4>
+          <p>${escapeHtml(error.message)}</p>
+        </div>
+      `;
+    }
+  }
+}
+
+/**
+ * Load feed with current filter
+ */
+export async function loadFeedWithCurrentFilter() {
+  if (state.currentTagFilter) {
+    await loadFeedByTag(state.currentTagFilter);
+    return;
+  }
+
+  switch (state.currentFilter) {
+    case 'bookmarks':
+      await loadBookmarks();
+      break;
+    case 'replies':
+      await loadReplies();
+      break;
+    case 'mentions':
+      await loadMentionsView();
+      break;
+    default:
+      await loadFeed();
+  }
+}
+
+/**
+ * Set feed filter
+ */
+export function setFeedFilter(filter) {
+  state.setCurrentFilter(filter);
+  state.setCurrentTagFilter(null);
+
+  $$('.filter-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelector(`.filter-btn[data-filter="${filter}"]`)?.classList.add('active');
+  $$('.tag-pill').forEach(pill => pill.classList.remove('active'));
+
+  loadFeedWithCurrentFilter();
+}
+
+/**
+ * Filter by tag
+ */
+export async function filterByTag(tag) {
+  if (state.currentTagFilter === tag) {
+    state.setCurrentTagFilter(null);
+  } else {
+    state.setCurrentTagFilter(tag);
+  }
+
+  $$('.tag-pill').forEach(pill => {
+    pill.classList.toggle('active', pill.textContent.trim() === state.currentTagFilter);
+  });
+
+  if (state.currentTagFilter) {
+    $$('.filter-btn').forEach(btn => btn.classList.remove('active'));
+  } else {
+    state.setCurrentFilter('all');
+    document.querySelector('.filter-btn[data-filter="all"]')?.classList.add('active');
+  }
+
+  await loadFeedWithCurrentFilter();
+}
+
+/**
+ * Load feed filtered by tag
+ */
+async function loadFeedByTag(tag) {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall(`/feed/tag/${encodeURIComponent(tag)}`);
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">&#x1F3F7;</div>
+          <h4>No posts from "${escapeHtml(tag)}"</h4>
+          <p>Posts from users tagged "${escapeHtml(tag)}" will appear here.</p>
+          <button class="btn btn-secondary" onclick="window.cloutApp.filterByTag('${escapeHtml(tag)}')">Clear Filter</button>
+        </div>
+      `;
+      return;
+    }
+
+    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post, false)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading tagged posts: ${error.message}</p>`;
+  }
+}
+
+/**
+ * Load tag filter pills
+ */
+async function loadTagFilterPills() {
+  try {
+    const data = await apiCall('/tags');
+    const container = $('tag-filter-pills');
+    const wrapper = $('tag-filters');
+
+    if (!data.tags || data.tags.length === 0) {
+      wrapper.style.display = 'none';
+      return;
+    }
+
+    wrapper.style.display = 'flex';
+    container.innerHTML = data.tags.map(tag => `
+      <button class="tag-pill${state.currentTagFilter === tag.tag ? ' active' : ''}"
+              onclick="window.cloutApp.filterByTag('${escapeHtml(tag.tag)}')"
+              title="${tag.count} users">
+        ${escapeHtml(tag.tag)}
+      </button>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading tag pills:', error);
+    $('tag-filters').style.display = 'none';
+  }
+}
+
+/**
+ * Load bookmarks
+ */
+async function loadBookmarks() {
+  showLoading('feed-list');
+  try {
+    if (!window.CloutUserData) {
+      $('feed-list').innerHTML = `<p class="empty-state">User data not available</p>`;
+      return;
+    }
+
+    const bookmarkIds = await window.CloutUserData.getBookmarks();
+    if (!bookmarkIds || bookmarkIds.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">&#x1F516;</div>
+          <h4>No bookmarks yet</h4>
+          <p>Bookmark posts to save them for later.</p>
+        </div>
+      `;
+      return;
+    }
+
+    const data = await apiCall('/feed');
+    const bookmarkSet = new Set(bookmarkIds);
+    const bookmarkedPosts = (data.posts || []).filter(p => bookmarkSet.has(p.id));
+
+    if (bookmarkedPosts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">&#x1F516;</div>
+          <h4>No bookmarks found</h4>
+          <p>Your bookmarked posts may no longer be available.</p>
+        </div>
+      `;
+      return;
+    }
+
+    bookmarkedPosts.forEach(p => p.isBookmarked = true);
+    $('feed-list').innerHTML = bookmarkedPosts.map(post => renderFeedItem(post, false)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading bookmarks: ${error.message}</p>`;
+  }
+}
+
+/**
+ * Load replies to your posts
+ */
+async function loadReplies() {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall('/notifications/replies');
+    if (window.CloutUserData) {
+      await window.CloutUserData.markSeen('replies');
+    }
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">&#x1F4AC;</div>
+          <h4>No replies yet</h4>
+          <p>When someone replies to your posts, they'll appear here.</p>
+        </div>
+      `;
+      return;
+    }
+
+    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post, false)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading replies: ${error.message}</p>`;
+  }
+}
+
+/**
+ * Load mentions
+ */
+async function loadMentionsView() {
+  showLoading('feed-list');
+  try {
+    const data = await apiCall('/mentions');
+    if (window.CloutUserData) {
+      await window.CloutUserData.markSeen('mentions');
+    }
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">@</div>
+          <h4>No mentions yet</h4>
+          <p>When someone mentions you (@yourKey), it'll appear here.</p>
+        </div>
+      `;
+      return;
+    }
+
+    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post, false)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Error loading mentions: ${error.message}</p>`;
+  }
+}
+
+/**
+ * Search posts
+ */
+export async function searchPosts() {
+  const query = $('feed-search').value.trim();
+  if (!query) {
+    clearSearch();
+    return;
+  }
+
+  state.setCurrentSearchQuery(query);
+  showLoading('feed-list');
+
+  try {
+    const data = await apiCall(`/search?q=${encodeURIComponent(query)}`);
+    $('clear-search-btn').style.display = 'inline-block';
+
+    if (!data.posts || data.posts.length === 0) {
+      $('feed-list').innerHTML = `
+        <div class="empty-state">
+          <p>No posts found for "${escapeHtml(query)}"</p>
+          <button class="btn btn-small" onclick="window.cloutApp.clearSearch()">Clear Search</button>
+        </div>
+      `;
+      return;
+    }
+
+    $('feed-list').innerHTML = `
+      <div class="search-results-header">
+        <span>Found ${data.posts.length} result${data.posts.length !== 1 ? 's' : ''} for "${escapeHtml(query)}"</span>
+      </div>
+    ` + data.posts.map(post => renderFeedItem(post, false)).join('');
+  } catch (error) {
+    $('feed-list').innerHTML = `<p class="empty-state">Search error: ${error.message}</p>`;
+  }
+}
+
+/**
+ * Clear search
+ */
+export function clearSearch() {
+  state.setCurrentSearchQuery('');
+  $('feed-search').value = '';
+  $('clear-search-btn').style.display = 'none';
+  loadFeed();
+}
+
+/**
+ * Render a single feed item
+ */
+export function renderFeedItem(post, fullFeatures = true) {
+  const hasMedia = post.media && post.media.cid;
+  const rep = post.reputation || { score: 0, distance: 0 };
+  const repColor = getReputationColor(rep.score);
+  const tags = post.authorTags || [];
+  const tagsHtml = tags.length > 0
+    ? `<span class="author-tags">${tags.map(t => `<span class="tag-badge">${escapeHtml(t)}</span>`).join('')}</span>`
+    : '';
+
+  const trustPath = post.trustPath || [];
+  const isYou = post.isAuthor || rep.distance === 0;
+  const isDirectTrust = post.isDirectlyTrusted || rep.distance === 1;
+  let trustContext = '';
+
+  if (isYou) {
+    trustContext = '<span class="trust-context trust-self">Self</span>';
+  } else if (isDirectTrust) {
+    trustContext = '<span class="trust-context trust-direct">In Your Circle</span>';
+  } else if (trustPath.length > 0) {
+    const pathDisplay = trustPath.slice(0, -1).join(' &#x2192; ');
+    trustContext = `<span class="trust-context trust-indirect">Via ${pathDisplay}</span>`;
+  }
+
+  const distanceClass = `distance-${Math.min(rep.distance, 3)}`;
+  const quickTrustBtn = (!isYou && !isDirectTrust && fullFeatures)
+    ? `<button class="btn-trust-quick" onclick="event.stopPropagation(); window.cloutApp.quickTrust('${post.author}')" title="Add to your circle">+</button>`
+    : '';
+
+  const muteBtn = (!isYou && fullFeatures)
+    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Mute this user">Mute</button>`
+    : '';
+
+  const authorActions = (post.isAuthor && fullFeatures)
+    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Edit post">Edit</button>
+       <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${post.id}')" title="Retract post">Retract</button>`
+    : '';
+
+  const editedIndicator = post.isEdited ? '<span class="edited-badge" title="This post has been edited">edited</span>' : '';
+  const authorName = post.authorDisplayName || post.author.slice(0, 16) + '...';
+  const hasNickname = !!post.authorNickname;
+  const hasCW = !!post.contentWarning;
+  const cwId = `cw-${post.id}`;
+  const reactions = post.reactions || {};
+  const myReaction = post.myReaction;
+  const reactionEmojis = ['&#x1F44D;', '&#x2764;&#xFE0F;', '&#x1F525;', '&#x1F602;', '&#x1F62E;', '&#x1F64F;'];
+  const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, reactionEmojis);
+  const authorAvatar = post.authorAvatar || '&#x1F464;';
+
+  return `
+    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="window.cloutApp.viewThread('${post.id}')" style="cursor: pointer;">
+      <div class="feed-item-wrapper">
+        <div class="feed-avatar">${renderAvatar(authorAvatar)}</div>
+        <div class="feed-post-content">
+          <div class="feed-header">
+            <div class="feed-author">
+              <span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span>
+              ${!isYou ? `<span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
+                ${rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
+              </span>` : ''}
+              ${tagsHtml}
+              ${quickTrustBtn}
+            </div>
+            <div class="feed-meta">
+              ${trustContext}
+              ${post.nsfw ? '<span class="nsfw-badge">NSFW</span>' : ''}
+              ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
+            </div>
+          </div>
+          ${post.replyTo ? `<div class="feed-reply-indicator">&#x21B3; Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); window.cloutApp.viewThread('${post.resolvedReplyTo || post.replyTo}')">View parent</a></div>` : ''}
+          ${hasCW ? `
+            <div class="cw-wrapper" id="${cwId}">
+              <button class="cw-reveal-btn" onclick="event.stopPropagation(); window.cloutApp.toggleCW('${cwId}')">
+                &#x26A0;&#xFE0F; ${escapeHtml(post.contentWarning)} - Click to reveal
+              </button>
+              <div class="cw-content" style="display: none;">
+                <div class="feed-content">${renderPostContent(post)}</div>
+              </div>
+            </div>
+          ` : `
+            <div class="feed-content">${renderPostContent(post)}</div>
+          `}
+          <div class="feed-footer">
+            <div class="feed-timestamp">&#x1F64C; Witnessed ${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
+            <div class="feed-actions">
+              ${reactionsHtml}
+              <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+                ${post.isBookmarked ? 'Saved' : 'Save'}
+              </button>
+              <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+              ${muteBtn}
+              ${authorActions}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Render post content with media
+ */
+export function renderPostContent(post) {
+  if (post.decayedAt || post.content === null) {
+    const decayDate = post.decayedAt ? new Date(post.decayedAt).toLocaleDateString() : 'unknown';
+    return `<span class="post-decayed">This post's content has expired (${decayDate})</span>`;
+  }
+
+  let content = escapeHtml(post.content);
+
+  if (post.media && post.media.cid) {
+    const mediaUrl = `${API_BASE}/media/post/${post.id}`;
+    const mimeType = post.media.mimeType;
+    content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
+
+    let mediaHtml = '';
+    const hopDistance = post.reputation?.distance ?? 999;
+    const mediaErrorHandler = `onload="this.classList.add('loaded')" onerror="window.cloutApp.handleMediaError(this, '${post.id}', ${hopDistance})"`;
+
+    if (mimeType.startsWith('image/')) {
+      mediaHtml = `<div class="post-media" data-post-id="${post.id}"><img src="${mediaUrl}" alt="Post media" loading="lazy" ${mediaErrorHandler}></div>`;
+    } else if (mimeType.startsWith('video/')) {
+      mediaHtml = `<div class="post-media" data-post-id="${post.id}"><video src="${mediaUrl}" controls preload="metadata" ${mediaErrorHandler}></video></div>`;
+    } else if (mimeType.startsWith('audio/')) {
+      mediaHtml = `<div class="post-media" data-post-id="${post.id}"><audio src="${mediaUrl}" controls ${mediaErrorHandler}></audio></div>`;
+    } else if (mimeType === 'application/pdf') {
+      mediaHtml = `<div class="post-media post-media-file" data-post-id="${post.id}"><a href="${mediaUrl}" target="_blank" class="media-link">&#x1F4C4; View PDF</a></div>`;
+    }
+
+    return content.trim() + mediaHtml;
+  }
+
+  const mediaMatch = post.content.match(/\[clout-media:\s*([^\]]+)\]/);
+  if (mediaMatch) {
+    const cid = mediaMatch[1].trim();
+    const mediaUrl = `${API_BASE}/media/${cid}`;
+    content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
+    return content.trim() + `<div class="post-media"><img src="${mediaUrl}" alt="Post media" loading="lazy" onerror="this.parentElement.innerHTML='<span class=\\'media-error\\'>Media unavailable</span>'"></div>`;
+  }
+
+  return content;
+}
+
+/**
+ * Handle media load errors
+ */
+export function handleMediaError(element, postId, hopDistance) {
+  const container = element.parentElement;
+  if (!container) return;
+
+  let message = 'Media unavailable';
+  let suggestion = '';
+
+  if (hopDistance > 1) {
+    message = `Media from ${hopDistance}-hop author`;
+    suggestion = 'Adjust Media Trust Settings to view';
+  } else {
+    message = 'Media unavailable';
+    suggestion = 'Author may be offline';
+  }
+
+  container.innerHTML = `
+    <div class="media-unavailable">
+      <span class="media-unavailable-icon">&#x1F512;</span>
+      <span class="media-unavailable-text">${message}</span>
+      <span class="media-unavailable-hint">${suggestion}</span>
+    </div>
+  `;
+}
