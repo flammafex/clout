@@ -1,3 +1,17 @@
+/**
+ * Clout - Main orchestration class
+ *
+ * This class coordinates all the Clout modules:
+ * - Economics (Day Pass system)
+ * - Content (Posting, editing, deleting)
+ * - Media (Storage and P2P retrieval)
+ * - Trust (Social graph management)
+ * - Reactions (Trust-weighted reactions)
+ * - Feed (Feed filtering and stats)
+ * - Backup (Export/import)
+ * - Relay (Browser identity relay)
+ */
+
 import { CloutPost, type PostConfig, type ContentGossip } from './post.js';
 import { TicketBooth, type CloutTicket, type TicketType } from './ticket-booth.js';
 import { Crypto } from './crypto.js';
@@ -9,6 +23,17 @@ import { CloutLocalData } from './clout/local-data.js';
 import { CloutMessaging } from './clout/messaging.js';
 import { CloutStateSync } from './clout/state-sync.js';
 import { CloutNode, type CloutNodeConfig } from './network/clout-node.js';
+
+// Module imports
+import { CloutEconomics } from './clout/economics.js';
+import { CloutContent } from './clout/content.js';
+import { CloutMedia } from './clout/media.js';
+import { CloutTrust } from './clout/trust.js';
+import { CloutReactions, REACTION_EMOJIS } from './clout/reactions.js';
+import { CloutFeed } from './clout/feed.js';
+import { CloutBackup } from './clout/backup.js';
+import { CloutRelay } from './clout/relay.js';
+
 import type { FreebirdClient, WitnessClient, Attestation } from './types.js';
 import {
   type TrustSignal,
@@ -42,8 +67,8 @@ export interface CloutConfig {
   privateKey: Uint8Array;
   freebird: FreebirdClient;
   witness: WitnessClient;
-  gossip?: GossipNode; // Use extended interface
-  store?: CloutStore;  // Local persistence for feed/inbox
+  gossip?: GossipNode;
+  store?: CloutStore;
 
   // Trust Settings
   maxHops?: number;
@@ -51,37 +76,17 @@ export interface CloutConfig {
 
   /**
    * Use encrypted trust signals for privacy (default: true)
-   *
-   * When enabled:
-   * - Trustee identity is encrypted and only visible to the trustee
-   * - Third parties cannot map your social graph
-   * - Slightly larger signal size due to encryption overhead
-   *
-   * When disabled (legacy mode):
-   * - Trust signals are plaintext (truster -> trustee visible to all)
-   * - Your social graph is publicly visible
-   * - Use only for debugging or backwards compatibility
    */
   useEncryptedTrustSignals?: boolean;
 
   // Media Storage Settings
-  /** Enable WNFS-based media storage (default: true) */
   enableMediaStorage?: boolean;
-  /** Custom path for media storage (default: ~/.clout/wnfs) */
   mediaStoragePath?: string;
-  /** Maximum media file size in bytes (default: 100MB) */
   maxMediaSize?: number;
 
   // P2P Network Settings
-  /**
-   * Enable P2P networking for Chronicle blob growth
-   * When enabled, trusting someone triggers a peer connection
-   * and Chronicle merge - your blob grows!
-   */
   enableP2P?: boolean;
-  /** Relay servers for bootstrap and signaling */
   relayServers?: string[];
-  /** Enable DHT for decentralized peer discovery */
   enableDHT?: boolean;
 }
 
@@ -93,7 +98,7 @@ export class Clout {
   private readonly gossip?: GossipNode;
   private readonly store?: CloutStore;
 
-  // Sub-modules
+  // Core components
   public readonly ticketBooth: TicketBooth;
   private readonly reputationValidator: ReputationValidator;
   public readonly state: CloutStateManager;
@@ -104,8 +109,17 @@ export class Clout {
   private readonly stateSync: CloutStateSync;
   private cloutNode?: CloutNode;
 
+  // Modules
+  private readonly economics: CloutEconomics;
+  private readonly content: CloutContent;
+  private readonly media: CloutMedia;
+  private readonly trustModule: CloutTrust;
+  private readonly reactions: CloutReactions;
+  private readonly feedModule: CloutFeed;
+  private readonly backup: CloutBackup;
+  private readonly relay: CloutRelay;
+
   // State
-  private currentTicket?: CloutTicket;
   private readonly trustGraph: Set<string>;
   private mediaStorageEnabled: boolean;
   private readonly useEncryptedTrustSignals: boolean;
@@ -115,17 +129,8 @@ export class Clout {
   private readonly maxQueueSize = 1000;
   private processingQueue = false;
 
-  // P2P media fetch: pending requests with callbacks
-  private readonly pendingMediaRequests = new Map<string, {
-    resolve: (data: Uint8Array | null) => void;
-    reject: (error: Error) => void;
-    timeout: ReturnType<typeof setTimeout>;
-  }>();
-  private readonly mediaRequestTimeoutMs = 30000; // 30 seconds
-
-  // Feed cache to avoid duplicate store.getFeed() calls within a short window
-  private feedCache: { posts: PostPackage[]; timestamp: number } | null = null;
-  private readonly feedCacheTtlMs = 500; // 500ms cache to dedupe rapid calls
+  // Re-export for static access
+  static readonly REACTION_EMOJIS = REACTION_EMOJIS;
 
   constructor(config: CloutConfig) {
     this.publicKeyHex = config.publicKey;
@@ -140,7 +145,6 @@ export class Clout {
 
     // 1. Initialize TicketBooth (Anti-Sybil)
     this.ticketBooth = new TicketBooth(config.freebird, config.witness);
-    // Reputation getter will be set after ReputationValidator is initialized
 
     // 2. Initialize Trust Graph (Bootstrap with self)
     this.trustGraph = new Set<string>([this.publicKeyHex]);
@@ -158,7 +162,6 @@ export class Clout {
     });
 
     // 4b. Connect TicketBooth to reputation system
-    // This ensures delegated passes are revoked if delegator loses reputation
     this.ticketBooth.setReputationGetter((publicKey: string) => {
       return this.reputationValidator.computeReputation(publicKey).score;
     });
@@ -176,14 +179,14 @@ export class Clout {
       }
     });
 
-    // 6. Initialize WNFS Media Storage (Offload-and-Link pattern)
+    // 6. Initialize WNFS Media Storage
     this.mediaStorageEnabled = config.enableMediaStorage !== false;
     this.storage = new StorageManager({
       storagePath: config.mediaStoragePath,
       maxFileSize: config.maxMediaSize
     });
 
-    // 6b. Initialize Profile Store (local persistence for profile data)
+    // 6b. Initialize Profile Store
     this.profileStore = new ProfileStore();
 
     // 7. Initialize Messaging (Slides/DMs)
@@ -207,7 +210,97 @@ export class Clout {
       this.initializeP2PNetwork(config);
     }
 
-    // 10. Initialize Storage & Gossip Subscription
+    // 10. Initialize Modules
+    this.economics = new CloutEconomics({
+      publicKey: this.publicKeyHex,
+      privateKey: this.privateKey,
+      freebird: this.freebird,
+      witness: this.witness,
+      store: this.store,
+      ticketBooth: this.ticketBooth,
+      reputationValidator: this.reputationValidator
+    });
+
+    this.content = new CloutContent({
+      publicKey: this.publicKeyHex,
+      privateKey: this.privateKey,
+      freebird: this.freebird,
+      witness: this.witness,
+      gossip: this.gossip,
+      store: this.store,
+      state: this.state,
+      storage: this.storage,
+      mediaStorageEnabled: this.mediaStorageEnabled,
+      getTicket: () => this.economics.getCurrentTicket(),
+      clearTicket: () => this.economics.clearTicket(),
+      obtainToken: () => this.economics.obtainToken(),
+      buyDayPass: (token) => this.economics.buyDayPass(token),
+      hasActiveTicket: () => this.economics.hasActiveTicket()
+    });
+
+    this.media = new CloutMedia({
+      publicKey: this.publicKeyHex,
+      storage: this.storage,
+      mediaStorageEnabled: this.mediaStorageEnabled,
+      getCloutNode: () => this.cloutNode,
+      reputationValidator: this.reputationValidator,
+      getProfile: () => this.getProfile()
+    });
+
+    this.trustModule = new CloutTrust({
+      publicKey: this.publicKeyHex,
+      privateKey: this.privateKey,
+      witness: this.witness,
+      gossip: this.gossip,
+      state: this.state,
+      trustGraph: this.trustGraph,
+      reputationValidator: this.reputationValidator,
+      useEncryptedTrustSignals: this.useEncryptedTrustSignals,
+      getCloutNode: () => this.cloutNode
+    });
+
+    this.reactions = new CloutReactions({
+      publicKey: this.publicKeyHex,
+      privateKey: this.privateKey,
+      witness: this.witness,
+      gossip: this.gossip,
+      store: this.store,
+      state: this.state,
+      reputationValidator: this.reputationValidator
+    });
+
+    this.feedModule = new CloutFeed({
+      publicKey: this.publicKeyHex,
+      store: this.store,
+      state: this.state,
+      gossip: this.gossip,
+      localData: this.localData,
+      messaging: this.messaging,
+      trustGraph: this.trustGraph,
+      reputationValidator: this.reputationValidator,
+      getCloutNode: () => this.cloutNode,
+      getProfile: () => this.getProfile()
+    });
+
+    this.backup = new CloutBackup({
+      publicKey: this.publicKeyHex,
+      state: this.state,
+      localData: this.localData,
+      trustGraph: this.trustGraph,
+      getProfile: () => this.getProfile()
+    });
+
+    this.relay = new CloutRelay({
+      publicKey: this.publicKeyHex,
+      freebird: this.freebird,
+      witness: this.witness,
+      gossip: this.gossip,
+      store: this.store,
+      state: this.state,
+      extractMentions: (content) => this.content.extractMentions(content)
+    });
+
+    // 11. Initialize Storage & Gossip Subscription
     this.initializeDataLayer();
   }
 
@@ -217,17 +310,15 @@ export class Clout {
   private async initializeP2PNetwork(config: CloutConfig): Promise<void> {
     const nodeConfig: CloutNodeConfig = {
       publicKey: this.publicKeyHex,
-      nodeType: 'light' as any, // Default to light node
+      nodeType: 'light' as any,
       trustGraph: this.trustGraph,
       relayServers: config.relayServers,
       enableDHT: config.enableDHT ?? true,
       onPeerConnected: (peer) => {
         console.log(`[Clout] 🔗 Peer connected: ${peer.publicKey.slice(0, 8)} - requesting Chronicle`);
-        // Request their Chronicle state when they connect
         this.stateSync.forceSync();
       },
       onMessage: (peer, message) => {
-        // Handle incoming P2P messages (state sync is handled by StateSync)
         this.enqueueGossipMessage(message as ContentGossipMessage);
       }
     };
@@ -246,42 +337,31 @@ export class Clout {
    * Initialize local storage and subscribe to gossip
    */
   private async initializeDataLayer() {
-    // Initialize store if provided
     if (this.store) {
       await this.store.init();
     }
 
-    // Initialize media storage if enabled
     if (this.mediaStorageEnabled) {
       await this.storage.init();
     }
 
-    // Initialize profile store and load saved profile
     await this.profileStore.init();
     await this.loadSavedProfile();
-
-    // Load saved data from file store
     await this.loadSavedDeletions();
-    await this.loadSavedReactions();
+    await this.reactions.loadSavedReactions();
     await this.loadSavedBookmarks();
 
-    // Subscribe to gossip to populate local store
-    // Uses bounded queue with backpressure to prevent unbounded memory growth
     if (this.gossip) {
       this.gossip.subscribe(async (msg: ContentGossipMessage) => {
         this.enqueueGossipMessage(msg);
       });
 
-      // Initialize CRDT state synchronization
       this.stateSync.initialize();
     }
   }
 
   /**
    * Enqueue a gossip message with backpressure handling
-   *
-   * If the queue is full, drops the oldest message to make room.
-   * This prevents unbounded memory growth under high message load.
    */
   private enqueueGossipMessage(msg: ContentGossipMessage): void {
     if (this.messageQueue.length >= this.maxQueueSize) {
@@ -289,14 +369,11 @@ export class Clout {
       this.messageQueue.shift();
     }
     this.messageQueue.push(msg);
-    this.processMessageQueue(); // Don't await - process async
+    this.processMessageQueue();
   }
 
   /**
    * Process queued gossip messages
-   *
-   * Processes messages one at a time to prevent overwhelming downstream handlers.
-   * Only one processing loop runs at a time (controlled by processingQueue flag).
    */
   private async processMessageQueue(): Promise<void> {
     if (this.processingQueue) return;
@@ -317,14 +394,13 @@ export class Clout {
   }
 
   /**
-   * Load saved profile from local storage and merge into Chronicle state
+   * Load saved profile from local storage
    */
   private async loadSavedProfile(): Promise<void> {
     const savedProfile = this.profileStore.getProfile();
     if (savedProfile && savedProfile.publicKey === this.publicKeyHex) {
       console.log('[Clout] 📂 Restoring saved profile from local storage');
 
-      // Restore profile metadata to Chronicle state
       const currentProfile = this.getProfile();
       this.state.updateProfile({
         publicKey: this.publicKeyHex,
@@ -339,7 +415,7 @@ export class Clout {
   }
 
   /**
-   * Load saved deletions from file store and merge into Chronicle state
+   * Load saved deletions from file store
    */
   private async loadSavedDeletions(): Promise<void> {
     if (!this.store || !('getDeletions' in this.store)) {
@@ -357,25 +433,7 @@ export class Clout {
   }
 
   /**
-   * Load saved reactions from file store and merge into Chronicle state
-   */
-  private async loadSavedReactions(): Promise<void> {
-    if (!this.store || !('getReactions' in this.store)) {
-      return;
-    }
-
-    const savedReactions = await (this.store as any).getReactions();
-    if (savedReactions && savedReactions.length > 0) {
-      console.log(`[Clout] 📂 Restoring ${savedReactions.length} saved reactions from local storage`);
-
-      for (const reaction of savedReactions) {
-        this.state.addReaction(reaction);
-      }
-    }
-  }
-
-  /**
-   * Load saved bookmarks from file store and merge into local data
+   * Load saved bookmarks from file store
    */
   private async loadSavedBookmarks(): Promise<void> {
     if (!this.store || !('getBookmarks' in this.store)) {
@@ -394,10 +452,6 @@ export class Clout {
 
   /**
    * Handle incoming gossip messages
-   * Pure relay mode: stores ALL posts, filtering happens client-side
-   *
-   * Dark Social Graph: Trust filtering is done by clients (CLI/Browser),
-   * not the server. This preserves privacy - server doesn't know who you trust.
    */
   private async handleGossipMessage(msg: ContentGossipMessage): Promise<void> {
     if (!this.store) return;
@@ -406,205 +460,42 @@ export class Clout {
       switch (msg.type) {
         case 'post':
           if (msg.post) {
-            // Pure relay: store ALL posts, let clients filter
-            // This supports Dark Social Graph where trust is client-side only
             await this.store.addPost(msg.post);
           }
           break;
 
         case 'slide':
           if (msg.slide) {
-            // Delegate to messaging module
             await this.messaging.handleIncomingSlide(msg.slide);
           }
           break;
-          
+
         case 'trust':
-          // Handle plaintext trust signals
           if (msg.trustSignal) {
-            await this.handleTrustSignal(msg.trustSignal);
+            await this.trustModule.handleTrustSignal(msg.trustSignal);
           }
           break;
 
         case 'trust-encrypted':
-          // Handle encrypted trust signals
           if (msg.encryptedTrustSignal) {
-            await this.handleEncryptedTrustSignal(msg.encryptedTrustSignal);
+            await this.trustModule.handleEncryptedTrustSignal(msg.encryptedTrustSignal);
           }
           break;
 
         case 'media-request':
           if (msg.mediaRequest) {
-            await this.handleMediaRequest(msg.mediaRequest);
+            await this.media.handleMediaRequest(msg.mediaRequest);
           }
           break;
 
         case 'media-response':
           if (msg.mediaResponse) {
-            this.handleMediaResponse(msg.mediaResponse);
+            this.media.handleMediaResponse(msg.mediaResponse);
           }
           break;
       }
     } catch (err) {
       console.error('[Clout] Error handling gossip message:', err);
-    }
-  }
-
-  /**
-   * Handle incoming media request from peer
-   *
-   * Security: Only serve media if:
-   * 1. The requester is within our trust graph
-   * 2. The media exists in our local storage
-   */
-  private async handleMediaRequest(request: {
-    cid: string;
-    requester: string;
-    postId: string;
-  }): Promise<void> {
-    if (!this.cloutNode || !this.mediaStorageEnabled) return;
-
-    const { cid, requester, postId } = request;
-
-    // Check if requester is in our trust graph (security check)
-    const reputation = this.reputationValidator.computeReputation(requester);
-    if (!reputation.visible) {
-      console.log(`[Clout] 🚫 Media request from untrusted peer: ${requester.slice(0, 8)}`);
-      return; // Silent drop - don't respond to untrusted requests
-    }
-
-    // Try to get the media from local storage
-    const mediaData = await this.storage.retrieve(cid);
-    const metadata = this.storage.getMetadata(cid);
-
-    // Send response back to requester
-    const response: ContentGossipMessage = {
-      type: 'media-response',
-      mediaResponse: {
-        cid,
-        data: mediaData,
-        mimeType: metadata?.mimeType,
-        error: mediaData ? undefined : 'Media not found'
-      },
-      timestamp: Date.now()
-    };
-
-    try {
-      await this.cloutNode.sendToPeer(requester, response);
-      if (mediaData) {
-        console.log(`[Clout] 📤 Sent media ${cid.slice(0, 12)}... to ${requester.slice(0, 8)}`);
-      }
-    } catch (err) {
-      console.warn(`[Clout] Failed to send media response to ${requester.slice(0, 8)}:`, err);
-    }
-  }
-
-  /**
-   * Handle incoming media response from peer
-   */
-  private handleMediaResponse(response: {
-    cid: string;
-    data: Uint8Array | null;
-    mimeType?: string;
-    error?: string;
-  }): void {
-    const pending = this.pendingMediaRequests.get(response.cid);
-    if (!pending) {
-      console.log(`[Clout] Received unexpected media response for ${response.cid.slice(0, 12)}...`);
-      return;
-    }
-
-    // Clear timeout
-    clearTimeout(pending.timeout);
-    this.pendingMediaRequests.delete(response.cid);
-
-    if (response.data) {
-      console.log(`[Clout] 📥 Received media ${response.cid.slice(0, 12)}... (${response.data.length} bytes)`);
-
-      // Store in local cache for future use
-      if (this.mediaStorageEnabled && response.mimeType) {
-        this.storage.store(response.data, response.mimeType).catch(err => {
-          console.warn('[Clout] Failed to cache received media:', err);
-        });
-      }
-
-      pending.resolve(response.data);
-    } else {
-      console.log(`[Clout] Media request failed: ${response.error || 'unknown error'}`);
-      pending.resolve(null);
-    }
-  }
-
-  /**
-   * Handle incoming plaintext trust signal
-   *
-   * Protocol-level mutual revocation: If someone revokes trust in us,
-   * we automatically revoke trust in them. Both blobs shrink together.
-   */
-  private async handleTrustSignal(signal: TrustSignal): Promise<void> {
-    // Check if this is a revocation where we are the trustee
-    const isRevocation = signal.revoked || signal.weight === 0;
-    const isAboutUs = signal.trustee === this.publicKeyHex;
-
-    if (isRevocation && isAboutUs) {
-      console.log(`[Clout] 👋 ${signal.truster.slice(0, 8)} left your circle`);
-
-      // Mutual revocation: if we trust them, revoke back
-      if (this.trustGraph.has(signal.truster)) {
-        console.log(`[Clout] 🔄 Reciprocating - removing ${signal.truster.slice(0, 8)} from your circle`);
-        await this.revokeTrust(signal.truster);
-      }
-    }
-
-    // Also update reputation validator with the signal
-    this.reputationValidator.addTrustSignal(signal);
-  }
-
-  /**
-   * Handle incoming encrypted trust signal
-   *
-   * Protocol-level mutual revocation: Try to decrypt (only succeeds if we're the trustee),
-   * and if it's a revocation, automatically revoke trust in the truster.
-   */
-  private async handleEncryptedTrustSignal(signal: EncryptedTrustSignal): Promise<void> {
-    // Try to decrypt - only succeeds if we're the trustee
-    const decrypted = Crypto.decryptTrustSignal(
-      signal.encryptedTrustee,
-      signal.trusteeCommitment,
-      signal.truster,
-      signal.signature,
-      signal.weight ?? 1.0,
-      signal.proof.timestamp,
-      this.privateKey,
-      Crypto.fromHex(this.publicKeyHex)
-    );
-
-    if (!decrypted) {
-      // We're not the trustee, or decryption failed - ignore
-      return;
-    }
-
-    // We successfully decrypted - we ARE the trustee
-    const isRevocation = signal.revoked || signal.weight === 0;
-
-    if (isRevocation) {
-      console.log(`[Clout] 👋 ${signal.truster.slice(0, 8)} left your circle (encrypted signal)`);
-
-      // Mutual revocation: if we trust them, revoke back
-      if (this.trustGraph.has(signal.truster)) {
-        console.log(`[Clout] 🔄 Reciprocating - removing ${signal.truster.slice(0, 8)} from your circle`);
-        await this.revokeTrust(signal.truster);
-      }
-    } else {
-      // It's a trust signal directed at us - someone just trusted us!
-      console.log(`[Clout] ✨ ${signal.truster.slice(0, 8)} added you to their circle`);
-
-      // Could trigger auto-follow-back here if enabled in settings
-      const settings = this.getProfile().trustSettings;
-      if (settings.autoFollowBack && !this.trustGraph.has(signal.truster)) {
-        console.log(`[Clout] 🔄 Auto-following back ${signal.truster.slice(0, 8)}`);
-        await this.trust(signal.truster);
-      }
     }
   }
 
@@ -617,435 +508,72 @@ export class Clout {
 
   /**
    * Force state synchronization with peers
-   *
-   * Call this when recovering from a network partition (e.g., relay reconnection)
-   * to immediately broadcast our state and request peer states.
-   *
-   * This is useful for faster partition healing after disconnection.
    */
   async forceSync(): Promise<void> {
     await this.stateSync.forceSync();
   }
 
   // =================================================================
-  //  SECTION 1: ECONOMICS (Day Pass)
+  //  ECONOMICS (Day Pass) - Delegated to CloutEconomics
   // =================================================================
 
-  /**
-   * Exchange a Freebird token for a Day Pass
-   *
-   * Pass duration is reputation-based:
-   * - High reputation (≥0.9): 7 days
-   * - Medium reputation (≥0.7): 3 days
-   * - Low reputation (≥0.5): 2 days
-   * - New/untrusted (<0.5): 1 day
-   */
   async buyDayPass(freebirdToken: Uint8Array): Promise<void> {
-    const userKeyPair = {
-      publicKey: { bytes: Crypto.fromHex(this.publicKeyHex) },
-      privateKey: { bytes: this.privateKey }
-    };
-
-    // Get our own reputation score to determine pass duration
-    const reputation = this.reputationValidator.computeReputation(this.publicKeyHex);
-
-    this.currentTicket = await this.ticketBooth.mintTicket(
-      userKeyPair,
-      freebirdToken,
-      reputation.score
-    );
-
-    // Persist the ticket for cross-restart survival
-    this.saveTicket();
-
-    const durationDays = Math.round(this.currentTicket.durationHours / 24);
-    console.log(
-      `[Clout] 🎟️ ${durationDays}-day pass acquired for ${this.publicKeyHex.slice(0, 8)} ` +
-      `(reputation: ${reputation.score.toFixed(2)})`
-    );
+    return this.economics.buyDayPass(freebirdToken);
   }
 
-  /**
-   * Helper for testing: Obtain a mock token
-   */
   async obtainToken(): Promise<Uint8Array> {
-    const blinded = await this.freebird.blind({ bytes: Crypto.fromHex(this.publicKeyHex) });
-    return this.freebird.issueToken(blinded);
+    return this.economics.obtainToken();
   }
 
-  /**
-   * Check if the user has a valid Day Pass
-   */
   hasActiveTicket(): boolean {
-    return !!this.currentTicket && Date.now() <= this.currentTicket.expiry;
+    return this.economics.hasActiveTicket();
   }
 
-  /**
-   * Get current ticket info (for UI display)
-   */
   getTicketInfo(): { expiry: number; durationHours: number; delegatedFrom?: string } | null {
-    if (!this.currentTicket) return null;
-    return {
-      expiry: this.currentTicket.expiry,
-      durationHours: this.currentTicket.durationHours,
-      delegatedFrom: this.currentTicket.delegatedFrom
-    };
+    return this.economics.getTicketInfo();
   }
 
-  /**
-   * Load saved ticket from persistent storage (survives Docker restarts)
-   *
-   * Called during initialization to restore ticket state.
-   * Performs defense-in-depth verification:
-   * 1. Check expiry (quick rejection)
-   * 2. Verify witness signature (prevents storage tampering)
-   *
-   * If the ticket is expired or invalid, it's automatically cleared.
-   */
   async loadSavedTicket(): Promise<void> {
-    if (!this.store || !('getTicket' in this.store)) {
-      return;
-    }
-
-    const savedTicket = (this.store as any).getTicket();
-    if (!savedTicket) {
-      return;
-    }
-
-    // 1. Quick expiry check first (no need for crypto if expired)
-    if (Date.now() > savedTicket.expiry) {
-      console.log('[Clout] Saved ticket expired, discarding');
-      if ('clearTicket' in this.store) {
-        (this.store as any).clearTicket();
-      }
-      return;
-    }
-
-    // 2. Verify witness signature before accepting (defense in depth)
-    // This prevents users from extending ticket expiry via storage manipulation
-    if (savedTicket.proof) {
-      try {
-        const isValid = await this.witness.verify(savedTicket.proof);
-        if (!isValid) {
-          console.warn('[Clout] ⚠️ Saved ticket has invalid witness signature, discarding');
-          if ('clearTicket' in this.store) {
-            (this.store as any).clearTicket();
-          }
-          return;
-        }
-      } catch (err) {
-        // If verification fails (e.g., witness unavailable), log but still load
-        // This allows offline usage while still providing protection when online
-        console.warn('[Clout] Could not verify ticket signature (witness unavailable):', err);
-      }
-    }
-
-    // 3. Restore ticket as CloutTicket
-    // Infer ticket type for backwards compatibility with old saved tickets
-    const ticketType: TicketType = savedTicket.ticketType ?? (savedTicket.delegatedFrom ? 'delegated' : 'direct');
-
-    this.currentTicket = {
-      owner: savedTicket.owner,
-      expiry: savedTicket.expiry,
-      proof: savedTicket.proof,
-      signature: savedTicket.signature,
-      durationHours: savedTicket.durationHours,
-      ticketType,
-      freebirdProof: savedTicket.freebirdProof ?? (ticketType === 'direct' ? savedTicket.proof : undefined),
-      delegationProof: savedTicket.delegationProof ?? (ticketType === 'delegated' ? savedTicket.proof : undefined),
-      delegatedFrom: savedTicket.delegatedFrom
-    };
-
-    const remainingMs = savedTicket.expiry - Date.now();
-    const remainingHours = Math.floor(remainingMs / (1000 * 60 * 60));
-    const remainingMinutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
-
-    console.log(
-      `[Clout] 🎟️ Restored day pass: ${remainingHours}h ${remainingMinutes}m remaining`
-    );
+    return this.economics.loadSavedTicket();
   }
 
-  /**
-   * Save current ticket to persistent storage
-   */
-  private saveTicket(): void {
-    if (!this.store || !('saveTicket' in this.store) || !this.currentTicket) {
-      return;
-    }
-
-    (this.store as any).saveTicket(this.currentTicket);
-    console.log(`[Clout] 💾 Day pass persisted to storage`);
-  }
-
-  /**
-   * Delegate a day pass to another user (requires high reputation ≥0.7)
-   *
-   * Allows trusted users to vouch for newcomers.
-   * The recipient can use the delegation to mint a ticket without a Freebird token.
-   *
-   * @param recipientKey - Public key of the user to delegate to
-   * @param durationHours - Duration in hours (default: 24)
-   */
   async delegatePass(recipientKey: string, durationHours: number = 24): Promise<void> {
-    // Get our reputation score
-    const reputation = this.reputationValidator.computeReputation(this.publicKeyHex);
-
-    // Check if we're eligible to delegate
-    const maxDelegations = this.ticketBooth.getMaxDelegations(reputation.score);
-    if (maxDelegations === 0) {
-      throw new Error(
-        `Insufficient reputation to delegate passes (need ≥0.7, have ${reputation.score.toFixed(2)})`
-      );
-    }
-
-    const userKeyPair = {
-      publicKey: { bytes: Crypto.fromHex(this.publicKeyHex) },
-      privateKey: { bytes: this.privateKey }
-    };
-
-    await this.ticketBooth.delegatePass(
-      userKeyPair,
-      recipientKey,
-      reputation.score,
-      durationHours
-    );
-
-    console.log(
-      `[Clout] 🎁 Delegated ${durationHours}h pass to ${recipientKey.slice(0, 8)} ` +
-      `(${maxDelegations} max per week)`
-    );
+    return this.economics.delegatePass(recipientKey, durationHours);
   }
 
-  /**
-   * Accept a delegated pass and mint a ticket (no Freebird token required)
-   */
   async acceptDelegatedPass(): Promise<void> {
-    const userKeyPair = {
-      publicKey: { bytes: Crypto.fromHex(this.publicKeyHex) },
-      privateKey: { bytes: this.privateKey }
-    };
-
-    this.currentTicket = await this.ticketBooth.mintDelegatedTicket(userKeyPair);
-
-    console.log(
-      `[Clout] 🎫 Accepted delegated pass from ${this.currentTicket.delegatedFrom?.slice(0, 8) ?? 'unknown'}`
-    );
+    return this.economics.acceptDelegatedPass();
   }
 
-  /**
-   * Check if we have a pending delegation
-   */
   hasPendingDelegation(): boolean {
-    return this.ticketBooth.hasDelegation(this.publicKeyHex);
+    return this.economics.hasPendingDelegation();
   }
 
   // =================================================================
-  //  SECTION 2: CONTENT (Posting)
+  //  CONTENT (Posting) - Delegated to CloutContent
   // =================================================================
 
-  /**
-   * Publish a new post with optional media attachment
-   *
-   * Uses the "Offload-and-Link" pattern for media:
-   * 1. Offload: Store media file in WNFS blockstore
-   * 2. Address: Get content-addressed CID
-   * 3. Link: Embed CID reference in post content
-   *
-   * @param content - Post content
-   * @param options - Post options including replyTo, media, nsfw flag, content warning, and ephemeral key settings
-   */
   async post(
     content: string,
     options?: {
       replyTo?: string;
       media?: MediaInput;
       useEphemeralKey?: boolean;
-      /** Mark post as Not Safe For Work - requires user to willingly label content */
       nsfw?: boolean;
-      /** Custom content warning text (e.g., "spoilers", "politics") */
       contentWarning?: string;
     }
   ): Promise<CloutPost> {
-    const replyTo = options?.replyTo;
-    const media = options?.media;
-    const useEphemeralKey = options?.useEphemeralKey !== false; // default: true
-    const nsfw = options?.nsfw ?? false;
-    const contentWarning = options?.contentWarning;
-
-    // Extract @mentions from content
-    const mentions = this.extractMentions(content);
-
-    // 1. Check for Day Pass
-    if (!this.currentTicket) {
-      throw new Error("No active Day Pass. Call buyDayPass() first.");
-    }
-
-    if (Date.now() > this.currentTicket.expiry) {
-      this.currentTicket = undefined;
-      throw new Error("Day Pass expired. Please buy a new one.");
-    }
-
-    // 2. Handle media upload if present (Offload step)
-    let mediaMetadata: MediaMetadata | undefined;
-    let finalContent = content;
-
-    if (media) {
-      if (!this.mediaStorageEnabled) {
-        throw new Error("Media storage is not enabled. Set enableMediaStorage: true in config.");
-      }
-
-      // Store media in WNFS blockstore
-      mediaMetadata = await this.storage.store(media.data, media.mimeType, media.filename);
-
-      // Append media link to content (Link step)
-      const mediaLink = StorageManager.formatMediaLink(mediaMetadata.cid);
-      finalContent = content ? `${content}\n\n${mediaLink}` : mediaLink;
-
-      console.log(`[Clout] 📎 Attached media: ${mediaMetadata.cid.slice(0, 12)}... (${media.mimeType})`);
-    }
-
-    // 3. Derive ephemeral key for forward secrecy (optional)
-    let ephemeralPublicKey: Uint8Array | undefined;
-    let ephemeralKeyProof: Uint8Array | undefined;
-    let signingKey = this.privateKey;
-
-    if (useEphemeralKey) {
-      // Derive ephemeral key from master key (rotates daily)
-      const { ephemeralSecret, ephemeralPublic } = Crypto.deriveEphemeralKey(this.privateKey);
-      ephemeralPublicKey = ephemeralPublic;
-
-      // Create proof linking ephemeral key to master key
-      ephemeralKeyProof = Crypto.createEphemeralKeyProof(ephemeralPublic, this.privateKey);
-
-      // Sign with ephemeral key instead of master key
-      signingKey = ephemeralSecret;
-    }
-
-    // 4. Sign Content (Placeholder using Hash + Key for MVP)
-    // In prod, use Ed25519 signature
-    const signature = Crypto.hash(finalContent, signingKey);
-
-    const config: PostConfig = {
-      author: this.publicKeyHex,
-      content: finalContent,
-      signature,
-      freebird: this.freebird,
-      witness: this.witness,
-      replyTo,
-      contentType: media ? media.mimeType : 'text/plain',
-      ephemeralPublicKey,
-      ephemeralKeyProof,
-      media: mediaMetadata,
-      nsfw,
-      contentWarning,
-      mentions: mentions.length > 0 ? mentions : undefined
-    };
-
-    // 5. Create & Gossip Post
-    const post = await CloutPost.post(config, this.currentTicket, this.gossip);
-
-    // 6. Persist to CRDT State (for sync) and Local Store (for own feed)
-    const pkg = post.getPackage();
-    this.state.addPost(pkg);
-
-    if (this.store) {
-      await this.store.addPost(pkg);
-    }
-
-    return post;
+    return this.content.post(content, options);
   }
 
-  /**
-   * Retract a post
-   *
-   * Creates a signed retraction request that is gossiped to the network.
-   * The original post still exists cryptographically, but nodes that
-   * receive this signal should hide it from feeds. This is an act of
-   * taking responsibility - you're publicly acknowledging you want to
-   * take back what you said, while accepting it can't be truly erased.
-   *
-   * @param postId - ID of the post to retract
-   * @param reason - Optional reason for retraction
-   * @returns The retraction package
-   */
   async retractPost(postId: string, reason?: 'retracted' | 'edited' | 'mistake' | 'other'): Promise<import('./clout-types.js').PostDeletePackage> {
-    // 1. Verify we own this post
-    const allPosts = this.store ? await this.store.getFeed() : [];
-    const post = allPosts.find(p => p.id === postId);
-
-    if (!post) {
-      throw new Error(`Post ${postId} not found`);
-    }
-
-    if (post.author !== this.publicKeyHex) {
-      throw new Error(`Cannot retract post ${postId}: you are not the author`);
-    }
-
-    // 2. Create retraction payload
-    const retractedAt = Date.now();
-    const retractionPayload = { postId, deletedAt: retractedAt }; // Keep deletedAt for wire compatibility
-    const payloadHash = Crypto.hashObject(retractionPayload);
-
-    // 3. Sign the retraction
-    const signature = Crypto.hash(JSON.stringify(retractionPayload), this.privateKey);
-
-    // 4. Get Witness attestation for the retraction
-    const proof = await this.witness.timestamp(payloadHash);
-
-    // 5. Create the retraction package
-    const retraction: import('./clout-types.js').PostDeletePackage = {
-      postId,
-      author: this.publicKeyHex,
-      signature,
-      proof,
-      deletedAt: retractedAt,
-      reason: reason || 'retracted'
-    };
-
-    // 6. Store retraction locally (both CRDT and file store)
-    this.state.addPostDeletion(retraction);
-
-    // Also persist to file store for cross-restart persistence
-    if (this.store && 'addDeletion' in this.store) {
-      await (this.store as any).addDeletion(retraction);
-    }
-
-    // 7. Immediately decay the content - why wait if you're retracting?
-    // The envelope persists but content is gone NOW
-    this.state.decayPost(postId);
-
-    // 8. Gossip the retraction to the network
-    if (this.gossip) {
-      await this.gossip.publish({
-        type: 'post-delete',
-        postDelete: retraction,
-        timestamp: retractedAt
-      });
-    }
-
-    console.log(`[Clout] ↩️ Retracted post ${postId.slice(0, 8)}...`);
-    return retraction;
+    return this.content.retractPost(postId, reason);
   }
 
-  /**
-   * @deprecated Use retractPost instead
-   */
   async deletePost(postId: string, reason?: 'retracted' | 'edited' | 'mistake' | 'other'): Promise<import('./clout-types.js').PostDeletePackage> {
-    return this.retractPost(postId, reason);
+    return this.content.deletePost(postId, reason);
   }
 
-  /**
-   * Edit a post by creating a new version that supersedes the original
-   *
-   * Since posts are content-addressed (ID = hash of content), editing
-   * creates a new post with new content/ID that references the original.
-   * The original post is automatically retracted with reason 'edited'.
-   *
-   * @param originalPostId - ID of the post to edit
-   * @param newContent - New content for the post
-   * @param options - Optional: media, nsfw, contentWarning
-   * @returns The new post that supersedes the original
-   */
   async editPost(
     originalPostId: string,
     newContent: string,
@@ -1055,649 +583,89 @@ export class Clout {
       contentWarning?: string;
     }
   ): Promise<CloutPost> {
-    // 1. Verify we own the original post
-    const allPosts = this.store ? await this.store.getFeed() : [];
-    const originalPost = allPosts.find(p => p.id === originalPostId);
-
-    if (!originalPost) {
-      throw new Error(`Post ${originalPostId} not found`);
-    }
-
-    if (originalPost.author !== this.publicKeyHex) {
-      throw new Error(`Cannot edit post ${originalPostId}: you are not the author`);
-    }
-
-    // 2. Create the new post with editOf reference
-    const newPost = await this.postInternal(newContent, {
-      replyTo: originalPost.replyTo, // Preserve thread context
-      media: options?.media,
-      nsfw: options?.nsfw ?? originalPost.nsfw,
-      contentWarning: options?.contentWarning ?? originalPost.contentWarning,
-      editOf: originalPostId
-    });
-
-    // 3. Soft-delete the original post with reason 'edited'
-    await this.deletePost(originalPostId, 'edited');
-
-    console.log(`[Clout] ✏️ Edited post ${originalPostId.slice(0, 8)}... → ${newPost.getPackage().id.slice(0, 8)}...`);
-    return newPost;
+    return this.content.editPost(originalPostId, newContent, options);
   }
 
-  /**
-   * Internal post method that supports editOf field
-   */
-  private async postInternal(
-    content: string,
-    options: {
-      replyTo?: string;
-      media?: import('./clout-types.js').MediaInput;
-      nsfw?: boolean;
-      contentWarning?: string;
-      editOf?: string;
-      useEphemeralKey?: boolean;
-    } = {}
-  ): Promise<CloutPost> {
-    const { replyTo, media, nsfw, contentWarning, editOf, useEphemeralKey = true } = options;
-
-    // Auto-mint ticket if needed
-    if (!this.hasActiveTicket()) {
-      const token = await this.obtainToken();
-      await this.buyDayPass(token);
-    }
-
-    // Extract mentions from content
-    const mentionRegex = /@([a-fA-F0-9]{8,})/g;
-    const mentions: string[] = [];
-    let match;
-    while ((match = mentionRegex.exec(content)) !== null) {
-      mentions.push(match[1]);
-    }
-
-    let finalContent = content;
-    let mediaMetadata: MediaMetadata | undefined;
-
-    // Handle media upload
-    if (media && this.mediaStorageEnabled) {
-      mediaMetadata = await this.storage.store(media.data, media.mimeType, media.filename);
-      const mediaLink = StorageManager.formatMediaLink(mediaMetadata.cid);
-      finalContent = content ? `${content}\n\n${mediaLink}` : mediaLink;
-    }
-
-    // Derive ephemeral key for forward secrecy
-    let ephemeralPublicKey: Uint8Array | undefined;
-    let ephemeralKeyProof: Uint8Array | undefined;
-    let signingKey = this.privateKey;
-
-    if (useEphemeralKey) {
-      const { ephemeralSecret, ephemeralPublic } = Crypto.deriveEphemeralKey(this.privateKey);
-      ephemeralPublicKey = ephemeralPublic;
-      ephemeralKeyProof = Crypto.createEphemeralKeyProof(ephemeralPublic, this.privateKey);
-      signingKey = ephemeralSecret;
-    }
-
-    // Sign content
-    const signature = Crypto.hash(finalContent, signingKey);
-
-    const config: PostConfig = {
-      author: this.publicKeyHex,
-      content: finalContent,
-      signature,
-      freebird: this.freebird,
-      witness: this.witness,
-      replyTo,
-      contentType: media ? media.mimeType : 'text/plain',
-      ephemeralPublicKey,
-      ephemeralKeyProof,
-      media: mediaMetadata,
-      nsfw,
-      contentWarning,
-      mentions: mentions.length > 0 ? mentions : undefined
-    };
-
-    // Create & Gossip Post
-    const post = await CloutPost.post(config, this.currentTicket!, this.gossip);
-
-    // Get the package and add editOf if present
-    let pkg = post.getPackage();
-    if (editOf) {
-      pkg = { ...pkg, editOf };
-    }
-
-    // Persist to CRDT State and Local Store
-    this.state.addPost(pkg);
-    if (this.store) {
-      await this.store.addPost(pkg);
-    }
-
-    return post;
-  }
-
-  /**
-   * Send an encrypted slide (DM) to another user
-   */
   async slide(recipientKey: string, message: string): Promise<SlidePackage> {
     return this.messaging.send(recipientKey, message);
   }
 
   // =================================================================
-  //  SECTION 2.5: MEDIA (Retrieval)
+  //  MEDIA - Delegated to CloutMedia
   // =================================================================
 
-  /**
-   * Resolve and retrieve media content by CID
-   *
-   * This is the "Retrieve" step of the Offload-and-Link pattern.
-   * Queries the local WNFS blockstore for the file content.
-   *
-   * @param cid - Content Identifier of the media
-   * @returns Media data as Uint8Array or null if not found
-   */
   async resolveMedia(cid: string): Promise<Uint8Array | null> {
-    if (!this.mediaStorageEnabled) {
-      throw new Error("Media storage is not enabled.");
-    }
-
-    return this.storage.retrieve(cid);
+    return this.media.resolveMedia(cid);
   }
 
-  /**
-   * Resolve media from a post
-   *
-   * Extracts the CID from post content and retrieves the media.
-   * Uses the Offload-and-Link pattern:
-   * 1. Check local WNFS blockstore
-   * 2. If not found, check contentTypeFilters for media hop distance
-   * 3. If author is within allowed hop distance, fetch from P2P network
-   *
-   * @param post - Post package potentially containing media
-   * @param fetchFromNetwork - Whether to attempt P2P fetch if not found locally (default: true)
-   * @returns Media data as Uint8Array or null if no media/not found/not allowed
-   */
   async resolvePostMedia(post: PostPackage, fetchFromNetwork = true): Promise<Uint8Array | null> {
-    // Get CID from post
-    const cid = post.media?.cid || StorageManager.extractMediaCid(post.content);
-    if (!cid) {
-      return null;
-    }
-
-    // Step 1: Check local storage first
-    const localData = await this.resolveMedia(cid);
-    if (localData) {
-      return localData;
-    }
-
-    // Step 2: If not fetching from network, return null
-    if (!fetchFromNetwork || !this.cloutNode) {
-      return null;
-    }
-
-    // Step 3: Check contentTypeFilters to determine allowed hop distance for this media
-    const mimeType = post.media?.mimeType || 'image/unknown';
-    const contentTypeFilter = this.getMediaHopLimit(mimeType);
-
-    // Step 4: Check author's hop distance
-    const authorReputation = this.reputationValidator.computeReputation(post.author);
-    if (authorReputation.distance > contentTypeFilter) {
-      // Author is beyond allowed hop distance for this media type
-      console.log(`[Clout] 🔒 Media from ${post.author.slice(0, 8)} at hop ${authorReputation.distance} exceeds limit ${contentTypeFilter} for ${mimeType}`);
-      return null;
-    }
-
-    // Step 5: Request media from the author's node
-    return this.requestMediaFromNetwork(cid, post.author, post.id);
+    return this.media.resolvePostMedia(post, fetchFromNetwork);
   }
 
-  /**
-   * Get the maximum hop distance for fetching a media type
-   *
-   * Uses contentTypeFilters if set, otherwise falls back to global maxHops
-   */
-  private getMediaHopLimit(mimeType: string): number {
-    const profile = this.getProfile();
-    const filters = profile.trustSettings.contentTypeFilters;
-
-    if (filters) {
-      // Check for exact MIME type match
-      if (filters[mimeType]) {
-        return filters[mimeType].maxHops;
-      }
-
-      // Check for category match (e.g., "image/*" -> "image")
-      const category = mimeType.split('/')[0];
-      const categoryFilters: Record<string, string> = {
-        'image': 'image/png',  // Use image/png as representative for images
-        'video': 'video/mp4',
-        'audio': 'audio/mpeg'
-      };
-
-      const representativeType = categoryFilters[category];
-      if (representativeType && filters[representativeType]) {
-        return filters[representativeType].maxHops;
-      }
-    }
-
-    // Fall back to global maxHops
-    return profile.trustSettings.maxHops;
-  }
-
-  /**
-   * Request media from the network via P2P
-   *
-   * Sends a media-request message to the author's node and waits for response.
-   *
-   * @param cid - Content Identifier of the media
-   * @param authorKey - Public key of the post author
-   * @param postId - ID of the post containing the media
-   * @returns Media data or null if not found/timeout
-   */
-  private async requestMediaFromNetwork(
-    cid: string,
-    authorKey: string,
-    postId: string
-  ): Promise<Uint8Array | null> {
-    if (!this.cloutNode) {
-      return null;
-    }
-
-    // Check if we already have a pending request for this CID
-    if (this.pendingMediaRequests.has(cid)) {
-      console.log(`[Clout] Already fetching media ${cid.slice(0, 12)}...`);
-      // Return the existing promise's result
-      return new Promise((resolve, reject) => {
-        const existing = this.pendingMediaRequests.get(cid);
-        if (existing) {
-          // Chain onto existing request
-          const originalResolve = existing.resolve;
-          existing.resolve = (data) => {
-            originalResolve(data);
-            resolve(data);
-          };
-        }
-      });
-    }
-
-    console.log(`[Clout] 🔄 Requesting media ${cid.slice(0, 12)}... from ${authorKey.slice(0, 8)}`);
-
-    return new Promise((resolve, reject) => {
-      // Set up timeout
-      const timeout = setTimeout(() => {
-        this.pendingMediaRequests.delete(cid);
-        console.log(`[Clout] ⏱️ Media request timeout for ${cid.slice(0, 12)}...`);
-        resolve(null);
-      }, this.mediaRequestTimeoutMs);
-
-      // Store pending request
-      this.pendingMediaRequests.set(cid, { resolve, reject, timeout });
-
-      // Send request to author
-      const request: ContentGossipMessage = {
-        type: 'media-request',
-        mediaRequest: {
-          cid,
-          requester: this.publicKeyHex,
-          postId
-        },
-        timestamp: Date.now()
-      };
-
-      this.cloutNode!.sendToPeer(authorKey, request).catch(err => {
-        console.warn(`[Clout] Failed to send media request to ${authorKey.slice(0, 8)}:`, err);
-        clearTimeout(timeout);
-        this.pendingMediaRequests.delete(cid);
-        resolve(null);
-      });
-    });
-  }
-
-  /**
-   * Get metadata for a stored media file
-   *
-   * @param cid - Content Identifier
-   * @returns MediaMetadata or null if not found
-   */
   getMediaMetadata(cid: string): MediaMetadata | null {
-    if (!this.mediaStorageEnabled) {
-      throw new Error("Media storage is not enabled.");
-    }
-
-    return this.storage.getMetadata(cid);
+    return this.media.getMediaMetadata(cid);
   }
 
-  /**
-   * Check if media exists locally by CID
-   *
-   * @param cid - Content Identifier
-   * @returns true if media exists in local blockstore
-   */
   async hasMedia(cid: string): Promise<boolean> {
-    if (!this.mediaStorageEnabled) {
-      return false;
-    }
-
-    return this.storage.has(cid);
+    return this.media.hasMedia(cid);
   }
 
-  /**
-   * Check if a post has media attachment
-   *
-   * @param post - Post package to check
-   * @returns true if post contains media reference
-   */
   static postHasMedia(post: PostPackage): boolean {
-    return !!post.media?.cid || StorageManager.hasMediaLink(post.content);
+    return CloutMedia.postHasMedia(post);
   }
 
-  /**
-   * Extract media CID from a post
-   *
-   * @param post - Post package
-   * @returns CID string or null if no media
-   */
   static extractMediaCid(post: PostPackage): string | null {
-    // Prefer metadata over content parsing
-    if (post.media?.cid) {
-      return post.media.cid;
-    }
-    return StorageManager.extractMediaCid(post.content);
+    return CloutMedia.extractMediaCid(post);
   }
 
-  /**
-   * Get media storage statistics
-   */
   async getMediaStats(): Promise<{
     mediaCount: number;
     totalSize: number;
     byMimeType: Record<string, { count: number; size: number }>;
   }> {
-    if (!this.mediaStorageEnabled) {
-      return { mediaCount: 0, totalSize: 0, byMimeType: {} };
-    }
-
-    return this.storage.getStats();
+    return this.media.getMediaStats();
   }
 
   // =================================================================
-  //  SECTION 3: SOCIAL GRAPH (Trust & Reputation)
+  //  TRUST - Delegated to CloutTrust
   // =================================================================
 
-  /**
-   * Trust another agent (Follow)
-   * @param trusteeKey - Public key of the user to trust
-   * @param weight - Trust weight between 0.1 and 1.0 (default: 1.0)
-   */
   async trust(trusteeKey: string, weight: number = 1.0): Promise<void> {
-    // Validate weight
-    if (weight < 0.1 || weight > 1.0) {
-      throw new Error('Trust weight must be between 0.1 and 1.0');
-    }
-
-    // 1. Update local graph immediately
-    this.trustGraph.add(trusteeKey);
-
-    // 2. Propagate Trust Signal
-    if (this.gossip) {
-      const timestamp = Date.now();
-
-      if (this.useEncryptedTrustSignals) {
-        // Privacy-preserving encrypted trust signal
-        const encrypted = Crypto.createEncryptedTrustSignal(
-          this.privateKey,
-          this.publicKeyHex,
-          trusteeKey,
-          weight,
-          timestamp
-        );
-
-        // Get witness proof for the commitment (not the trustee identity)
-        const proof = await this.witness.timestamp(encrypted.trusteeCommitment);
-
-        const encryptedSignal: EncryptedTrustSignal = {
-          truster: this.publicKeyHex,
-          trusteeCommitment: encrypted.trusteeCommitment,
-          encryptedTrustee: encrypted.encryptedTrustee,
-          signature: encrypted.signature,
-          proof,
-          weight,
-          version: 'encrypted-v1'
-        };
-
-        await this.gossip.publish({
-          type: 'trust-encrypted',
-          encryptedTrustSignal: encryptedSignal,
-          timestamp
-        });
-
-        // Store locally with decrypted trustee (we know who we trusted)
-        const localSignal: TrustSignal = {
-          truster: this.publicKeyHex,
-          trustee: trusteeKey,
-          signature: encrypted.signature,
-          proof,
-          weight
-        };
-        this.state.addTrustSignal(localSignal);
-
-        console.log(`[Clout] 🔐 Trusted ${trusteeKey.slice(0, 8)} (encrypted signal)`);
-      } else {
-        // Legacy plaintext trust signal
-        const signalPayload = {
-          truster: this.publicKeyHex,
-          trustee: trusteeKey,
-          weight,
-          timestamp
-        };
-
-        const payloadHash = Crypto.hashObject(signalPayload);
-        const signature = Crypto.hash(payloadHash, this.privateKey); // Placeholder signature
-        const proof = await this.witness.timestamp(payloadHash);
-
-        const signal: TrustSignal = {
-          truster: this.publicKeyHex,
-          trustee: trusteeKey,
-          signature,
-          proof,
-          weight
-        };
-
-        await this.gossip.publish({
-          type: 'trust',
-          trustSignal: signal,
-          timestamp
-        });
-
-        this.state.addTrustSignal(signal);
-        console.log(`[Clout] 🤝 Trusted ${trusteeKey.slice(0, 8)} (plaintext signal)`);
-      }
-
-      // Update the profile in the state to reflect the new trust graph
-      this.state.updateProfile({
-        publicKey: this.publicKeyHex,
-        trustGraph: this.trustGraph,
-        trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
-      });
-    }
-
-    // 3. Trigger P2P connection to grow the Chronicle blob
-    if (this.cloutNode) {
-      console.log(`[Clout] 🫧 Growing blob - connecting to ${trusteeKey.slice(0, 8)}...`);
-      await this.cloutNode.updateTrustGraph(this.trustGraph);
-    }
+    return this.trustModule.trust(trusteeKey, weight);
   }
 
-  /**
-   * Revoke trust from a previously trusted user (Unfollow)
-   *
-   * Creates a revocation signal that is gossiped to the network.
-   * The revocation is also stored locally and reflected in the trust graph.
-   *
-   * @param trusteeKey - Public key of the user to untrust
-   */
   async revokeTrust(trusteeKey: string): Promise<void> {
-    // 1. Check if we actually trust this user
-    if (!this.trustGraph.has(trusteeKey)) {
-      throw new Error(`Cannot revoke trust: ${trusteeKey.slice(0, 8)} is not in trust graph`);
-    }
-
-    // 2. Remove from local graph immediately
-    this.trustGraph.delete(trusteeKey);
-
-    // 3. Create and publish revocation signal
-    if (this.gossip) {
-      const timestamp = Date.now();
-
-      if (this.useEncryptedTrustSignals) {
-        // Privacy-preserving encrypted revocation signal
-        const encrypted = Crypto.createEncryptedTrustSignal(
-          this.privateKey,
-          this.publicKeyHex,
-          trusteeKey,
-          0, // Weight 0 indicates revocation
-          timestamp
-        );
-
-        // Get witness proof for the commitment
-        const proof = await this.witness.timestamp(encrypted.trusteeCommitment);
-
-        const encryptedSignal: EncryptedTrustSignal = {
-          truster: this.publicKeyHex,
-          trusteeCommitment: encrypted.trusteeCommitment,
-          encryptedTrustee: encrypted.encryptedTrustee,
-          signature: encrypted.signature,
-          proof,
-          weight: 0, // Weight 0 = revocation
-          version: 'encrypted-v1'
-        };
-
-        await this.gossip.publish({
-          type: 'trust-encrypted',
-          encryptedTrustSignal: encryptedSignal,
-          timestamp
-        });
-
-        // Store revocation locally
-        const localSignal: TrustSignal = {
-          truster: this.publicKeyHex,
-          trustee: trusteeKey,
-          signature: encrypted.signature,
-          proof,
-          weight: 0,
-          revoked: true
-        };
-        this.state.addTrustSignal(localSignal);
-
-        console.log(`[Clout] 🔓 Revoked trust for ${trusteeKey.slice(0, 8)} (encrypted signal)`);
-      } else {
-        // Legacy plaintext revocation signal
-        const signalPayload = {
-          truster: this.publicKeyHex,
-          trustee: trusteeKey,
-          weight: 0,
-          revoked: true,
-          timestamp
-        };
-
-        const payloadHash = Crypto.hashObject(signalPayload);
-        const signature = Crypto.hash(payloadHash, this.privateKey);
-        const proof = await this.witness.timestamp(payloadHash);
-
-        const signal: TrustSignal = {
-          truster: this.publicKeyHex,
-          trustee: trusteeKey,
-          signature,
-          proof,
-          weight: 0,
-          revoked: true
-        };
-
-        await this.gossip.publish({
-          type: 'trust',
-          trustSignal: signal,
-          timestamp
-        });
-
-        this.state.addTrustSignal(signal);
-        console.log(`[Clout] 🔓 Revoked trust for ${trusteeKey.slice(0, 8)} (plaintext signal)`);
-      }
-
-      // Update the profile in the state to reflect the updated trust graph
-      this.state.updateProfile({
-        publicKey: this.publicKeyHex,
-        trustGraph: this.trustGraph,
-        trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
-      });
-    }
-
-    // 4. Trigger P2P disconnection - shrink the Chronicle blob
-    if (this.cloutNode) {
-      console.log(`[Clout] 🔌 Shrinking blob - disconnecting from ${trusteeKey.slice(0, 8)}...`);
-      await this.cloutNode.updateTrustGraph(this.trustGraph);
-    }
+    return this.trustModule.revokeTrust(trusteeKey);
   }
 
-  /**
-   * Create an invitation for another user
-   * (Mock implementation for test compatibility)
-   */
   async invite(guestPublicKey: string, params: any): Promise<{ code: Uint8Array }> {
-    // In a real impl, this would create a pre-signed trust signal
-    // For now, we just return a "code" that acts as a token
-    const code = Crypto.randomBytes(32);
-    // Auto-trust the guest if configured
-    await this.trust(guestPublicKey);
-    return { code };
+    return this.trustModule.invite(guestPublicKey, params);
   }
 
-  /**
-   * Accept an invitation
-   * (Mock implementation)
-   */
   async acceptInvitation(code: Uint8Array): Promise<Uint8Array> {
-    // In real impl, this would validate the invite and return a token
-    // For test, we treat the code as the Freebird token
-    return code; 
+    return this.trustModule.acceptInvitation(code);
   }
 
-  /**
-   * Get reputation score for a user
-   */
   getReputation(publicKey: string): ReputationScore {
-    return this.reputationValidator.computeReputation(publicKey);
+    return this.trustModule.getReputation(publicKey);
   }
 
-  /**
-   * Get trust path to a user (for "Via Alice → Bob" display)
-   */
   getTrustPath(publicKey: string): { path: string[]; distance: number } | null {
-    return this.reputationValidator.getTrustPath(publicKey);
+    return this.trustModule.getTrustPath(publicKey);
   }
 
-  /**
-   * Check if user is directly trusted (1 hop)
-   */
   isDirectlyTrusted(publicKey: string): boolean {
-    return this.reputationValidator.isDirectlyTrusted(publicKey);
+    return this.trustModule.isDirectlyTrusted(publicKey);
   }
 
-  /**
-   * Get the trust weight for a directly trusted user
-   * Returns the weight (0.1-1.0) or null if not directly trusted
-   */
   getTrustWeight(publicKey: string): number | null {
-    if (!this.trustGraph.has(publicKey)) {
-      return null;
-    }
-
-    // Look up the trust signal for this user
-    const state = this.state.getState();
-    const signal = state.myTrustSignals?.find(s => s.trustee === publicKey);
-
-    // Return the weight from the signal, or default to 1.0
-    return signal?.weight ?? 1.0;
+    return this.trustModule.getTrustWeight(publicKey);
   }
 
-  /**
-   * Get the current user's profile (from Chronicle state + profile store)
-   */
+  // =================================================================
+  //  PROFILE - Local implementation
+  // =================================================================
+
   getProfile(): CloutProfile {
     const state = this.state.getState();
     let profile = state.profile || {
@@ -1706,30 +674,23 @@ export class Clout {
       trustSettings: DEFAULT_TRUST_SETTINGS
     };
 
-    // Ensure publicKey is always set (CRDT state might have empty/undefined)
     if (!profile.publicKey) {
       profile = { ...profile, publicKey: this.publicKeyHex };
     }
 
-    // Ensure trustGraph is always a Set and includes self
-    // (You should trust yourself above all)
     let trustGraph: Set<string>;
     if (!profile.trustGraph || !(profile.trustGraph instanceof Set)) {
       trustGraph = new Set(this.trustGraph);
     } else {
       trustGraph = new Set(profile.trustGraph);
     }
-    // Always ensure self is in the trust graph
     trustGraph.add(this.publicKeyHex);
     profile = { ...profile, trustGraph };
 
-    // Ensure trustSettings always exists with defaults
     if (!profile.trustSettings) {
       profile = { ...profile, trustSettings: DEFAULT_TRUST_SETTINGS };
     }
 
-    // Merge metadata from profile store (for reliability)
-    // CRDT state may not persist metadata correctly
     const savedProfile = this.profileStore.getProfile();
     if (savedProfile && savedProfile.publicKey === this.publicKeyHex) {
       profile = {
@@ -1742,10 +703,6 @@ export class Clout {
     return profile;
   }
 
-  /**
-   * Update profile metadata (display name, bio, avatar)
-   * Changes sync automatically via Chronicle CRDT and are persisted locally
-   */
   async setProfileMetadata(metadata: {
     displayName?: string;
     bio?: string;
@@ -1753,16 +710,9 @@ export class Clout {
   }): Promise<void> {
     console.log(`[Clout] 📝 Updating profile metadata`);
 
-    // Get current profile
     const currentProfile = this.getProfile();
+    const updatedMetadata = { ...currentProfile.metadata, ...metadata };
 
-    // Merge new metadata with existing
-    const updatedMetadata = {
-      ...currentProfile.metadata,
-      ...metadata
-    };
-
-    // Update profile in Chronicle (which will auto-sync to peers)
     this.state.updateProfile({
       publicKey: this.publicKeyHex,
       trustGraph: this.trustGraph,
@@ -1770,14 +720,12 @@ export class Clout {
       metadata: updatedMetadata
     });
 
-    // Also save to local storage for persistence across restarts
     this.profileStore.saveProfile(
       this.publicKeyHex,
       updatedMetadata,
       currentProfile.trustSettings
     );
 
-    // If avatar is a URL, cache it locally
     if (metadata.avatar?.startsWith('http://') || metadata.avatar?.startsWith('https://')) {
       this.profileStore.cacheAvatar(metadata.avatar).catch(err => {
         console.warn('[Clout] Failed to cache avatar:', err);
@@ -1785,23 +733,12 @@ export class Clout {
     }
   }
 
-  /**
-   * Update trust settings (NSFW filtering, content-type filters, etc.)
-   * Changes sync automatically via Chronicle CRDT
-   */
   async updateTrustSettings(settings: Partial<import('./clout-types.js').TrustSettings>): Promise<void> {
     console.log(`[Clout] ⚙️ Updating trust settings`);
 
-    // Get current profile
     const currentProfile = this.getProfile();
+    const updatedSettings = { ...currentProfile.trustSettings, ...settings };
 
-    // Merge new settings with existing
-    const updatedSettings = {
-      ...currentProfile.trustSettings,
-      ...settings
-    };
-
-    // Update profile in Chronicle
     this.state.updateProfile({
       publicKey: this.publicKeyHex,
       trustGraph: this.trustGraph,
@@ -1809,10 +746,7 @@ export class Clout {
       metadata: currentProfile.metadata
     });
 
-    // Update reputation validator settings if maxHops or minReputation changed
     if (settings.maxHops !== undefined || settings.minReputation !== undefined) {
-      // Note: ReputationValidator is readonly, so we'd need to reinitialize
-      // For now, the new settings will be used via getProfile().trustSettings
       console.log(`[Clout] Updated filter settings: maxHops=${updatedSettings.maxHops}, minReputation=${updatedSettings.minReputation}`);
     }
 
@@ -1820,7 +754,6 @@ export class Clout {
       console.log(`[Clout] NSFW content: ${settings.showNsfw ? 'enabled' : 'disabled'}`);
     }
 
-    // Also save to local storage for persistence across restarts
     this.profileStore.saveProfile(
       this.publicKeyHex,
       currentProfile.metadata || {},
@@ -1828,10 +761,6 @@ export class Clout {
     );
   }
 
-  /**
-   * Set content-type specific filter rules
-   * Example: setContentTypeFilter('image/*', { maxHops: 1, minReputation: 0.8 })
-   */
   async setContentTypeFilter(
     contentType: string,
     filter: import('./clout-types.js').ContentTypeFilter
@@ -1842,125 +771,70 @@ export class Clout {
     const currentFilters = currentProfile.trustSettings.contentTypeFilters || {};
 
     await this.updateTrustSettings({
-      contentTypeFilters: {
-        ...currentFilters,
-        [contentType]: filter
-      }
+      contentTypeFilters: { ...currentFilters, [contentType]: filter }
     });
   }
 
-  /**
-   * Remove content-type specific filter (use defaults)
-   */
   async removeContentTypeFilter(contentType: string): Promise<void> {
     const currentProfile = this.getProfile();
     const currentFilters = { ...currentProfile.trustSettings.contentTypeFilters };
 
     if (currentFilters[contentType]) {
       delete currentFilters[contentType];
-
-      await this.updateTrustSettings({
-        contentTypeFilters: currentFilters
-      });
-
+      await this.updateTrustSettings({ contentTypeFilters: currentFilters });
       console.log(`[Clout] 🔧 Removed filter for content type: ${contentType}`);
     }
   }
 
-  /**
-   * Enable or disable NSFW content display
-   */
   async setNsfwEnabled(enabled: boolean): Promise<void> {
     await this.updateTrustSettings({ showNsfw: enabled });
   }
 
-  /**
-   * Check if NSFW content is enabled
-   */
   isNsfwEnabled(): boolean {
     return this.getProfile().trustSettings.showNsfw ?? false;
   }
 
   // =================================================================
-  //  SECTION 4: TRUST TAGS (Local Organization)
+  //  TRUST TAGS - Delegated to CloutLocalData
   // =================================================================
 
-  /**
-   * Add a tag to a trusted user (e.g., "friends", "work", "family")
-   */
   addTrustTag(publicKey: string, tag: string): void {
     this.localData.addTag(publicKey, tag);
   }
 
-  /**
-   * Remove a tag from a user
-   */
   removeTrustTag(publicKey: string, tag: string): void {
     this.localData.removeTag(publicKey, tag);
   }
 
-  /**
-   * Get all users with a specific tag
-   */
   getUsersByTag(tag: string): string[] {
     return this.localData.getUsersByTag(tag);
   }
 
-  /**
-   * Get all tags for a specific user
-   */
   getTagsForUser(publicKey: string): string[] {
     return this.localData.getTagsForUser(publicKey);
   }
 
-  /**
-   * Get all tags and their member counts
-   */
   getAllTags(): Map<string, number> {
     return this.localData.getAllTags();
   }
 
-  /**
-   * Filter feed by tag (get posts only from users with a specific tag)
-   */
   async getFeedByTag(tag: string): Promise<PostPackage[]> {
-    if (!this.store) {
-      throw new Error('No store configured');
-    }
-
-    const taggedUsers = this.localData.getUsersByTag(tag);
-    if (taggedUsers.length === 0) {
-      return [];
-    }
-
-    const taggedSet = new Set(taggedUsers);
-    const allPosts = await this.store.getFeed();
-    return allPosts.filter(post => taggedSet.has(post.author));
+    return this.feedModule.getFeedByTag(tag);
   }
 
   // =================================================================
-  //  SECTION 4b: NICKNAMES (Local Address Book)
+  //  NICKNAMES - Delegated to CloutLocalData
   // =================================================================
 
-  /**
-   * Set a nickname for a user (like naming a contact in your phone)
-   */
   setNickname(publicKey: string, nickname: string): void {
     this.localData.setNickname(publicKey, nickname);
   }
 
-  /**
-   * Get the nickname for a user (returns undefined if not set)
-   */
   getNickname(publicKey: string): string | undefined {
     return this.localData.getNickname(publicKey);
   }
 
-  /**
-   * Get display name for a user - checks profile name (for self), nickname, then truncated key
-   */
   getDisplayName(publicKey: string): string {
-    // For the current user, use their profile display name if set
     if (publicKey === this.publicKeyHex) {
       const profile = this.getProfile();
       if (profile.metadata?.displayName) {
@@ -1970,102 +844,62 @@ export class Clout {
     return this.localData.getDisplayName(publicKey);
   }
 
-  /**
-   * Get all nicknames (for backup/export)
-   */
   getAllNicknames(): Map<string, string> {
     return this.localData.getAllNicknames();
   }
 
-  // -----------------------------------------------------------------
-  //  MUTED USERS
-  // -----------------------------------------------------------------
+  // =================================================================
+  //  MUTED USERS - Delegated to CloutLocalData
+  // =================================================================
 
-  /**
-   * Mute a user - their posts will be hidden from your feed
-   *
-   * Muting is local-only and doesn't affect the trust graph.
-   * You still trust them (their content propagates), you just don't see it.
-   */
   mute(publicKey: string): void {
     this.localData.mute(publicKey);
   }
 
-  /**
-   * Unmute a user - their posts will appear in your feed again
-   */
   unmute(publicKey: string): void {
     this.localData.unmute(publicKey);
   }
 
-  /**
-   * Check if a user is muted
-   */
   isMuted(publicKey: string): boolean {
     return this.localData.isMuted(publicKey);
   }
 
-  /**
-   * Get all muted users
-   */
   getMutedUsers(): string[] {
     return this.localData.getMutedUsers();
   }
 
-  /**
-   * Get count of muted users
-   */
   getMutedCount(): number {
     return this.localData.getMutedCount();
   }
 
-  // -----------------------------------------------------------------
-  //  BOOKMARKS
-  // -----------------------------------------------------------------
+  // =================================================================
+  //  BOOKMARKS - Delegated to CloutLocalData
+  // =================================================================
 
-  /**
-   * Bookmark a post for later reference
-   *
-   * Bookmarks are local-only and never synced to the network.
-   */
   async bookmark(postId: string): Promise<void> {
     this.localData.bookmark(postId);
 
-    // Persist to file store for cross-restart persistence
     if (this.store && 'addBookmark' in this.store) {
       await (this.store as any).addBookmark(postId);
     }
   }
 
-  /**
-   * Remove a bookmark from a post
-   */
   async unbookmark(postId: string): Promise<void> {
     this.localData.unbookmark(postId);
 
-    // Remove from file store for cross-restart persistence
     if (this.store && 'removeBookmark' in this.store) {
       await (this.store as any).removeBookmark(postId);
     }
   }
 
-  /**
-   * Check if a post is bookmarked
-   */
   isBookmarked(postId: string): boolean {
     return this.localData.isBookmarked(postId);
   }
 
-  /**
-   * Get all bookmarked post IDs
-   */
   getBookmarkIds(): string[] {
     return this.localData.getBookmarks();
   }
 
-  /**
-   * Get bookmarked posts (full data)
-   */
   async getBookmarks(): Promise<PostPackage[]> {
     if (!this.store) {
       throw new Error('No store configured');
@@ -2078,415 +912,82 @@ export class Clout {
     return allPosts.filter(post => bookmarkIds.has(post.id));
   }
 
-  /**
-   * Get count of bookmarks
-   */
   getBookmarkCount(): number {
     return this.localData.getBookmarks().length;
   }
 
-  // -----------------------------------------------------------------
-  //  NOTIFICATIONS
-  // -----------------------------------------------------------------
+  // =================================================================
+  //  NOTIFICATIONS - Delegated to CloutFeed
+  // =================================================================
 
-  /**
-   * Get notification counts (unread slides, replies, mentions)
-   *
-   * Note: This fetches the feed ONCE and reuses it for both replies and mentions
-   * to avoid duplicate store.getFeed() calls.
-   */
   async getNotificationCounts(): Promise<{
     slides: number;
     replies: number;
     mentions: number;
     total: number;
   }> {
-    const state = this.localData.getNotificationState();
-
-    // Count unread slides
-    const inbox = await this.getInbox();
-    const unreadSlides = inbox.slides.filter(
-      (s: any) => (s.timestamp || 0) > state.lastSeenSlides
-    ).length;
-
-    // Fetch feed ONCE and reuse for replies + mentions (uses cache)
-    const allPosts = await this.getCachedFeed();
-
-    // Count unread replies to my posts
-    const myPostIds = new Set(
-      allPosts.filter((p: any) => p.author === this.publicKeyHex).map((p: any) => p.id)
-    );
-    const unreadReplies = allPosts.filter((p: any) => {
-      if (!p.replyTo || !myPostIds.has(p.replyTo)) return false;
-      if (p.author === this.publicKeyHex) return false; // Ignore own replies
-      const timestamp = p.proof?.timestamp || 0;
-      return timestamp > state.lastSeenReplies;
-    }).length;
-
-    // Count unread mentions (inline instead of calling getMentions to avoid duplicate getFeed)
-    const unreadMentions = allPosts.filter((p: any) => {
-      if (p.author === this.publicKeyHex) return false; // Ignore own posts
-      if (!p.mentions) return false;
-      // Check if any mention matches our key
-      const isMentioned = p.mentions.some((m: string) =>
-        this.publicKeyHex.startsWith(m) || m.startsWith(this.publicKeyHex.slice(0, 8))
-      );
-      if (!isMentioned) return false;
-      const timestamp = p.proof?.timestamp || 0;
-      return timestamp > state.lastSeenMentions;
-    }).length;
-
-    return {
-      slides: unreadSlides,
-      replies: unreadReplies,
-      mentions: unreadMentions,
-      total: unreadSlides + unreadReplies + unreadMentions
-    };
+    return this.feedModule.getNotificationCounts();
   }
 
-  /**
-   * Get replies to my posts
-   */
   async getReplies(options?: { limit?: number; unreadOnly?: boolean }): Promise<PostPackage[]> {
-    if (!this.store) {
-      throw new Error('No store configured');
-    }
-
-    const allPosts = await this.store.getFeed();
-    const myPostIds = new Set(
-      allPosts.filter((p: any) => p.author === this.publicKeyHex).map((p: any) => p.id)
-    );
-
-    let replies = allPosts.filter((p: any) => {
-      if (!p.replyTo || !myPostIds.has(p.replyTo)) return false;
-      if (p.author === this.publicKeyHex) return false;
-      return true;
-    });
-
-    // Filter to unread only if requested
-    if (options?.unreadOnly) {
-      const lastSeen = this.localData.getLastSeen('replies');
-      replies = replies.filter((p: any) => (p.proof?.timestamp || 0) > lastSeen);
-    }
-
-    // Sort by newest first
-    replies.sort((a: any, b: any) => {
-      const timeA = a.proof?.timestamp || 0;
-      const timeB = b.proof?.timestamp || 0;
-      return timeB - timeA;
-    });
-
-    return options?.limit ? replies.slice(0, options.limit) : replies;
+    return this.feedModule.getReplies(options);
   }
 
-  /**
-   * Mark slides as seen
-   */
   markSlidesSeen(): void {
     this.localData.markSlidesSeen();
   }
 
-  /**
-   * Mark replies as seen
-   */
   markRepliesSeen(): void {
     this.localData.markRepliesSeen();
   }
 
-  /**
-   * Mark mentions as seen
-   */
   markMentionsSeen(): void {
     this.localData.markMentionsSeen();
   }
 
   // =================================================================
-  //  SECTION 4c: REACTIONS (Trust-weighted endorsements)
+  //  REACTIONS - Delegated to CloutReactions
   // =================================================================
 
-  /**
-   * Available reaction emojis
-   */
-  static readonly REACTION_EMOJIS = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
-
-  /**
-   * React to a post
-   *
-   * @param postId - The post to react to
-   * @param emoji - The reaction emoji (default: 👍)
-   */
   async react(postId: string, emoji: string = '👍'): Promise<ReactionPackage> {
-    // Validate emoji
-    if (!Clout.REACTION_EMOJIS.includes(emoji)) {
-      throw new Error(`Invalid reaction. Allowed: ${Clout.REACTION_EMOJIS.join(' ')}`);
-    }
-
-    // Remove any existing reaction on this post first (one reaction per post)
-    const existingReaction = this.getMyReaction(postId);
-    if (existingReaction && existingReaction !== emoji) {
-      await this.unreact(postId, existingReaction);
-    }
-
-    // Create reaction ID
-    const reactionId = Crypto.hashString(`${postId}:${this.publicKeyHex}:${emoji}`);
-
-    // Sign the reaction
-    const reactionPayload = {
-      postId,
-      reactor: this.publicKeyHex,
-      emoji,
-      timestamp: Date.now()
-    };
-    const payloadHash = Crypto.hashObject(reactionPayload);
-    const signature = Crypto.hash(payloadHash, this.privateKey);
-    const proof = await this.witness.timestamp(payloadHash);
-
-    const reaction: ReactionPackage = {
-      id: reactionId,
-      postId,
-      reactor: this.publicKeyHex,
-      emoji,
-      signature,
-      proof
-    };
-
-    // Store in Chronicle state
-    this.state.addReaction(reaction);
-
-    // Persist to file store for cross-restart persistence
-    if (this.store && 'addReaction' in this.store) {
-      await (this.store as any).addReaction(reaction);
-    }
-
-    // Broadcast via gossip
-    if (this.gossip) {
-      await this.gossip.publish({
-        type: 'reaction',
-        reaction,
-        timestamp: Date.now()
-      });
-    }
-
-    console.log(`[Clout] ${emoji} Reacted to ${postId.slice(0, 8)}`);
-    return reaction;
+    return this.reactions.react(postId, emoji);
   }
 
-  /**
-   * Remove a reaction from a post
-   */
   async unreact(postId: string, emoji: string = '👍'): Promise<void> {
-    const reactionId = Crypto.hashString(`${postId}:${this.publicKeyHex}:${emoji}`);
-
-    // Create removal signal
-    const payloadHash = Crypto.hashObject({ id: reactionId, removed: true });
-    const signature = Crypto.hash(payloadHash, this.privateKey);
-    const proof = await this.witness.timestamp(payloadHash);
-
-    const removal: ReactionPackage = {
-      id: reactionId,
-      postId,
-      reactor: this.publicKeyHex,
-      emoji,
-      signature,
-      proof,
-      removed: true
-    };
-
-    // Update state (addReaction handles removal)
-    this.state.addReaction(removal);
-
-    // Remove from file store for cross-restart persistence
-    if (this.store && 'removeReaction' in this.store) {
-      await (this.store as any).removeReaction(reactionId);
-    }
-
-    // Broadcast removal
-    if (this.gossip) {
-      await this.gossip.publish({
-        type: 'reaction',
-        reaction: removal,
-        timestamp: Date.now()
-      });
-    }
-
-    console.log(`[Clout] Removed ${emoji} from ${postId.slice(0, 8)}`);
+    return this.reactions.unreact(postId, emoji);
   }
 
-  /**
-   * Get reactions for a post (trust-weighted)
-   *
-   * Returns aggregated reactions with counts, weighted by trust distance.
-   * Reactions from closer users (lower distance) count more.
-   */
   getReactionsForPost(postId: string): {
     reactions: Map<string, { count: number; weightedCount: number; reactors: string[] }>;
     myReaction?: string;
   } {
-    // Read from file store (persistent) rather than CRDT state
-    // This ensures reactions persist correctly across requests
-    let allReactions: import('./clout-types.js').ReactionPackage[] = [];
-    if (this.store && 'getReactionsSync' in this.store) {
-      allReactions = (this.store as any).getReactionsSync() || [];
-    } else {
-      // Fallback to CRDT state
-      const state = this.state.getState();
-      allReactions = state.myReactions || [];
-    }
-
-    // Filter reactions for this post
-    const postReactions = allReactions.filter(r => r.postId === postId && !r.removed);
-
-    // Aggregate by emoji
-    const reactions = new Map<string, { count: number; weightedCount: number; reactors: string[] }>();
-    let myReaction: string | undefined;
-
-    for (const r of postReactions) {
-      // Check if it's my reaction
-      if (r.reactor === this.publicKeyHex) {
-        myReaction = r.emoji;
-      }
-
-      // Calculate trust weight (closer = higher weight)
-      const rep = this.reputationValidator.computeReputation(r.reactor);
-      const weight = rep.visible ? Math.max(0.1, 1 - (rep.distance * 0.2)) : 0.1;
-
-      const existing = reactions.get(r.emoji) || { count: 0, weightedCount: 0, reactors: [] };
-      existing.count++;
-      existing.weightedCount += weight;
-      existing.reactors.push(r.reactor);
-      reactions.set(r.emoji, existing);
-    }
-
-    return { reactions, myReaction };
+    return this.reactions.getReactionsForPost(postId);
   }
 
-  /**
-   * Get my reaction to a specific post
-   */
   getMyReaction(postId: string): string | undefined {
-    // Read from file store for consistency with getReactionsForPost
-    let allReactions: import('./clout-types.js').ReactionPackage[] = [];
-    if (this.store && 'getReactionsSync' in this.store) {
-      allReactions = (this.store as any).getReactionsSync() || [];
-    } else {
-      const state = this.state.getState();
-      allReactions = state.myReactions || [];
-    }
-    const myReactions = allReactions.filter(
-      r => r.reactor === this.publicKeyHex && r.postId === postId && !r.removed
-    );
-    return myReactions[0]?.emoji;
+    return this.reactions.getMyReaction(postId);
   }
 
   // =================================================================
-  //  SECTION 4d: MENTIONS (User references)
+  //  MENTIONS - Delegated to CloutFeed
   // =================================================================
 
-  /**
-   * Extract @mentions from post content
-   *
-   * Supports:
-   * - @publicKey (full or partial hex key)
-   * - Matches keys that are at least 8 characters of hex
-   */
   extractMentions(content: string): string[] {
-    // Match @followed by hex characters (at least 8 chars for partial keys)
-    const mentionPattern = /@([a-fA-F0-9]{8,})/g;
-    const mentions: string[] = [];
-    let match;
-
-    while ((match = mentionPattern.exec(content)) !== null) {
-      const mentioned = match[1];
-      // Validate it looks like a public key (could be full or partial)
-      if (mentioned.length >= 8) {
-        mentions.push(mentioned);
-      }
-    }
-
-    return [...new Set(mentions)]; // Deduplicate
+    return this.content.extractMentions(content);
   }
 
-  /**
-   * Get posts where the current user is mentioned
-   */
   async getMentions(options?: { limit?: number }): Promise<PostPackage[]> {
-    if (!this.store) {
-      throw new Error('No store configured');
-    }
-
-    const allPosts = await this.store.getFeed();
-
-    // Filter posts that mention current user
-    const mentions = allPosts.filter(post => {
-      if (!post.mentions) return false;
-      // Check if any mention matches our key (full or partial)
-      return post.mentions.some(m =>
-        this.publicKeyHex.startsWith(m) || m.startsWith(this.publicKeyHex.slice(0, 8))
-      );
-    });
-
-    // Sort by timestamp (newest first)
-    mentions.sort((a, b) => {
-      const timeA = a.proof?.timestamp || 0;
-      const timeB = b.proof?.timestamp || 0;
-      return timeB - timeA;
-    });
-
-    return options?.limit ? mentions.slice(0, options.limit) : mentions;
+    return this.feedModule.getMentions(options);
   }
 
-  /**
-   * Check if a post mentions a specific user
-   */
   static postMentionsUser(post: PostPackage, publicKey: string): boolean {
-    if (!post.mentions) return false;
-    return post.mentions.some(m =>
-      publicKey.startsWith(m) || m.startsWith(publicKey.slice(0, 8))
-    );
+    return CloutFeed.postMentionsUser(post, publicKey);
   }
 
   // =================================================================
-  //  SECTION 5: FEED (View Content)
+  //  FEED - Delegated to CloutFeed
   // =================================================================
 
-  /**
-   * Get raw feed from store with short-lived cache to dedupe rapid calls
-   *
-   * This prevents duplicate store.getFeed() calls when multiple API endpoints
-   * are hit simultaneously (e.g., /feed and /notifications/counts on page load).
-   */
-  private async getCachedFeed(): Promise<PostPackage[]> {
-    if (!this.store) {
-      return [];
-    }
-
-    const now = Date.now();
-    if (this.feedCache && (now - this.feedCache.timestamp) < this.feedCacheTtlMs) {
-      return this.feedCache.posts;
-    }
-
-    const posts = await this.store.getFeed();
-    this.feedCache = { posts, timestamp: now };
-    return posts;
-  }
-
-  /**
-   * Invalidate the feed cache (call after creating/editing/deleting posts)
-   */
-  private invalidateFeedCache(): void {
-    this.feedCache = null;
-  }
-
-  /**
-   * Get posts from the local feed cache
-   *
-   * @param options.tag - Filter by trust tag
-   * @param options.limit - Maximum number of posts
-   * @param options.includeNsfw - Override NSFW setting for this call
-   * @param options.includeDeleted - Show deleted posts (default: false)
-   * @param options.filterByTrust - Filter by local trust graph (CLI mode)
-   * @param options.trustGraph - Custom trust graph to use for filtering
-   */
   async getFeed(options?: {
     tag?: string;
     limit?: number;
@@ -2496,235 +997,53 @@ export class Clout {
     filterByTrust?: boolean;
     trustGraph?: Set<string>;
   }): Promise<PostPackage[]> {
-    if (!this.store) {
-      throw new Error('No store configured');
-    }
-
-    // Process content decay on our own posts (lazy/periodic)
-    // This nulls content for old posts while preserving the envelope
-    this.processContentDecay();
-
-    let posts: PostPackage[];
-
-    // Filter by tag if specified
-    if (options?.tag) {
-      posts = await this.getFeedByTag(options.tag);
-    } else {
-      posts = await this.getCachedFeed();
-    }
-
-    // Filter out deleted posts (unless includeDeleted is true)
-    if (!options?.includeDeleted) {
-      // Read from file store for reliability (CRDT state may not persist)
-      let deletions: import('./clout-types.js').PostDeletePackage[] = [];
-      if (this.store && 'getDeletionsSync' in this.store) {
-        deletions = (this.store as any).getDeletionsSync() || [];
-      } else {
-        deletions = this.state.getPostDeletions();
-      }
-      const deletedPostIds = new Set(deletions.map(d => d.postId));
-      posts = posts.filter(post => !deletedPostIds.has(post.id));
-    }
-
-    // Build a map of edits: originalId -> latestEditId
-    // This allows us to track edit chains and show only the latest version
-    const editMap = new Map<string, string>(); // originalId -> editedPostId
-    for (const post of posts) {
-      if (post.editOf) {
-        editMap.set(post.editOf, post.id);
-      }
-    }
-
-    // Filter out posts that have been superseded by edits
-    // (the original post is hidden, the edit is shown)
-    posts = posts.filter(post => !editMap.has(post.id));
-
-    // Apply NSFW filtering
-    const settings = this.getProfile().trustSettings;
-    const showNsfw = options?.includeNsfw ?? settings.showNsfw ?? false;
-    const nsfwMinReputation = settings.nsfwMinReputation ?? DEFAULT_TRUST_SETTINGS.nsfwMinReputation ?? 0.7;
-
-    if (!showNsfw) {
-      // Filter out NSFW posts
-      posts = posts.filter(post => !post.nsfw);
-    } else {
-      // Show NSFW but only from high-reputation users
-      posts = posts.filter(post => {
-        if (!post.nsfw) return true;
-        const rep = this.reputationValidator.computeReputation(post.author);
-        return rep.score >= nsfwMinReputation;
-      });
-    }
-
-    // Filter out muted users
-    posts = posts.filter(post => !this.localData.isMuted(post.author));
-
-    // Apply trust filtering if requested (CLI mode / Dark Social Graph)
-    // This allows clients to filter by their local trust graph
-    if (options?.filterByTrust) {
-      const trustSet = options.trustGraph || this.trustGraph;
-      posts = posts.filter(post => {
-        // Always show own posts
-        if (post.author === this.publicKeyHex) return true;
-        // Check if author is in trust graph
-        return trustSet.has(post.author);
-      });
-    }
-
-    return options?.limit ? posts.slice(0, options.limit) : posts;
+    return this.feedModule.getFeed(options);
   }
 
-  /**
-   * Check if a post has been retracted
-   */
   isPostRetracted(postId: string): boolean {
-    // Read from file store for reliability
-    if (this.store && 'isDeleted' in this.store) {
-      return (this.store as any).isDeleted(postId);
-    }
-    return this.state.isPostDeleted(postId);
+    return this.feedModule.isPostRetracted(postId);
   }
 
-  /**
-   * @deprecated Use isPostRetracted instead
-   */
   isPostDeleted(postId: string): boolean {
-    return this.isPostRetracted(postId);
+    return this.feedModule.isPostDeleted(postId);
   }
 
-  /**
-   * Get all post retractions
-   */
   getPostRetractions(): import('./clout-types.js').PostDeletePackage[] {
-    // Read from file store for reliability
-    if (this.store && 'getDeletionsSync' in this.store) {
-      return (this.store as any).getDeletionsSync() || [];
-    }
-    return this.state.getPostDeletions();
+    return this.feedModule.getPostRetractions();
   }
 
-  /**
-   * @deprecated Use getPostRetractions instead
-   */
   getPostDeletions(): import('./clout-types.js').PostDeletePackage[] {
-    return this.getPostRetractions();
+    return this.feedModule.getPostDeletions();
   }
 
-  /**
-   * Process content decay for old posts
-   * Called lazily on feed load to clean up old content
-   * Content is nulled but envelope (id, author, sig) persists to prevent resurrection
-   *
-   * @returns Number of posts that were decayed
-   */
   processContentDecay(): number {
-    const settings = this.getProfile().trustSettings;
-    if (!settings.contentDecay?.enabled) return 0;
-
-    return this.state.processContentDecay({
-      enabled: settings.contentDecay.enabled,
-      decayAfterDays: settings.contentDecay.decayAfterDays,
-      retractedDecayDays: settings.contentDecay.retractedDecayDays
-    });
+    return this.feedModule.processContentDecay();
   }
 
-  /**
-   * Check if a post's content has decayed
-   */
   isPostDecayed(post: PostPackage): boolean {
-    return !!post.decayedAt || post.content === null;
+    return this.feedModule.isPostDecayed(post);
   }
 
-  /**
-   * Get profile for any user (from Chronicle state or local knowledge)
-   */
   getProfileForUser(publicKey: string): CloutProfile | null {
-    // If it's our own key, return our profile
-    if (publicKey === this.publicKeyHex) {
-      return this.getProfile();
-    }
-
-    // TODO: In a full implementation, we'd fetch from peer state
-    // For now, return minimal profile
-    return {
-      publicKey,
-      trustGraph: new Set(),
-      trustSettings: DEFAULT_TRUST_SETTINGS
-    };
+    return this.feedModule.getProfileForUser(publicKey);
   }
 
-  /**
-   * Get invitation chain details (Mock)
-   */
   getInvitationChain() {
-    // Simplified for test - returns who we trust (as proxy for who we invited)
-    // Excluding self
-    const trusts = Array.from(this.trustGraph).filter(k => k !== this.publicKeyHex);
-    return {
-      invitedBy: undefined, // Not tracked in this MVP state
-      invited: trusts
-    };
+    return this.feedModule.getInvitationChain();
   }
 
-  /**
-   * Get inbox with received slides
-   */
   async getInbox(): Promise<Inbox> {
-    const slides = await this.messaging.getInbox();
-    return {
-      slides,
-      lastUpdated: Date.now()
-    };
+    return this.feedModule.getInbox();
   }
 
-  /**
-   * Decrypt a slide
-   */
   decryptSlide(slide: SlidePackage): string {
-    return this.messaging.decrypt(slide);
+    return this.feedModule.decryptSlide(slide);
   }
 
-  /**
-   * Get node statistics
-   */
   async getStats() {
-    // Get actual feed count from store (more accurate than gossip stats)
-    // Uses cache to avoid duplicate getFeed calls
-    let feedCount = 0;
-    if (this.store) {
-      const feed = await this.getCachedFeed();
-      feedCount = feed.length;
-    } else if (this.gossip && this.gossip.getStats) {
-      feedCount = this.gossip.getStats().postCount || 0;
-    }
-
-    // Get inbox count safely
-    let slideCount = 0;
-    if (this.store) {
-      const inbox = await this.store.getInbox();
-      slideCount = inbox.length;
-    } else if (this.gossip && this.gossip.getSlides) {
-      slideCount = this.gossip.getSlides().length;
-    }
-
-    return {
-      identity: {
-        trustCount: this.trustGraph.size,
-        publicKey: this.publicKeyHex
-      },
-      state: {
-        postCount: feedCount,
-        slideCount
-      }
-    };
+    return this.feedModule.getStats();
   }
 
-  /**
-   * Get Clout stats - metrics for your Chronicle blob
-   *
-   * The "game" element: who has the biggest blob?
-   * Clout grows through genuine trust relationships.
-   */
   async getCloutStats(): Promise<{
     chronicleSize: number;
     trustReach: number;
@@ -2734,51 +1053,13 @@ export class Clout {
     connectedPeers: number;
     blobDensity: number;
   }> {
-    // Get Chronicle state
-    const state = this.state.getState();
-    const myPosts = state.myPosts || [];
-    const myReactions = state.myReactions || [];
-    const trustSignals = state.myTrustSignals || [];
-
-    // Get feed to count unique authors in our blob (uses cache)
-    const feed = await this.getCachedFeed();
-    const uniqueAuthors = new Set(feed.map(p => p.author)).size;
-
-    // Get P2P network stats if available
-    const connectedPeers = this.cloutNode?.getPeers().length ?? 0;
-
-    // Calculate blob density (connections per user)
-    // Higher density = more interconnected community
-    const blobDensity = uniqueAuthors > 0
-      ? trustSignals.length / uniqueAuthors
-      : 0;
-
-    return {
-      chronicleSize: feed.length,           // Total posts in your blob
-      trustReach: this.trustGraph.size,     // Direct trust connections
-      uniqueAuthors,                        // Unique people in your feed
-      myPostCount: myPosts.length,          // Your own posts
-      reactionCount: myReactions.length,    // Your reactions
-      connectedPeers,                       // Active P2P connections
-      blobDensity: Math.round(blobDensity * 100) / 100
-    };
+    return this.feedModule.getCloutStats();
   }
 
   // =================================================================
-  //  SECTION 9: DATA EXPORT/IMPORT
+  //  BACKUP - Delegated to CloutBackup
   // =================================================================
 
-  /**
-   * Export all user data for backup
-   *
-   * Includes:
-   * - Profile settings and trust signals
-   * - Local data (tags, nicknames, muted users)
-   * - Identity info (public key)
-   *
-   * Note: Posts are stored on the server, not in the backup.
-   * The Dark Social Graph (IndexedDB) is exported separately by the browser.
-   */
   async exportBackup(): Promise<{
     version: string;
     exportedAt: number;
@@ -2793,44 +1074,16 @@ export class Clout {
       muted: string[];
     };
   }> {
-    const state = this.state.getState();
-    const localData = this.localData.export();
-
-    return {
-      version: '1.0',
-      exportedAt: Date.now(),
-      identity: {
-        publicKey: this.publicKeyHex
-      },
-      profile: {
-        trustSignals: state.myTrustSignals || [],
-        settings: state.profile ? {
-          metadata: state.profile.metadata,
-          trustSettings: state.profile.trustSettings,
-          trustGraph: Array.from(state.profile.trustGraph || [])
-        } : null
-      },
-      localData
-    };
+    return this.backup.exportBackup();
   }
 
-  /**
-   * Import user data from backup
-   *
-   * @param backup - The backup data to import
-   * @param options.replaceLocalData - If true, replace local data (default: false, meaning merge)
-   *
-   * Supports both old format (chronicleState) and new format (profile) for backwards compatibility.
-   */
   async importBackup(
     backup: {
       version: string;
-      // New format (v1.0+)
       profile?: {
         trustSignals?: TrustSignal[];
         settings?: any;
       };
-      // Legacy format (backwards compatibility)
       chronicleState?: {
         posts?: PostPackage[];
         trustSignals?: TrustSignal[];
@@ -2844,112 +1097,13 @@ export class Clout {
     },
     options?: { replaceLocalData?: boolean }
   ): Promise<{ postsImported: number; trustSignalsImported: number; localDataImported: boolean }> {
-    const replaceLocalData = options?.replaceLocalData ?? false;
-
-    let postsImported = 0;
-    let trustSignalsImported = 0;
-
-    // Handle new format (profile)
-    if (backup.profile) {
-      // Import trust signals
-      if (backup.profile.trustSignals && backup.profile.trustSignals.length > 0) {
-        for (const signal of backup.profile.trustSignals) {
-          try {
-            this.state.addTrustSignal(signal);
-            this.trustGraph.add(signal.trustee);
-            trustSignalsImported++;
-          } catch (e) {
-            console.warn(`[Clout] Skipped trust signal`);
-          }
-        }
-        console.log(`[Clout] 📥 Imported ${trustSignalsImported} trust signals`);
-      }
-
-      // Import profile settings
-      if (backup.profile.settings) {
-        const currentProfile = this.getProfile();
-        this.state.updateProfile({
-          ...currentProfile,
-          trustSettings: {
-            ...currentProfile.trustSettings,
-            ...backup.profile.settings.trustSettings
-          },
-          metadata: {
-            ...currentProfile.metadata,
-            ...backup.profile.settings.metadata
-          }
-        });
-        console.log(`[Clout] 📥 Imported profile settings`);
-      }
-    }
-
-    // Handle legacy format (chronicleState) for backwards compatibility
-    if (backup.chronicleState) {
-      // Import trust signals from legacy format
-      if (backup.chronicleState.trustSignals && backup.chronicleState.trustSignals.length > 0) {
-        for (const signal of backup.chronicleState.trustSignals) {
-          try {
-            this.state.addTrustSignal(signal);
-            this.trustGraph.add(signal.trustee);
-            trustSignalsImported++;
-          } catch (e) {
-            console.warn(`[Clout] Skipped trust signal`);
-          }
-        }
-        console.log(`[Clout] 📥 Imported ${trustSignalsImported} trust signals (legacy format)`);
-      }
-
-      // Import profile settings from legacy format
-      if (backup.chronicleState.profile && backup.chronicleState.profile.publicKey === this.publicKeyHex) {
-        const currentProfile = this.getProfile();
-        this.state.updateProfile({
-          ...currentProfile,
-          trustSettings: {
-            ...currentProfile.trustSettings,
-            ...backup.chronicleState.profile.trustSettings
-          },
-          metadata: {
-            ...currentProfile.metadata,
-            ...backup.chronicleState.profile.metadata
-          }
-        });
-        console.log(`[Clout] 📥 Imported profile settings (legacy format)`);
-      }
-
-      // Note: Posts from legacy backups are ignored (posts now live on server)
-      if (backup.chronicleState.posts && backup.chronicleState.posts.length > 0) {
-        console.log(`[Clout] ℹ️ Skipped ${backup.chronicleState.posts.length} posts (posts are now stored on server)`);
-      }
-    }
-
-    // Import local data
-    let localDataImported = false;
-    if (backup.localData) {
-      if (replaceLocalData) {
-        // Clear existing and import fresh
-        // Note: We'd need clear methods, but for now just import (which adds)
-      }
-      this.localData.import(backup.localData);
-      localDataImported = true;
-      console.log(`[Clout] 📥 Imported local data (tags, nicknames, muted)`);
-    }
-
-    return { postsImported, trustSignalsImported, localDataImported };
+    return this.backup.importBackup(backup, options);
   }
 
   // =================================================================
-  //  SECTION 10: RELAY METHODS (for browser-side identity)
+  //  RELAY - Delegated to CloutRelay
   // =================================================================
 
-  /**
-   * Relay a pre-signed post to the gossip network
-   *
-   * Used when the browser has signed the post with the user's private key.
-   * The server verifies the signature and broadcasts to gossip.
-   *
-   * @param postPackage - Pre-signed post data from browser
-   * @returns Witness attestation
-   */
   async relayPost(postPackage: {
     id: string;
     content: string;
@@ -2963,66 +1117,9 @@ export class Clout {
     media?: { cid: string };
     authorshipProof?: Uint8Array;
   }): Promise<Attestation> {
-    // Get witness proof for the post
-    const postHash = Crypto.hashObject({
-      id: postPackage.id,
-      content: postPackage.content,
-      author: postPackage.author,
-      signature: Crypto.toHex(postPackage.signature)
-    });
-
-    const proof = await this.witness.timestamp(postHash);
-
-    // Build full post package with proof
-    const fullPost: PostPackage = {
-      id: postPackage.id,
-      content: postPackage.content,
-      author: postPackage.author,
-      signature: postPackage.signature,
-      proof,
-      ephemeralPublicKey: postPackage.ephemeralPublicKey,
-      ephemeralKeyProof: postPackage.ephemeralKeyProof,
-      replyTo: postPackage.replyTo,
-      nsfw: postPackage.nsfw,
-      contentWarning: postPackage.contentWarning,
-      media: postPackage.media ? {
-        cid: postPackage.media.cid,
-        mimeType: 'application/octet-stream', // Will be resolved later
-        size: 0,
-        storedAt: Date.now()
-      } : undefined,
-      authorshipProof: postPackage.authorshipProof,
-      mentions: this.extractMentions(postPackage.content)
-    };
-
-    // Store locally
-    this.state.addPost(fullPost);
-    if (this.store) {
-      await this.store.addPost(fullPost);
-    }
-
-    // Broadcast via gossip
-    if (this.gossip) {
-      await this.gossip.publish({
-        type: 'post',
-        post: fullPost,
-        timestamp: proof.timestamp
-      });
-    }
-
-    console.log(`[Clout] Relayed post ${postPackage.id.slice(0, 8)} from ${postPackage.author.slice(0, 8)}`);
-    return proof;
+    return this.relay.relayPost(postPackage);
   }
 
-  /**
-   * Relay a pre-signed encrypted trust signal to the gossip network
-   *
-   * Used when the browser has created an encrypted trust signal with the user's private key.
-   * The server verifies the signature and broadcasts to gossip.
-   *
-   * @param signal - Pre-signed encrypted trust signal from browser
-   * @returns Witness attestation
-   */
   async relayTrustSignal(signal: {
     truster: string;
     trusteeCommitment: string;
@@ -3034,51 +1131,14 @@ export class Clout {
     weight: number;
     version: 'encrypted-v1';
   }): Promise<Attestation> {
-    // Get witness proof for the commitment
-    const proof = await this.witness.timestamp(signal.trusteeCommitment);
-
-    // Build full encrypted trust signal
-    const fullSignal: EncryptedTrustSignal = {
-      truster: signal.truster,
-      trusteeCommitment: signal.trusteeCommitment,
-      encryptedTrustee: signal.encryptedTrustee,
-      signature: signal.signature,
-      proof,
-      weight: signal.weight,
-      version: signal.version
-    };
-
-    // Broadcast via gossip
-    if (this.gossip) {
-      await this.gossip.publish({
-        type: 'trust-encrypted',
-        encryptedTrustSignal: fullSignal,
-        timestamp: proof.timestamp
-      });
-    }
-
-    console.log(`[Clout] Relayed trust signal from ${signal.truster.slice(0, 8)}`);
-    return proof;
+    return this.relay.relayTrustSignal(signal);
   }
 
-  /**
-   * Verify a Freebird token
-   *
-   * @param token - The VOPRF token bytes
-   * @returns true if valid
-   */
   async verifyFreebirdToken(token: Uint8Array): Promise<boolean> {
-    return this.freebird.verifyToken(token);
+    return this.relay.verifyFreebirdToken(token);
   }
 
-  /**
-   * Get a witness proof for arbitrary data
-   *
-   * @param data - Data to get proof for (will be hashed if string)
-   * @returns Witness attestation
-   */
   async getWitnessProof(data: string | Uint8Array): Promise<Attestation> {
-    const hashInput = typeof data === 'string' ? data : Crypto.toHex(data);
-    return this.witness.timestamp(hashInput);
+    return this.relay.getWitnessProof(data);
   }
 }
