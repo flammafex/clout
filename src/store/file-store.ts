@@ -206,6 +206,16 @@ export class FileSystemStore implements CloutStore {
   }
 
   /**
+   * Get all post retractions (synchronous version)
+   */
+  getDeletionsSync(): PostDeletePackage[] {
+    if (!this.data.deletions) {
+      return [];
+    }
+    return Object.values(this.data.deletions);
+  }
+
+  /**
    * Check if a post is retracted
    */
   isDeleted(postId: string): boolean {
