@@ -1118,8 +1118,10 @@ async function loadReplies() {
   showLoading('feed-list');
   try {
     const data = await apiCall('/notifications/replies');
-    // Mark replies as seen when viewing
-    await apiCall('/notifications/mark-seen', 'POST', { type: 'replies' });
+    // Dark Social Graph: Mark replies as seen in IndexedDB
+    if (window.CloutUserData) {
+      await window.CloutUserData.markSeen('replies');
+    }
 
     if (!data.posts || data.posts.length === 0) {
       $('feed-list').innerHTML = `
@@ -1142,8 +1144,10 @@ async function loadMentionsView() {
   showLoading('feed-list');
   try {
     const data = await apiCall('/mentions');
-    // Mark mentions as seen when viewing
-    await apiCall('/notifications/mark-seen', 'POST', { type: 'mentions' });
+    // Dark Social Graph: Mark mentions as seen in IndexedDB
+    if (window.CloutUserData) {
+      await window.CloutUserData.markSeen('mentions');
+    }
 
     if (!data.posts || data.posts.length === 0) {
       $('feed-list').innerHTML = `
@@ -1795,6 +1799,11 @@ async function loadSlides() {
     const data = await apiCall('/slides');
     const slidesList = $('slides-list');
 
+    // Dark Social Graph: Mark slides as seen in IndexedDB
+    if (window.CloutUserData) {
+      await window.CloutUserData.markSeen('slides');
+    }
+
     // Update badge
     updateSlidesBadge(data.slides?.length || 0);
 
@@ -2307,8 +2316,17 @@ async function loadSettings() {
   try {
     const data = await apiCall('/settings');
 
+    // Dark Social Graph: Load NSFW preference from IndexedDB (overrides server)
+    let nsfwEnabled = data.nsfwEnabled || false;
+    if (window.CloutUserData && window.userPublicKey) {
+      const localProfile = await window.CloutUserData.getProfile(window.userPublicKey);
+      if (localProfile && localProfile.showNsfw !== undefined) {
+        nsfwEnabled = localProfile.showNsfw;
+      }
+    }
+
     // Update form fields
-    $('settings-nsfw-enabled').checked = data.nsfwEnabled || false;
+    $('settings-nsfw-enabled').checked = nsfwEnabled;
     $('settings-max-hops').value = data.trustSettings?.maxHops || 3;
 
     const minRep = data.trustSettings?.minReputation || 0.3;
@@ -2355,13 +2373,25 @@ async function saveSettings() {
     $('save-settings-btn').disabled = true;
     $('save-settings-btn').textContent = 'Saving...';
 
+    const showNsfw = $('settings-nsfw-enabled').checked;
     const settings = {
-      showNsfw: $('settings-nsfw-enabled').checked,
+      showNsfw,
       maxHops: parseInt($('settings-max-hops').value),
       minReputation: parseInt($('settings-min-reputation').value) / 100,
       autoFollowBack: $('settings-auto-follow-back').checked
     };
 
+    // Dark Social Graph: Save NSFW preference to IndexedDB
+    if (window.CloutUserData && window.userPublicKey) {
+      const localProfile = await window.CloutUserData.getProfile(window.userPublicKey) || {};
+      await window.CloutUserData.saveProfile({
+        ...localProfile,
+        publicKey: window.userPublicKey,
+        showNsfw
+      });
+    }
+
+    // Still save to server for other settings (maxHops, minReputation affect server filtering)
     await apiCall('/settings', 'POST', settings);
     showResult('settings-result', 'Settings saved!', true);
   } catch (error) {
