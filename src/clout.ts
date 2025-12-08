@@ -1318,11 +1318,16 @@ export class Clout {
    */
   getProfile(): CloutProfile {
     const state = this.state.getState();
-    return state.profile || {
+    const profile = state.profile || {
       publicKey: this.publicKeyHex,
       trustGraph: this.trustGraph,
       trustSettings: DEFAULT_TRUST_SETTINGS
     };
+    // Ensure trustSettings always exists with defaults
+    if (!profile.trustSettings) {
+      return { ...profile, trustSettings: DEFAULT_TRUST_SETTINGS };
+    }
+    return profile;
   }
 
   /**
