@@ -272,11 +272,11 @@ export function createFeedRoutes(
         });
       }
 
-      const allPosts = await clout.getFeed();
+      const allPosts = await clout.getFeed({ includeDeleted: true });
       const parentPost = allPosts.find((p: any) => p.id === postId);
 
       if (!parentPost) {
-        return res.status(404).json({ success: false, error: 'Post not found' });
+        return res.status(404).json({ success: false, error: 'Post not found', isRetracted: true });
       }
 
       const replies = allPosts
@@ -288,23 +288,29 @@ export function createFeedRoutes(
       const userPublicKey = userProfile.publicKey;
       const userAvatar = userProfile.metadata?.avatar || '👤';
 
+      // Helper to enrich post with reactions, bookmarks, etc.
+      const enrichPost = (post: any) => {
+        const reactionData = getReactionsSummary(clout, post.id);
+        const isAuthor = post.author === userPublicKey;
+        return {
+          ...post,
+          authorShort: post.author.slice(0, 8),
+          authorDisplayName: clout.getDisplayName(post.author),
+          authorNickname: clout.getNickname(post.author),
+          authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
+          reactions: reactionData.reactions,
+          myReaction: reactionData.myReaction,
+          isBookmarked: clout.isBookmarked(post.id),
+          isAuthor,
+          isEdited: !!post.editOf
+        };
+      };
+
       res.json({
         success: true,
         data: {
-          parent: {
-            ...parentPost,
-            authorShort: parentPost.author.slice(0, 8),
-            authorDisplayName: clout.getDisplayName(parentPost.author),
-            authorNickname: clout.getNickname(parentPost.author),
-            authorAvatar: parentPost.author === userPublicKey ? userAvatar : '👤'
-          },
-          replies: replies.map((post: any) => ({
-            ...post,
-            authorShort: post.author.slice(0, 8),
-            authorDisplayName: clout.getDisplayName(post.author),
-            authorNickname: clout.getNickname(post.author),
-            authorAvatar: post.author === userPublicKey ? userAvatar : '👤'
-          })),
+          parent: enrichPost(parentPost),
+          replies: replies.map(enrichPost),
           isVisitor: false
         }
       });
