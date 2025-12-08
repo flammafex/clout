@@ -2270,18 +2270,20 @@ export class Clout {
    * Export all user data for backup
    *
    * Includes:
-   * - Chronicle state (posts, trust signals, profile)
+   * - Profile settings and trust signals
    * - Local data (tags, nicknames, muted users)
    * - Identity info (public key)
+   *
+   * Note: Posts are stored on the server, not in the backup.
+   * The Dark Social Graph (IndexedDB) is exported separately by the browser.
    */
   async exportBackup(): Promise<{
     version: string;
     exportedAt: number;
     identity: { publicKey: string };
-    chronicleState: {
-      posts: PostPackage[];
+    profile: {
       trustSignals: TrustSignal[];
-      profile: any;
+      settings: any;
     };
     localData: {
       tags: Record<string, string[]>;
@@ -2289,7 +2291,7 @@ export class Clout {
       muted: string[];
     };
   }> {
-    const chronicleState = this.state.getState();
+    const state = this.state.getState();
     const localData = this.localData.export();
 
     return {
@@ -2298,12 +2300,12 @@ export class Clout {
       identity: {
         publicKey: this.publicKeyHex
       },
-      chronicleState: {
-        posts: chronicleState.myPosts || [],
-        trustSignals: chronicleState.myTrustSignals || [],
-        profile: chronicleState.profile ? {
-          ...chronicleState.profile,
-          trustGraph: Array.from(chronicleState.profile.trustGraph || [])
+      profile: {
+        trustSignals: state.myTrustSignals || [],
+        settings: state.profile ? {
+          metadata: state.profile.metadata,
+          trustSettings: state.profile.trustSettings,
+          trustGraph: Array.from(state.profile.trustGraph || [])
         } : null
       },
       localData
@@ -2314,12 +2316,19 @@ export class Clout {
    * Import user data from backup
    *
    * @param backup - The backup data to import
-   * @param options.mergePosts - If true, merge posts with existing (default: true)
    * @param options.replaceLocalData - If true, replace local data (default: false, meaning merge)
+   *
+   * Supports both old format (chronicleState) and new format (profile) for backwards compatibility.
    */
   async importBackup(
     backup: {
       version: string;
+      // New format (v1.0+)
+      profile?: {
+        trustSignals?: TrustSignal[];
+        settings?: any;
+      };
+      // Legacy format (backwards compatibility)
       chronicleState?: {
         posts?: PostPackage[];
         trustSignals?: TrustSignal[];
@@ -2331,35 +2340,20 @@ export class Clout {
         muted?: string[];
       };
     },
-    options?: { mergePosts?: boolean; replaceLocalData?: boolean }
+    options?: { replaceLocalData?: boolean }
   ): Promise<{ postsImported: number; trustSignalsImported: number; localDataImported: boolean }> {
-    const mergePosts = options?.mergePosts ?? true;
     const replaceLocalData = options?.replaceLocalData ?? false;
 
     let postsImported = 0;
     let trustSignalsImported = 0;
 
-    // Import Chronicle state (posts, trust signals)
-    if (backup.chronicleState) {
-      // Import posts
-      if (backup.chronicleState.posts && backup.chronicleState.posts.length > 0) {
-        for (const post of backup.chronicleState.posts) {
-          try {
-            this.state.addPost(post);
-            postsImported++;
-          } catch (e) {
-            console.warn(`[Clout] Skipped duplicate post ${post.id?.slice(0, 8)}`);
-          }
-        }
-        console.log(`[Clout] 📥 Imported ${postsImported} posts`);
-      }
-
+    // Handle new format (profile)
+    if (backup.profile) {
       // Import trust signals
-      if (backup.chronicleState.trustSignals && backup.chronicleState.trustSignals.length > 0) {
-        for (const signal of backup.chronicleState.trustSignals) {
+      if (backup.profile.trustSignals && backup.profile.trustSignals.length > 0) {
+        for (const signal of backup.profile.trustSignals) {
           try {
             this.state.addTrustSignal(signal);
-            // Also update local trust graph (trust signals indicate trust)
             this.trustGraph.add(signal.trustee);
             trustSignalsImported++;
           } catch (e) {
@@ -2369,7 +2363,41 @@ export class Clout {
         console.log(`[Clout] 📥 Imported ${trustSignalsImported} trust signals`);
       }
 
-      // Import profile settings (if from same identity)
+      // Import profile settings
+      if (backup.profile.settings) {
+        const currentProfile = this.getProfile();
+        this.state.updateProfile({
+          ...currentProfile,
+          trustSettings: {
+            ...currentProfile.trustSettings,
+            ...backup.profile.settings.trustSettings
+          },
+          metadata: {
+            ...currentProfile.metadata,
+            ...backup.profile.settings.metadata
+          }
+        });
+        console.log(`[Clout] 📥 Imported profile settings`);
+      }
+    }
+
+    // Handle legacy format (chronicleState) for backwards compatibility
+    if (backup.chronicleState) {
+      // Import trust signals from legacy format
+      if (backup.chronicleState.trustSignals && backup.chronicleState.trustSignals.length > 0) {
+        for (const signal of backup.chronicleState.trustSignals) {
+          try {
+            this.state.addTrustSignal(signal);
+            this.trustGraph.add(signal.trustee);
+            trustSignalsImported++;
+          } catch (e) {
+            console.warn(`[Clout] Skipped trust signal`);
+          }
+        }
+        console.log(`[Clout] 📥 Imported ${trustSignalsImported} trust signals (legacy format)`);
+      }
+
+      // Import profile settings from legacy format
       if (backup.chronicleState.profile && backup.chronicleState.profile.publicKey === this.publicKeyHex) {
         const currentProfile = this.getProfile();
         this.state.updateProfile({
@@ -2383,7 +2411,12 @@ export class Clout {
             ...backup.chronicleState.profile.metadata
           }
         });
-        console.log(`[Clout] 📥 Imported profile settings`);
+        console.log(`[Clout] 📥 Imported profile settings (legacy format)`);
+      }
+
+      // Note: Posts from legacy backups are ignored (posts now live on server)
+      if (backup.chronicleState.posts && backup.chronicleState.posts.length > 0) {
+        console.log(`[Clout] ℹ️ Skipped ${backup.chronicleState.posts.length} posts (posts are now stored on server)`);
       }
     }
 

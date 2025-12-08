@@ -67,7 +67,6 @@ export function createDataRoutes(
       }
 
       const result = await clout.importBackup(backup, {
-        mergePosts: true,
         replaceLocalData: false
       });
 
