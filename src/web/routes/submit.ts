@@ -6,7 +6,17 @@
  * signatures using the public key and then broadcasts to the gossip network.
  *
  * This enables multi-user web deployment where the server never has access
- * to users' private keys.
+ * to users' private keys or their social graph (Dark Social Graph).
+ *
+ * The server only stores:
+ * - Day Pass tickets (needed to verify posting rights)
+ * - Posts (public content - the Chronicle)
+ * - Media files (public attachments)
+ *
+ * The server does NOT store:
+ * - Who trusts whom (stored in browser)
+ * - Nicknames, tags, muted users (stored in browser)
+ * - Any social graph information
  */
 
 import { Router } from 'express';
@@ -47,8 +57,9 @@ function validateSignature(signature: unknown, fieldName = 'signature'): Uint8Ar
 export interface SubmitRoutesConfig {
   getClout: () => Clout | undefined;
   isInitialized: () => boolean;
-  /** Store for per-user data (tickets, profiles) */
+  /** Get Day Pass ticket for a user (needed for posting) */
   getUserTicket?: (publicKey: string) => Promise<any>;
+  /** Store Day Pass ticket for a user */
   setUserTicket?: (publicKey: string, ticket: any) => Promise<void>;
 }
 
@@ -177,6 +188,10 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    * The browser creates an encrypted trust signal using the user's private key,
    * and sends the components to the server. The server verifies the signature
    * and broadcasts to the gossip network.
+   *
+   * IMPORTANT: This is an encrypted trust signal. The server cannot see WHO
+   * is being trusted - only the commitment and encrypted data. This is the
+   * foundation of the Dark Social Graph.
    */
   router.post('/trust/submit', async (req, res) => {
     try {
@@ -230,6 +245,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       }
 
       // Build encrypted trust signal for gossip
+      // The server only sees the commitment, not who is being trusted
       const encryptedTrustSignal = {
         truster: trusterKey,
         trusteeCommitment,
@@ -266,14 +282,16 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    * Called after browser generates identity, before redeeming invite.
    * This allows the server to track which public keys are associated
    * with which invitation codes.
+   *
+   * Note: This does NOT store any social graph information.
    */
   router.post('/identity/register', async (req, res) => {
     try {
       const { publicKey } = req.body;
       const validatedKey = validatePublicKey(publicKey);
 
-      // For now, just acknowledge the registration
-      // In the future, this could store user metadata, check for banned keys, etc.
+      // Just acknowledge the registration
+      // We don't store anything about the user - that's all in their browser
 
       res.json({
         success: true,
@@ -292,6 +310,9 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    *
    * The user provides their Freebird token (obtained via the blinding flow)
    * and the server mints a Day Pass ticket for them.
+   *
+   * This is the ONLY per-user data the server stores - the proof that
+   * they're allowed to post. It does not reveal any social connections.
    */
   router.post('/daypass/mint', async (req, res) => {
     try {
