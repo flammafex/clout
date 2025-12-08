@@ -434,14 +434,33 @@ async function loadFeed() {
     const data = await apiCall('/feed');
     const feedList = $('feed-list');
 
+    // Dark Social Graph: Filter posts client-side using browser's local trust graph
+    let filteredPosts = data.posts || [];
+    if (window.CloutUserData && window.userPublicKey) {
+      try {
+        const trustGraph = await window.CloutUserData.getTrustGraph();
+        const trustedKeys = new Set(trustGraph.map(t => t.trustedKey));
+        // Always include self
+        trustedKeys.add(window.userPublicKey);
+
+        filteredPosts = filteredPosts.filter(post =>
+          trustedKeys.has(post.author) || post.isAuthor
+        );
+        console.log(`[Feed] Filtered ${data.posts?.length || 0} posts to ${filteredPosts.length} from ${trustedKeys.size} trusted users`);
+      } catch (e) {
+        console.warn('[Feed] Could not filter by trust graph:', e);
+        // Fall back to showing all posts if trust filtering fails
+      }
+    }
+
     // Cache posts for edit lookups (avoid inline content in onclick)
-    if (data.posts) {
-      data.posts.forEach(post => {
+    if (filteredPosts) {
+      filteredPosts.forEach(post => {
         postsCache[post.id] = post;
       });
     }
 
-    if (!data.posts || data.posts.length === 0) {
+    if (!filteredPosts || filteredPosts.length === 0) {
       feedList.innerHTML = `
         <div class="empty-state-helpful">
           <div class="empty-icon">🏠</div>
@@ -456,7 +475,7 @@ async function loadFeed() {
       return;
     }
 
-    feedList.innerHTML = data.posts.map(post => {
+    feedList.innerHTML = filteredPosts.map(post => {
       const hasMedia = post.media && post.media.cid;
       const rep = post.reputation || { score: 0, distance: 0 };
       const repColor = getReputationColor(rep.score);
@@ -593,7 +612,14 @@ async function quickTrust(publicKey) {
   if (!requireMembership()) return;
 
   try {
+    // Gossip trust signal to network (server relay)
     await apiCall('/trust', 'POST', { publicKey });
+
+    // Dark Social Graph: Save to browser's local IndexedDB
+    if (window.CloutUserData) {
+      await window.CloutUserData.trust(publicKey, 1.0);
+    }
+
     showResult('feed-list', `Added ${publicKey.slice(0, 8)}... to your trust circle!`, true);
     // Reload feed to update trust indicators
     setTimeout(() => loadFeed(), 1000);
@@ -1590,7 +1616,13 @@ async function trustUser() {
     $('trust-btn').disabled = true;
     $('trust-btn').textContent = 'Adding...';
 
+    // Gossip trust signal to network (server relay)
     await apiCall('/trust', 'POST', { publicKey, weight });
+
+    // Dark Social Graph: Save to browser's local IndexedDB
+    if (window.CloutUserData) {
+      await window.CloutUserData.trust(publicKey, weight);
+    }
 
     const weightLabel = getWeightLabel(weight);
     showResult('trust-result', `Added ${publicKey.slice(0, 8)}... with ${weightLabel} (${weight.toFixed(1)})`, true);
