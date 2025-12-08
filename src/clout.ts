@@ -1318,15 +1318,27 @@ export class Clout {
    */
   getProfile(): CloutProfile {
     const state = this.state.getState();
-    const profile = state.profile || {
+    let profile = state.profile || {
       publicKey: this.publicKeyHex,
       trustGraph: this.trustGraph,
       trustSettings: DEFAULT_TRUST_SETTINGS
     };
+
+    // Ensure publicKey is always set (CRDT state might have empty/undefined)
+    if (!profile.publicKey) {
+      profile = { ...profile, publicKey: this.publicKeyHex };
+    }
+
+    // Ensure trustGraph is always a Set
+    if (!profile.trustGraph || !(profile.trustGraph instanceof Set)) {
+      profile = { ...profile, trustGraph: this.trustGraph };
+    }
+
     // Ensure trustSettings always exists with defaults
     if (!profile.trustSettings) {
-      return { ...profile, trustSettings: DEFAULT_TRUST_SETTINGS };
+      profile = { ...profile, trustSettings: DEFAULT_TRUST_SETTINGS };
     }
+
     return profile;
   }
 
