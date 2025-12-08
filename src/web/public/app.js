@@ -2560,10 +2560,27 @@ async function exportBackup() {
     $('export-backup-btn').disabled = true;
     $('export-backup-btn').textContent = 'Exporting...';
 
+    // Get server data (posts, identity, etc.)
     const response = await fetch('/api/data/export');
     if (!response.ok) throw new Error('Export failed');
+    const serverBackup = await response.json();
 
-    const backup = await response.json();
+    // Dark Social Graph: Get local data from IndexedDB
+    let localData = null;
+    if (window.CloutUserData) {
+      try {
+        localData = await window.CloutUserData.exportAll();
+        console.log('[Export] Including IndexedDB data:', Object.keys(localData));
+      } catch (e) {
+        console.warn('[Export] Could not export IndexedDB data:', e);
+      }
+    }
+
+    // Merge into final backup
+    const backup = {
+      ...serverBackup,
+      darkSocialGraph: localData  // All private data from IndexedDB
+    };
 
     // Create download link
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -2599,11 +2616,24 @@ async function importBackup(file) {
     $('import-backup-btn').disabled = true;
     $('import-backup-btn').textContent = 'Importing...';
 
+    // Import server data (posts, etc.)
     const result = await apiCall('/data/import', 'POST', backup);
+
+    // Dark Social Graph: Import IndexedDB data if present
+    let localDataImported = false;
+    if (backup.darkSocialGraph && window.CloutUserData) {
+      try {
+        await window.CloutUserData.importAll(backup.darkSocialGraph);
+        localDataImported = true;
+        console.log('[Import] Restored IndexedDB data from backup');
+      } catch (e) {
+        console.warn('[Import] Could not restore IndexedDB data:', e);
+      }
+    }
 
     showResult('import-result',
       `Imported: ${result.postsImported} posts, ${result.trustSignalsImported} trust signals` +
-      (result.localDataImported ? ', local data' : ''),
+      (localDataImported ? ', local social graph' : ''),
       true);
 
     // Reload feed to show imported content
