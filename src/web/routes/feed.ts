@@ -245,6 +245,9 @@ export function createFeedRoutes(
 
   // Get Thread
   // Public route - visitors can view threads (if allowed)
+  // Supports edit chain resolution: if the requested post was edited,
+  // automatically resolves to the latest version and includes all replies
+  // from the entire edit chain.
   router.get('/thread/:id', async (req, res) => {
     try {
       const postId = req.params.id;
@@ -273,22 +276,31 @@ export function createFeedRoutes(
         });
       }
 
-      const allPosts = await clout.getFeed();
-      const parentPost = allPosts.find((p: any) => p.id === postId);
+      // Use getPostById which handles edit chain resolution
+      const { post: parentPost, resolved, originalId, wasRetracted, retractionReason } = await clout.getPostById(postId);
 
       if (!parentPost) {
-        // Check if it was retracted vs just not found
-        const wasRetracted = clout.isPostRetracted(postId);
+        // Post not found - check why
+        if (wasRetracted) {
+          const message = retractionReason === 'edited'
+            ? 'This post was edited but the new version could not be found'
+            : 'This post was retracted by the author';
+          return res.status(404).json({
+            success: false,
+            error: message,
+            isRetracted: true,
+            retractionReason
+          });
+        }
         return res.status(404).json({
           success: false,
-          error: wasRetracted ? 'This post was retracted by the author' : 'Post not found',
-          isRetracted: wasRetracted
+          error: 'Post not found',
+          isRetracted: false
         });
       }
 
-      const replies = allPosts
-        .filter((p: any) => p.replyTo === postId)
-        .sort((a: any, b: any) => a.proof.timestamp - b.proof.timestamp);
+      // Get replies using the edit-chain-aware method
+      const replies = await clout.getRepliesForPost(parentPost.id);
 
       // Get current user's profile for avatar lookup
       const userProfile = clout.getProfile();
@@ -319,7 +331,10 @@ export function createFeedRoutes(
         data: {
           parent: enrichPost(parentPost),
           replies: replies.map(enrichPost),
-          isVisitor: false
+          isVisitor: false,
+          // Include resolution info for the frontend
+          resolved,
+          originalId: resolved ? originalId : undefined
         }
       });
     } catch (error: any) {

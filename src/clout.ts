@@ -1004,6 +1004,28 @@ export class Clout {
     return this.feedModule.getPostRetractions();
   }
 
+  getRetractionReason(postId: string): string | null {
+    return this.feedModule.getRetractionReason(postId);
+  }
+
+  async resolvePostId(postId: string): Promise<string> {
+    return this.feedModule.resolvePostId(postId);
+  }
+
+  async getPostById(postId: string): Promise<{
+    post: PostPackage | null;
+    resolved: boolean;
+    originalId: string;
+    wasRetracted: boolean;
+    retractionReason: string | null;
+  }> {
+    return this.feedModule.getPostById(postId);
+  }
+
+  async getRepliesForPost(postId: string): Promise<PostPackage[]> {
+    return this.feedModule.getRepliesForPost(postId);
+  }
+
   processContentDecay(): number {
     return this.feedModule.processContentDecay();
   }
