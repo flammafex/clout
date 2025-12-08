@@ -1435,7 +1435,7 @@ async function loadTrustedUsers() {
         ? `<div class="user-tags">${tags.map(t => `<span class="tag-badge-small">${escapeHtml(t)}</span>`).join('')}</div>`
         : '';
       const hasNickname = !!nickname;
-      const displayName = nickname || user.publicKeyShort + '...';
+      const displayName = user.displayName || nickname || user.publicKeyShort + '...';
       const isSelf = user.isSelf || false;
       const weight = user.weight ?? 1.0;
       const weightLabel = getWeightLabel(weight);

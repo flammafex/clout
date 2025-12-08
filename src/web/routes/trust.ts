@@ -75,7 +75,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         return {
           publicKey,
           publicKeyShort: publicKey.slice(0, 12),
-          displayName: nickname || publicKey.slice(0, 12) + '...',
+          displayName: clout.getDisplayName(publicKey),
           nickname,
           reputation,
           tags,
