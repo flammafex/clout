@@ -27,7 +27,9 @@ import {
   createDataRoutes,
   createSubmitRoutes
 } from './routes/index.js';
+import { createFreebirdProxyRoutes } from './routes/freebird-proxy.js';
 import { createFreebirdAdminFromEnv } from '../integrations/freebird-admin.js';
+import type { FreebirdAdapter } from '../integrations/freebird.js';
 import { existsSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 
@@ -55,6 +57,8 @@ export class CloutWebServer {
   private userDataStore: UserDataStore;
   // Mapping from invitation codes to inviter public keys
   private invitationCodeToInviter: Map<string, string> = new Map();
+  // Freebird adapter for browser VOPRF proxy
+  private freebirdAdapter?: FreebirdAdapter;
 
   constructor(config: WebServerConfig = {}) {
     this.port = config.port ?? 3000;
@@ -106,6 +110,7 @@ export class CloutWebServer {
   private getClout = (): Clout | undefined => this.clout;
   private isInitialized = (): boolean => this.initialized;
   private areVisitorsAllowed = (): boolean => this.allowVisitors;
+  private getFreebirdAdapter = (): FreebirdAdapter | undefined => this.freebirdAdapter;
 
   // Day Pass ticket storage helpers (only per-user data server stores)
   // All other user data (trust graph, nicknames, etc.) lives in browser IndexedDB
@@ -387,6 +392,13 @@ export class CloutWebServer {
       setUserTicket: this.setUserTicket
     }));
 
+    // Mount Freebird proxy routes (for browser VOPRF blinding)
+    // Browser does blinding locally, server proxies to Freebird (no CORS)
+    this.app.use('/api/freebird', createFreebirdProxyRoutes({
+      getFreebirdAdapter: this.getFreebirdAdapter,
+      isInitialized: this.isInitialized
+    }));
+
     // Legacy slide endpoints (for backwards compatibility)
     this.app.get('/api/slides', (req, res, next) => {
       req.url = '/';
@@ -434,6 +446,9 @@ export class CloutWebServer {
       userPublicKey: identity.publicKey,
       isOwner
     });
+
+    // Store Freebird adapter for browser VOPRF proxy
+    this.freebirdAdapter = infra.freebird;
 
     // Initialize persistent storage (path logged by FileStore)
     const store = new FileSystemStore();

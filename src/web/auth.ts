@@ -259,7 +259,9 @@ export const PUBLIC_ROUTES = [
   '/api/auth/status',
   '/api/feed',           // Visitors can view the public feed
   '/api/thread',         // Visitors can view threads
-  '/api/reactions/emojis' // Visitors can see available reactions
+  '/api/reactions/emojis', // Visitors can see available reactions
+  '/api/freebird',       // Browser VOPRF proxy (new users need tokens)
+  '/api/daypass'         // Day Pass status/minting (new users need this)
 ];
 
 /**
