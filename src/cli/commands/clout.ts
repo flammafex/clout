@@ -158,11 +158,18 @@ export class CloutCommand extends Command {
     }
 
     const targetKey = args[0];
-    
+
     try {
       const clout = await this.getClout();
+      const store = await this.getStore();
+      const identity = this.identityManager.getIdentity();
+
+      // Gossip the trust signal to the network
       await clout.trust(targetKey);
-      // Success message logged by Clout
+
+      // Persist to CLI's local trust graph (Dark Social Graph)
+      await store.saveTrustEdge(identity.publicKey, targetKey);
+      console.log(`[CLI] 📂 Trust edge saved locally`);
     } catch (error: any) {
       console.error('Failed to follow:', error.message);
     }
@@ -173,11 +180,23 @@ export class CloutCommand extends Command {
 
     try {
       const clout = await this.getClout();
+      const store = await this.getStore();
+      const identity = this.identityManager.getIdentity();
 
-      const allPosts = await clout.getFeed();
+      // Load CLI's local trust graph from file store (Dark Social Graph)
+      const trustGraphMap = await store.getTrustGraph();
+      const myTrusts = trustGraphMap.get(identity.publicKey) || new Set<string>();
+      // Always include self in trust graph
+      myTrusts.add(identity.publicKey);
+
+      // Get feed filtered by local trust graph
+      const allPosts = await clout.getFeed({
+        filterByTrust: true,
+        trustGraph: myTrusts
+      });
       const posts = allPosts.slice(0, limit);
 
-      console.log(`\nYOUR FEED (${allPosts.length} posts)\n`);
+      console.log(`\nYOUR FEED (${allPosts.length} posts from ${myTrusts.size} trusted users)\n`);
       console.log(`──────────────────────────────────────────────────────`);
 
       for (const post of posts) {

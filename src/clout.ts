@@ -332,7 +332,10 @@ export class Clout {
 
   /**
    * Handle incoming gossip messages
-   * Filters content based on trust/relevance and saves to local store
+   * Pure relay mode: stores ALL posts, filtering happens client-side
+   *
+   * Dark Social Graph: Trust filtering is done by clients (CLI/Browser),
+   * not the server. This preserves privacy - server doesn't know who you trust.
    */
   private async handleGossipMessage(msg: ContentGossipMessage): Promise<void> {
     if (!this.store) return;
@@ -341,13 +344,9 @@ export class Clout {
       switch (msg.type) {
         case 'post':
           if (msg.post) {
-            // Check Trust: Is this author in my web of trust?
-            const reputation = this.reputationValidator.computeReputation(msg.post.author);
-            if (reputation.visible) {
-              // NSFW filtering happens at display time in getFeed(), not here
-              // We still store NSFW posts so users can toggle the setting later
-              await this.store.addPost(msg.post);
-            }
+            // Pure relay: store ALL posts, let clients filter
+            // This supports Dark Social Graph where trust is client-side only
+            await this.store.addPost(msg.post);
           }
           break;
 
@@ -2058,8 +2057,17 @@ export class Clout {
    * @param options.limit - Maximum number of posts
    * @param options.includeNsfw - Override NSFW setting for this call
    * @param options.includeDeleted - Show deleted posts (default: false)
+   * @param options.filterByTrust - Filter by local trust graph (CLI mode)
+   * @param options.trustGraph - Custom trust graph to use for filtering
    */
-  async getFeed(options?: { tag?: string; limit?: number; includeNsfw?: boolean; includeDeleted?: boolean }): Promise<PostPackage[]> {
+  async getFeed(options?: {
+    tag?: string;
+    limit?: number;
+    includeNsfw?: boolean;
+    includeDeleted?: boolean;
+    filterByTrust?: boolean;
+    trustGraph?: Set<string>;
+  }): Promise<PostPackage[]> {
     if (!this.store) {
       throw new Error('No store configured');
     }
@@ -2118,6 +2126,18 @@ export class Clout {
 
     // Filter out muted users
     posts = posts.filter(post => !this.localData.isMuted(post.author));
+
+    // Apply trust filtering if requested (CLI mode / Dark Social Graph)
+    // This allows clients to filter by their local trust graph
+    if (options?.filterByTrust) {
+      const trustSet = options.trustGraph || this.trustGraph;
+      posts = posts.filter(post => {
+        // Always show own posts
+        if (post.author === this.publicKeyHex) return true;
+        // Check if author is in trust graph
+        return trustSet.has(post.author);
+      });
+    }
 
     return options?.limit ? posts.slice(0, options.limit) : posts;
   }
