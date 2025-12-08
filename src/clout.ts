@@ -123,6 +123,10 @@ export class Clout {
   }>();
   private readonly mediaRequestTimeoutMs = 30000; // 30 seconds
 
+  // Feed cache to avoid duplicate store.getFeed() calls within a short window
+  private feedCache: { posts: PostPackage[]; timestamp: number } | null = null;
+  private readonly feedCacheTtlMs = 500; // 500ms cache to dedupe rapid calls
+
   constructor(config: CloutConfig) {
     this.publicKeyHex = config.publicKey;
     this.privateKey = config.privateKey;
@@ -2087,6 +2091,9 @@ export class Clout {
 
   /**
    * Get notification counts (unread slides, replies, mentions)
+   *
+   * Note: This fetches the feed ONCE and reuses it for both replies and mentions
+   * to avoid duplicate store.getFeed() calls.
    */
   async getNotificationCounts(): Promise<{
     slides: number;
@@ -2102,8 +2109,10 @@ export class Clout {
       (s: any) => (s.timestamp || 0) > state.lastSeenSlides
     ).length;
 
+    // Fetch feed ONCE and reuse for replies + mentions (uses cache)
+    const allPosts = await this.getCachedFeed();
+
     // Count unread replies to my posts
-    const allPosts = this.store ? await this.store.getFeed() : [];
     const myPostIds = new Set(
       allPosts.filter((p: any) => p.author === this.publicKeyHex).map((p: any) => p.id)
     );
@@ -2114,10 +2123,15 @@ export class Clout {
       return timestamp > state.lastSeenReplies;
     }).length;
 
-    // Count unread mentions
-    const mentions = await this.getMentions();
-    const unreadMentions = mentions.filter((p: any) => {
+    // Count unread mentions (inline instead of calling getMentions to avoid duplicate getFeed)
+    const unreadMentions = allPosts.filter((p: any) => {
       if (p.author === this.publicKeyHex) return false; // Ignore own posts
+      if (!p.mentions) return false;
+      // Check if any mention matches our key
+      const isMentioned = p.mentions.some((m: string) =>
+        this.publicKeyHex.startsWith(m) || m.startsWith(this.publicKeyHex.slice(0, 8))
+      );
+      if (!isMentioned) return false;
       const timestamp = p.proof?.timestamp || 0;
       return timestamp > state.lastSeenMentions;
     }).length;
@@ -2436,6 +2450,34 @@ export class Clout {
   // =================================================================
 
   /**
+   * Get raw feed from store with short-lived cache to dedupe rapid calls
+   *
+   * This prevents duplicate store.getFeed() calls when multiple API endpoints
+   * are hit simultaneously (e.g., /feed and /notifications/counts on page load).
+   */
+  private async getCachedFeed(): Promise<PostPackage[]> {
+    if (!this.store) {
+      return [];
+    }
+
+    const now = Date.now();
+    if (this.feedCache && (now - this.feedCache.timestamp) < this.feedCacheTtlMs) {
+      return this.feedCache.posts;
+    }
+
+    const posts = await this.store.getFeed();
+    this.feedCache = { posts, timestamp: now };
+    return posts;
+  }
+
+  /**
+   * Invalidate the feed cache (call after creating/editing/deleting posts)
+   */
+  private invalidateFeedCache(): void {
+    this.feedCache = null;
+  }
+
+  /**
    * Get posts from the local feed cache
    *
    * @param options.tag - Filter by trust tag
@@ -2468,7 +2510,7 @@ export class Clout {
     if (options?.tag) {
       posts = await this.getFeedByTag(options.tag);
     } else {
-      posts = await this.store.getFeed();
+      posts = await this.getCachedFeed();
     }
 
     // Filter out deleted posts (unless includeDeleted is true)
@@ -2647,9 +2689,10 @@ export class Clout {
    */
   async getStats() {
     // Get actual feed count from store (more accurate than gossip stats)
+    // Uses cache to avoid duplicate getFeed calls
     let feedCount = 0;
     if (this.store) {
-      const feed = await this.store.getFeed();
+      const feed = await this.getCachedFeed();
       feedCount = feed.length;
     } else if (this.gossip && this.gossip.getStats) {
       feedCount = this.gossip.getStats().postCount || 0;
@@ -2697,8 +2740,8 @@ export class Clout {
     const myReactions = state.myReactions || [];
     const trustSignals = state.myTrustSignals || [];
 
-    // Get feed to count unique authors in our blob
-    const feed = this.store ? await this.store.getFeed() : [];
+    // Get feed to count unique authors in our blob (uses cache)
+    const feed = await this.getCachedFeed();
     const uniqueAuthors = new Set(feed.map(p => p.author)).size;
 
     // Get P2P network stats if available
