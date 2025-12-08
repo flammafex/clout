@@ -439,6 +439,7 @@ async function loadFeed() {
     if (window.CloutUserData && window.userPublicKey) {
       try {
         const trustGraph = await window.CloutUserData.getTrustGraph();
+        console.log('[Feed] Trust graph from IndexedDB:', trustGraph);
         const trustedKeys = new Set(trustGraph.map(t => t.trustedKey));
         // Always include self
         trustedKeys.add(window.userPublicKey);
@@ -451,6 +452,8 @@ async function loadFeed() {
         console.warn('[Feed] Could not filter by trust graph:', e);
         // Fall back to showing all posts if trust filtering fails
       }
+    } else {
+      console.log('[Feed] No trust filtering:', { CloutUserData: !!window.CloutUserData, userPublicKey: !!window.userPublicKey });
     }
 
     // Cache posts for edit lookups (avoid inline content in onclick)
@@ -617,7 +620,11 @@ async function quickTrust(publicKey) {
 
     // Dark Social Graph: Save to browser's local IndexedDB
     if (window.CloutUserData) {
+      console.log('[App] Saving trust to IndexedDB:', publicKey.slice(0, 12));
       await window.CloutUserData.trust(publicKey, 1.0);
+      console.log('[App] Trust saved to IndexedDB');
+    } else {
+      console.warn('[App] CloutUserData not available - trust not saved to IndexedDB');
     }
 
     showResult('feed-list', `Added ${publicKey.slice(0, 8)}... to your trust circle!`, true);
@@ -1621,7 +1628,11 @@ async function trustUser() {
 
     // Dark Social Graph: Save to browser's local IndexedDB
     if (window.CloutUserData) {
+      console.log('[App] Saving trust to IndexedDB:', publicKey.slice(0, 12), 'weight:', weight);
       await window.CloutUserData.trust(publicKey, weight);
+      console.log('[App] Trust saved to IndexedDB');
+    } else {
+      console.warn('[App] CloutUserData not available - trust not saved to IndexedDB');
     }
 
     const weightLabel = getWeightLabel(weight);
@@ -2634,7 +2645,22 @@ function setupSettings() {
 // 14. APP BOOTSTRAP
 // =========================================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+// Wait for Clout modules to be ready (IndexedDB, crypto, etc.)
+function waitForModules() {
+  return new Promise((resolve) => {
+    if (window.cloutModulesReady) {
+      resolve();
+    } else {
+      window.addEventListener('clout-modules-ready', () => resolve(), { once: true });
+    }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // Wait for modules before setting up anything that needs them
+  await waitForModules();
+  console.log('[App] Clout modules ready, initializing app...');
+
   setupTabs();
   setupCharCounter();
   setupMediaUpload();
