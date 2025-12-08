@@ -416,9 +416,18 @@ export class Clout {
           break;
           
         case 'trust':
-           // Trust signals are primarily handled by the reputation validator/graph logic,
-           // but could also be persisted if you wanted a history of observed signals.
-           break;
+          // Handle plaintext trust signals
+          if (msg.trustSignal) {
+            await this.handleTrustSignal(msg.trustSignal);
+          }
+          break;
+
+        case 'trust-encrypted':
+          // Handle encrypted trust signals
+          if (msg.encryptedTrustSignal) {
+            await this.handleEncryptedTrustSignal(msg.encryptedTrustSignal);
+          }
+          break;
 
         case 'media-request':
           if (msg.mediaRequest) {
@@ -519,6 +528,79 @@ export class Clout {
     } else {
       console.log(`[Clout] Media request failed: ${response.error || 'unknown error'}`);
       pending.resolve(null);
+    }
+  }
+
+  /**
+   * Handle incoming plaintext trust signal
+   *
+   * Protocol-level mutual revocation: If someone revokes trust in us,
+   * we automatically revoke trust in them. Both blobs shrink together.
+   */
+  private async handleTrustSignal(signal: TrustSignal): Promise<void> {
+    // Check if this is a revocation where we are the trustee
+    const isRevocation = signal.revoked || signal.weight === 0;
+    const isAboutUs = signal.trustee === this.publicKeyHex;
+
+    if (isRevocation && isAboutUs) {
+      console.log(`[Clout] 👋 ${signal.truster.slice(0, 8)} left your circle`);
+
+      // Mutual revocation: if we trust them, revoke back
+      if (this.trustGraph.has(signal.truster)) {
+        console.log(`[Clout] 🔄 Reciprocating - removing ${signal.truster.slice(0, 8)} from your circle`);
+        await this.revokeTrust(signal.truster);
+      }
+    }
+
+    // Also update reputation validator with the signal
+    this.reputationValidator.addTrustSignal(signal);
+  }
+
+  /**
+   * Handle incoming encrypted trust signal
+   *
+   * Protocol-level mutual revocation: Try to decrypt (only succeeds if we're the trustee),
+   * and if it's a revocation, automatically revoke trust in the truster.
+   */
+  private async handleEncryptedTrustSignal(signal: EncryptedTrustSignal): Promise<void> {
+    // Try to decrypt - only succeeds if we're the trustee
+    const decrypted = Crypto.decryptTrustSignal(
+      signal.encryptedTrustee,
+      signal.trusteeCommitment,
+      signal.truster,
+      signal.signature,
+      signal.weight ?? 1.0,
+      signal.proof.timestamp,
+      this.privateKey,
+      Crypto.fromHex(this.publicKeyHex)
+    );
+
+    if (!decrypted) {
+      // We're not the trustee, or decryption failed - ignore
+      return;
+    }
+
+    // We successfully decrypted - we ARE the trustee
+    const isRevocation = signal.revoked || signal.weight === 0;
+
+    if (isRevocation) {
+      console.log(`[Clout] 👋 ${signal.truster.slice(0, 8)} left your circle (encrypted signal)`);
+
+      // Mutual revocation: if we trust them, revoke back
+      if (this.trustGraph.has(signal.truster)) {
+        console.log(`[Clout] 🔄 Reciprocating - removing ${signal.truster.slice(0, 8)} from your circle`);
+        await this.revokeTrust(signal.truster);
+      }
+    } else {
+      // It's a trust signal directed at us - someone just trusted us!
+      console.log(`[Clout] ✨ ${signal.truster.slice(0, 8)} added you to their circle`);
+
+      // Could trigger auto-follow-back here if enabled in settings
+      const settings = this.getProfile().trustSettings;
+      if (settings.autoFollowBack && !this.trustGraph.has(signal.truster)) {
+        console.log(`[Clout] 🔄 Auto-following back ${signal.truster.slice(0, 8)}`);
+        await this.trust(signal.truster);
+      }
     }
   }
 
