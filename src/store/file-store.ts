@@ -46,6 +46,15 @@ interface LocalData {
   reactions?: { [reactionId: string]: ReactionPackage };
   bookmarks?: string[];  // Array of bookmarked post IDs
   ticket?: SerializedTicket;  // Current Freebird day pass (persists across restarts)
+  // Dark Social Graph fields (isomorphic with browser IndexedDB)
+  nicknames?: { [publicKey: string]: string };
+  tags?: { [tag: string]: string[] };  // tag -> publicKeys
+  muted?: string[];  // muted publicKeys
+  notifications?: {
+    lastSeenSlides: number;
+    lastSeenReplies: number;
+    lastSeenMentions: number;
+  };
 }
 
 export class FileSystemStore implements CloutStore {
@@ -419,5 +428,334 @@ export class FileSystemStore implements CloutStore {
   hasValidTicket(): boolean {
     if (!this.data.ticket) return false;
     return Date.now() <= this.data.ticket.expiry;
+  }
+
+  // =================================================================
+  //  NICKNAMES (Dark Social Graph)
+  // =================================================================
+
+  /**
+   * Set a nickname for a user
+   */
+  setNickname(publicKey: string, nickname: string): void {
+    if (!this.data.nicknames) {
+      this.data.nicknames = {};
+    }
+    if (nickname.trim()) {
+      this.data.nicknames[publicKey] = nickname.trim();
+    } else {
+      delete this.data.nicknames[publicKey];
+    }
+    this.save();
+  }
+
+  /**
+   * Get nickname for a user
+   */
+  getNickname(publicKey: string): string | undefined {
+    return this.data.nicknames?.[publicKey];
+  }
+
+  /**
+   * Get all nicknames
+   */
+  getAllNicknames(): { [publicKey: string]: string } {
+    return this.data.nicknames || {};
+  }
+
+  // =================================================================
+  //  TAGS (Dark Social Graph)
+  // =================================================================
+
+  /**
+   * Add a tag to a user
+   */
+  addTag(publicKey: string, tag: string): void {
+    const normalizedTag = tag.toLowerCase().trim();
+    if (!this.data.tags) {
+      this.data.tags = {};
+    }
+    if (!this.data.tags[normalizedTag]) {
+      this.data.tags[normalizedTag] = [];
+    }
+    if (!this.data.tags[normalizedTag].includes(publicKey)) {
+      this.data.tags[normalizedTag].push(publicKey);
+      this.save();
+    }
+  }
+
+  /**
+   * Remove a tag from a user
+   */
+  removeTag(publicKey: string, tag: string): void {
+    const normalizedTag = tag.toLowerCase().trim();
+    if (this.data.tags?.[normalizedTag]) {
+      this.data.tags[normalizedTag] = this.data.tags[normalizedTag].filter(k => k !== publicKey);
+      if (this.data.tags[normalizedTag].length === 0) {
+        delete this.data.tags[normalizedTag];
+      }
+      this.save();
+    }
+  }
+
+  /**
+   * Get tags for a user
+   */
+  getTagsForUser(publicKey: string): string[] {
+    if (!this.data.tags) return [];
+    const tags: string[] = [];
+    for (const [tag, users] of Object.entries(this.data.tags)) {
+      if (users.includes(publicKey)) {
+        tags.push(tag);
+      }
+    }
+    return tags;
+  }
+
+  /**
+   * Get all tags with their users
+   */
+  getAllTags(): { [tag: string]: string[] } {
+    return this.data.tags || {};
+  }
+
+  // =================================================================
+  //  MUTED USERS (Dark Social Graph)
+  // =================================================================
+
+  /**
+   * Mute a user
+   */
+  mute(publicKey: string): void {
+    if (!this.data.muted) {
+      this.data.muted = [];
+    }
+    if (!this.data.muted.includes(publicKey)) {
+      this.data.muted.push(publicKey);
+      this.save();
+    }
+  }
+
+  /**
+   * Unmute a user
+   */
+  unmute(publicKey: string): void {
+    if (this.data.muted) {
+      this.data.muted = this.data.muted.filter(k => k !== publicKey);
+      this.save();
+    }
+  }
+
+  /**
+   * Check if a user is muted
+   */
+  isMuted(publicKey: string): boolean {
+    return this.data.muted?.includes(publicKey) || false;
+  }
+
+  /**
+   * Get all muted users
+   */
+  getMutedUsers(): string[] {
+    return this.data.muted || [];
+  }
+
+  // =================================================================
+  //  NOTIFICATIONS (Dark Social Graph)
+  // =================================================================
+
+  /**
+   * Get notification state
+   */
+  getNotificationState(): { lastSeenSlides: number; lastSeenReplies: number; lastSeenMentions: number } {
+    return this.data.notifications || {
+      lastSeenSlides: 0,
+      lastSeenReplies: 0,
+      lastSeenMentions: 0
+    };
+  }
+
+  /**
+   * Mark notifications as seen
+   */
+  markSeen(type: 'slides' | 'replies' | 'mentions'): void {
+    if (!this.data.notifications) {
+      this.data.notifications = {
+        lastSeenSlides: 0,
+        lastSeenReplies: 0,
+        lastSeenMentions: 0
+      };
+    }
+    if (type === 'slides') this.data.notifications.lastSeenSlides = Date.now();
+    if (type === 'replies') this.data.notifications.lastSeenReplies = Date.now();
+    if (type === 'mentions') this.data.notifications.lastSeenMentions = Date.now();
+    this.save();
+  }
+
+  // =================================================================
+  //  DARK SOCIAL GRAPH IMPORT/EXPORT
+  //  Compatible with browser IndexedDB export format
+  // =================================================================
+
+  /**
+   * Export Dark Social Graph in browser-compatible format
+   */
+  exportDarkSocialGraph(myPublicKey: string): {
+    version: string;
+    exportedAt: number;
+    trustGraph: { trustedKey: string; weight: number; created: number }[];
+    nicknames: { [publicKey: string]: string };
+    tags: { [tag: string]: string[] };
+    muted: string[];
+    bookmarks: string[];
+    notifications: { lastSeenSlides: number; lastSeenReplies: number; lastSeenMentions: number };
+  } {
+    // Convert CLI trust graph format to browser format
+    const trustGraph: { trustedKey: string; weight: number; created: number }[] = [];
+    if (this.data.trustGraph) {
+      for (const edge of this.data.trustGraph) {
+        if (edge.truster === myPublicKey) {
+          trustGraph.push({
+            trustedKey: edge.trustee,
+            weight: 1.0,
+            created: edge.timestamp
+          });
+        }
+      }
+    }
+
+    return {
+      version: '1.0',
+      exportedAt: Date.now(),
+      trustGraph,
+      nicknames: this.data.nicknames || {},
+      tags: this.data.tags || {},
+      muted: this.data.muted || [],
+      bookmarks: this.data.bookmarks || [],
+      notifications: this.getNotificationState()
+    };
+  }
+
+  /**
+   * Import Dark Social Graph from browser export format
+   */
+  importDarkSocialGraph(myPublicKey: string, data: {
+    version?: string;
+    trustGraph?: { trustedKey: string; weight?: number; created?: number }[];
+    nicknames?: { [publicKey: string]: string };
+    tags?: { [tag: string]: string[] };
+    muted?: string[];
+    bookmarks?: string[];
+    notifications?: { lastSeenSlides?: number; lastSeenReplies?: number; lastSeenMentions?: number };
+  }): { imported: { trust: number; nicknames: number; tags: number; muted: number; bookmarks: number } } {
+    const stats = { trust: 0, nicknames: 0, tags: 0, muted: 0, bookmarks: 0 };
+
+    // Import trust graph
+    if (data.trustGraph && Array.isArray(data.trustGraph)) {
+      if (!this.data.trustGraph) {
+        this.data.trustGraph = [];
+      }
+      for (const entry of data.trustGraph) {
+        const exists = this.data.trustGraph.some(
+          e => e.truster === myPublicKey && e.trustee === entry.trustedKey
+        );
+        if (!exists) {
+          this.data.trustGraph.push({
+            truster: myPublicKey,
+            trustee: entry.trustedKey,
+            timestamp: entry.created || Date.now()
+          });
+          stats.trust++;
+        }
+      }
+    }
+
+    // Import nicknames
+    if (data.nicknames) {
+      if (!this.data.nicknames) {
+        this.data.nicknames = {};
+      }
+      for (const [publicKey, nickname] of Object.entries(data.nicknames)) {
+        if (!this.data.nicknames[publicKey]) {
+          this.data.nicknames[publicKey] = nickname;
+          stats.nicknames++;
+        }
+      }
+    }
+
+    // Import tags
+    if (data.tags) {
+      if (!this.data.tags) {
+        this.data.tags = {};
+      }
+      for (const [tag, users] of Object.entries(data.tags)) {
+        if (!this.data.tags[tag]) {
+          this.data.tags[tag] = [];
+        }
+        for (const publicKey of users) {
+          if (!this.data.tags[tag].includes(publicKey)) {
+            this.data.tags[tag].push(publicKey);
+            stats.tags++;
+          }
+        }
+      }
+    }
+
+    // Import muted
+    if (data.muted && Array.isArray(data.muted)) {
+      if (!this.data.muted) {
+        this.data.muted = [];
+      }
+      for (const publicKey of data.muted) {
+        if (!this.data.muted.includes(publicKey)) {
+          this.data.muted.push(publicKey);
+          stats.muted++;
+        }
+      }
+    }
+
+    // Import bookmarks
+    if (data.bookmarks && Array.isArray(data.bookmarks)) {
+      if (!this.data.bookmarks) {
+        this.data.bookmarks = [];
+      }
+      for (const postId of data.bookmarks) {
+        if (!this.data.bookmarks.includes(postId)) {
+          this.data.bookmarks.push(postId);
+          stats.bookmarks++;
+        }
+      }
+    }
+
+    // Import notifications
+    if (data.notifications) {
+      if (!this.data.notifications) {
+        this.data.notifications = { lastSeenSlides: 0, lastSeenReplies: 0, lastSeenMentions: 0 };
+      }
+      if (data.notifications.lastSeenSlides) {
+        this.data.notifications.lastSeenSlides = Math.max(
+          this.data.notifications.lastSeenSlides,
+          data.notifications.lastSeenSlides
+        );
+      }
+      if (data.notifications.lastSeenReplies) {
+        this.data.notifications.lastSeenReplies = Math.max(
+          this.data.notifications.lastSeenReplies,
+          data.notifications.lastSeenReplies
+        );
+      }
+      if (data.notifications.lastSeenMentions) {
+        this.data.notifications.lastSeenMentions = Math.max(
+          this.data.notifications.lastSeenMentions,
+          data.notifications.lastSeenMentions
+        );
+      }
+    }
+
+    this.save();
+
+    console.log(`[FileStore] 📥 Imported Dark Social Graph: ${stats.trust} trust edges, ${stats.nicknames} nicknames, ${stats.tags} tags, ${stats.muted} muted, ${stats.bookmarks} bookmarks`);
+
+    return { imported: stats };
   }
 }

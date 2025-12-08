@@ -9,6 +9,7 @@ import { IdentityManager } from '../identity-manager.js';
 import { InfrastructureManager } from '../infrastructure.js';
 import { Clout } from '../../clout.js';
 import { FileSystemStore } from '../../store/file-store.js';
+import { readFileSync, writeFileSync } from 'fs';
 
 export class CloutCommand extends Command {
   private identityManager = new IdentityManager();
@@ -62,6 +63,12 @@ export class CloutCommand extends Command {
         break;
       case 'ticket':
         await this.handleTicket();
+        break;
+      case 'import':
+        await this.handleImport(subcommandArgs);
+        break;
+      case 'export':
+        await this.handleExport(subcommandArgs);
         break;
       default:
         console.error(`Unknown subcommand: ${subcommand}`);
@@ -477,7 +484,7 @@ export class CloutCommand extends Command {
       const clout = await this.getClout();
       // Fix TS2339: use hasActiveTicket()
       const hasTicket = clout.hasActiveTicket();
-      
+
       console.log(`\nDay Pass Status: ${hasTicket ? '✅ Active' : '❌ Expired/Missing'}`);
       if (hasTicket) {
         // Logic to show expiry would go here
@@ -485,6 +492,95 @@ export class CloutCommand extends Command {
       console.log('');
     } catch (error: any) {
       console.error('Failed to check ticket:', error.message);
+    }
+  }
+
+  private async handleImport(args: string[]): Promise<void> {
+    if (args.length < 1) {
+      console.error('Usage: clout import <backup.json>');
+      console.error('');
+      console.error('Import a backup file exported from Clout browser or CLI.');
+      console.error('This restores your Dark Social Graph (trust, nicknames, tags, etc.)');
+      return;
+    }
+
+    const filePath = args[0];
+
+    try {
+      console.log(`\nReading backup from: ${filePath}`);
+      const raw = readFileSync(filePath, 'utf-8');
+      const backup = JSON.parse(raw);
+
+      const identity = this.identityManager.getIdentity();
+      const store = await this.getStore();
+
+      // Check for Dark Social Graph data (browser export format)
+      if (backup.darkSocialGraph) {
+        console.log('Found Dark Social Graph data in backup...');
+        const result = store.importDarkSocialGraph(identity.publicKey, backup.darkSocialGraph);
+
+        console.log(`\n✅ Import complete!`);
+        console.log(`   Trust edges:   ${result.imported.trust}`);
+        console.log(`   Nicknames:     ${result.imported.nicknames}`);
+        console.log(`   Tags:          ${result.imported.tags}`);
+        console.log(`   Muted users:   ${result.imported.muted}`);
+        console.log(`   Bookmarks:     ${result.imported.bookmarks}\n`);
+      } else if (backup.trustGraph || backup.nicknames || backup.tags) {
+        // Direct Dark Social Graph format (CLI export or raw browser export)
+        console.log('Importing Dark Social Graph data...');
+        const result = store.importDarkSocialGraph(identity.publicKey, backup);
+
+        console.log(`\n✅ Import complete!`);
+        console.log(`   Trust edges:   ${result.imported.trust}`);
+        console.log(`   Nicknames:     ${result.imported.nicknames}`);
+        console.log(`   Tags:          ${result.imported.tags}`);
+        console.log(`   Muted users:   ${result.imported.muted}`);
+        console.log(`   Bookmarks:     ${result.imported.bookmarks}\n`);
+      } else {
+        console.error('No Dark Social Graph data found in backup.');
+        console.error('Expected darkSocialGraph, trustGraph, or nicknames fields.');
+      }
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        console.error(`File not found: ${filePath}`);
+      } else if (error instanceof SyntaxError) {
+        console.error('Invalid JSON in backup file');
+      } else {
+        console.error('Failed to import:', error.message);
+      }
+    }
+  }
+
+  private async handleExport(args: string[]): Promise<void> {
+    const outputPath = args[0] || 'clout-backup.json';
+
+    try {
+      const identity = this.identityManager.getIdentity();
+      const store = await this.getStore();
+
+      // Export in browser-compatible format
+      const darkSocialGraph = store.exportDarkSocialGraph(identity.publicKey);
+
+      const backup = {
+        version: '1.0',
+        exportedAt: Date.now(),
+        exportedFrom: 'cli',
+        publicKey: identity.publicKey,
+        darkSocialGraph
+      };
+
+      writeFileSync(outputPath, JSON.stringify(backup, null, 2), 'utf-8');
+
+      console.log(`\n✅ Backup exported to: ${outputPath}`);
+      console.log(`   Trust edges:   ${darkSocialGraph.trustGraph.length}`);
+      console.log(`   Nicknames:     ${Object.keys(darkSocialGraph.nicknames).length}`);
+      console.log(`   Tags:          ${Object.keys(darkSocialGraph.tags).length}`);
+      console.log(`   Muted users:   ${darkSocialGraph.muted.length}`);
+      console.log(`   Bookmarks:     ${darkSocialGraph.bookmarks.length}`);
+      console.log('');
+      console.log('This backup can be imported into browser or CLI.\n');
+    } catch (error: any) {
+      console.error('Failed to export:', error.message);
     }
   }
 
@@ -503,6 +599,8 @@ USAGE:
   clout identity                 Show your identity
   clout invite <publicKey>       Create an invitation
   clout ticket                   Check day pass status
+  clout import <backup.json>     Import Dark Social Graph from backup
+  clout export [output.json]     Export Dark Social Graph to file
 
 EXAMPLES:
   # Post a message
@@ -522,6 +620,12 @@ EXAMPLES:
 
   # Follow someone
   clout follow 0x1234...
+
+  # Export your Dark Social Graph
+  clout export my-backup.json
+
+  # Import from browser backup
+  clout import ~/Downloads/clout-backup.json
 `);
   }
 }
