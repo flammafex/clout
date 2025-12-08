@@ -1314,7 +1314,7 @@ export class Clout {
   }
 
   /**
-   * Get the current user's profile (from Chronicle state)
+   * Get the current user's profile (from Chronicle state + profile store)
    */
   getProfile(): CloutProfile {
     const state = this.state.getState();
@@ -1344,6 +1344,17 @@ export class Clout {
     // Ensure trustSettings always exists with defaults
     if (!profile.trustSettings) {
       profile = { ...profile, trustSettings: DEFAULT_TRUST_SETTINGS };
+    }
+
+    // Merge metadata from profile store (for reliability)
+    // CRDT state may not persist metadata correctly
+    const savedProfile = this.profileStore.getProfile();
+    if (savedProfile && savedProfile.publicKey === this.publicKeyHex) {
+      profile = {
+        ...profile,
+        metadata: { ...profile.metadata, ...savedProfile.metadata },
+        trustSettings: { ...profile.trustSettings, ...savedProfile.trustSettings }
+      };
     }
 
     return profile;
