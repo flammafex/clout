@@ -185,7 +185,7 @@ Not all relationships are equal. Assign trust weights from 0.1 to 1.0:
 ```typescript
 await clout.trust(aliceKey, 1.0);   // Close friend: full trust
 await clout.trust(bobKey, 0.5);     // Acquaintance: half trust
-await clout.trust(carolKey, 0.1);   // New contact: minimal trust
+await clout.trust(carolKey, 0.1);   // Ugh, fucking Carol? minimal trust
 ```
 
 Trust multiplies through paths: if you trust Alice (0.8) and Alice trusts Bob (0.7), your effective trust in Bob is 0.56.
