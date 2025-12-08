@@ -74,6 +74,57 @@ All services run locally—no external dependencies, no data leaves your machine
 
 ---
 
+## Install Anywhere: Progressive Web App
+
+Clout is a **Progressive Web App**—install it on any device without app stores:
+
+| Platform | How to Install |
+|----------|---------------|
+| **Android** | Chrome menu → "Add to Home Screen" |
+| **iOS/Safari** | Share button → "Add to Home Screen" |
+| **Desktop** | Click install icon in address bar |
+
+### What You Get
+
+- **Native app experience**: Standalone window, no browser chrome
+- **Offline shell**: App loads instantly from cache
+- **Background updates**: New versions install automatically
+- **Shortcuts**: Jump directly to New Post or Messages
+
+No app store approval. No middleman. No tracking.
+
+---
+
+## The Dark Social Graph
+
+Your social relationships are **yours**—stored in your browser, invisible to servers.
+
+| Data | Where It Lives | Who Can See It |
+|------|----------------|----------------|
+| Trust connections | Your browser (IndexedDB) | Only you |
+| Nicknames | Your browser | Only you |
+| Mutes | Your browser | Only you |
+| Bookmarks | Your browser | Only you |
+| Tags | Your browser | Only you |
+
+**Why "Dark"?** Because your social graph is cryptographically hidden. When you trust someone, only they know. Third parties—including the server you connect through—cannot map your relationships.
+
+### Export Everything
+
+Your Dark Social Graph travels with you:
+
+```bash
+# Download complete backup (JSON)
+Settings → Data Management → Download Backup
+
+# Import on any device
+Settings → Data Management → Select Backup File
+```
+
+Backup includes: trust signals, nicknames, tags, mutes, bookmarks, and settings.
+
+---
+
 ## The Auto-Shadowban: Transparent Content Filtering
 
 Clout's core innovation is the **auto-shadowban**—content filtering that's transparent, user-controlled, and impossible to weaponize against you.
@@ -177,6 +228,36 @@ Your feed stays cognitively manageable while your network provides content diver
 
 ---
 
+## Browser-Native Identity
+
+Your identity is a **cryptographic keypair generated in your browser**. No server ever sees your private key.
+
+| Component | Where It Lives |
+|-----------|---------------|
+| Private key | Your browser (IndexedDB) |
+| Public key | Shared with network (your address) |
+| Signatures | Generated client-side |
+
+### Identity Operations
+
+```bash
+# View your public key (shareable)
+Profile → Your Public Key → Copy
+
+# Generate QR code for easy sharing
+Profile → QR Code
+
+# Backup identity (encrypted)
+Profile → Export Identity → Enter Password
+
+# Restore on new device
+Profile → Import Identity → Select File
+```
+
+**Key insight**: Because your private key never leaves your browser, no server—not even the one you're connected to—can impersonate you or read your encrypted messages.
+
+---
+
 ## Privacy by Default
 
 ### Encrypted Trust Signals
@@ -214,6 +295,17 @@ Posting requires a **Day Pass**, obtained through Freebird tokens (proof-of-work
 | ≥0.5 | 2 days | Building trust: moderate friction |
 | <0.5 | 1 day | New/unvetted: high friction |
 
+### Invitation System
+
+New users join through **invitation codes** from existing members:
+
+1. Existing member generates invitation code
+2. New user redeems code → creates browser identity
+3. Mutual trust established automatically (inviter ↔ invitee)
+4. New user receives Day Pass to start posting
+
+**Web of trust, not corporate gatekeeping**: You vouch for people you know. Bad actors must infiltrate real social networks—expensive at scale.
+
 ### Delegated Passes
 
 High-reputation users can vouch for newcomers:
@@ -227,8 +319,6 @@ Delegation limits prevent abuse:
 - Reputation ≥0.9: 10 passes/week
 - Reputation ≥0.7: 5 passes/week
 
-Spammers must continuously solve proof-of-work or infiltrate trust networks—both expensive at scale.
-
 ---
 
 ## Rich Media: Share More Than Text
@@ -237,8 +327,8 @@ Clout supports content-addressed media storage—your files live on the distribu
 
 | Media Type | Supported Formats |
 |------------|-------------------|
-| **Images** | PNG, JPEG, GIF, WebP |
-| **Video** | MP4, WebM |
+| **Images** | PNG, JPEG, GIF, WebP, SVG |
+| **Video** | MP4, WebM, OGG |
 | **Audio** | MP3, WAV, OGG |
 | **Documents** | PDF |
 
@@ -247,7 +337,20 @@ clout post "Check this out!" --media ./photo.jpg
 clout post "New track" --media ./song.mp3
 ```
 
-Media is content-addressed (CID-based)—identical files are deduplicated across the network.
+### P2P Media Fetching
+
+Media is fetched directly from authors' nodes:
+
+| Trust Distance | Media Access |
+|---------------|--------------|
+| 1 hop (direct) | Always available |
+| 2 hops | Configurable per media type |
+| 3+ hops | Requires explicit trust settings |
+
+Configure per content type:
+```
+Settings → Media Trust Settings → Images/Videos/Audio → Max Distance
+```
 
 ---
 
@@ -258,6 +361,7 @@ Stay connected with live updates through Server-Sent Events (SSE):
 - New posts from your trust graph appear instantly
 - Replies and reactions notify you immediately
 - Direct messages arrive in real-time
+- Offline indicator shows connection status
 - No polling required—efficient push-based architecture
 
 ---
@@ -278,28 +382,67 @@ clout slides  # View inbox
 
 ---
 
-## Your Data, Your Control
+## Author Control: Edit & Retract
 
-### P2P State Sync
+Unlike centralized platforms where your content lives forever at their mercy, Clout gives you complete control:
 
-Profiles sync via CRDT (Conflict-free Replicated Data Types). No central database. You own your data.
-
-### Portable Identity
-
-Your identity is a cryptographic keypair stored locally:
-
+### Edit Posts
+Update your posts while preserving thread integrity:
 ```bash
-clout identity create    # Generate new identity
-clout identity list      # View all identities
-clout id                 # Show current identity
+clout edit <postId> "Updated content"
 ```
 
-Export and import your complete state:
+Edits create a transparent version chain—viewers see the current version with full history available. **Edit chain resolution** ensures replies always link to the latest version of the post, not orphaned old versions.
+
+### Retract Posts
+Remove your content from circulation:
+```bash
+clout retract <postId>
+```
+Retracted posts are marked as withdrawn. Nodes respect author intent and filter them from feeds.
+
+### Mute Users
+Hide content without affecting trust relationships:
+```bash
+clout mute <publicKey>    # Silence without unfollowing
+clout unmute <publicKey>
+```
+
+Mutes are stored locally in your Dark Social Graph—the muted person never knows.
+
+---
+
+## Content Warnings & NSFW Controls
+
+Mark sensitive content and let viewers decide what they see:
+
+```bash
+clout post --nsfw "Adult content here"
+clout post --cw "Spoilers for latest episode" "The ending was..."
+```
+
+Configure your feed preferences:
+```
+Settings → Content Filtering → Show NSFW content
+```
+
+**User control, not platform censorship**: Content isn't removed—you choose whether to see it.
+
+---
+
+## Content-Type Filtering
+
+Set different trust thresholds per content type:
 
 ```typescript
-const backup = clout.exportState();
-// ... later ...
-clout.importState(backup);
+const clout = new Clout({
+  // ...
+  contentTypeFilters: {
+    'slide': { maxHops: 5, minReputation: 0.2 },      // DMs: permissive
+    'image/png': { maxHops: 2, minReputation: 0.7 },  // Images: strict
+    'text/plain': { maxHops: 3, minReputation: 0.4 }  // Text: moderate
+  }
+});
 ```
 
 ---
@@ -307,17 +450,85 @@ clout.importState(backup);
 ## Web Interface Features
 
 **Full-featured social experience:**
-- **Feed**: Personalized content from your trust graph with real-time updates
-- **Posts**: Rich content with images, video, audio, and PDFs
-- **Threads**: Full conversation views with nested replies
-- **Reactions**: Express yourself with emoji reactions (👍 ❤️ 🔥 and more)
-- **Bookmarks**: Save posts for later
-- **Mentions**: Tag users with @publicKey
-- **Search**: Find posts and users across your network
-- **Trust Management**: Visual trust graph with tags and nicknames
-- **Slides (DMs)**: Encrypted direct messages
-- **Profiles**: Customize your display name, bio, and avatar
-- **Stats**: Network analytics and reputation tracking
+
+| Feature | Description |
+|---------|-------------|
+| **Feed** | Personalized content from your trust graph with real-time updates |
+| **Posts** | Rich content with images, video, audio, and PDFs |
+| **Threads** | Full conversation views with nested replies and edit chain resolution |
+| **Reactions** | Express yourself (👍 ❤️ 🔥 😂 😮 🙏) |
+| **Bookmarks** | Save posts locally (never leaves your browser) |
+| **Search** | Find posts and users across your network |
+| **Tags** | Organize trusted users into groups, filter feed by tag |
+| **Nicknames** | Set private names for users (only you see them) |
+| **Slides (DMs)** | End-to-end encrypted direct messages |
+| **Profiles** | Display name, bio, and avatar |
+| **QR Codes** | Share your public key easily |
+| **Offline Mode** | View cached content when disconnected |
+
+---
+
+## API Reference
+
+Full REST API for programmatic access:
+
+### Feed & Posts
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/feed` | GET | Get personalized feed |
+| `/api/feed/tag/:tag` | GET | Get posts from tagged users |
+| `/api/post` | POST | Create new post |
+| `/api/post/:id` | PUT | Edit post |
+| `/api/post/:id/retract` | POST | Retract post |
+| `/api/thread/:id` | GET | Get thread with replies |
+| `/api/search` | GET | Search posts |
+
+### Reactions & Bookmarks
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/react` | POST | Add reaction |
+| `/api/unreact` | POST | Remove reaction |
+| `/api/bookmark` | POST | Save post |
+| `/api/unbookmark` | POST | Remove bookmark |
+| `/api/mentions` | GET | Get posts mentioning you |
+
+### Trust & Social Graph
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/trust` | POST | Trust a user |
+| `/api/trusted` | GET | List trusted users |
+| `/api/mute` | POST | Mute user |
+| `/api/unmute` | POST | Unmute user |
+| `/api/tags` | GET/POST | Manage tags |
+| `/api/nickname` | POST | Set nickname |
+
+### Slides (DMs)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/slide` | POST | Send encrypted message |
+| `/api/slides` | GET | Get inbox |
+
+### Media
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/media/upload` | POST | Upload media file |
+| `/api/media/:cid` | GET | Fetch media by CID |
+| `/api/media/post/:postId` | GET | Fetch media for post |
+
+### Identity & Settings
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/identity` | GET | Get current identity |
+| `/api/profile` | POST | Update profile |
+| `/api/settings` | GET/POST | Manage settings |
+| `/api/data/export` | GET | Export backup |
+| `/api/data/import` | POST | Import backup |
+
+### Real-Time
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/live` | GET (SSE) | Real-time event stream |
+| `/api/notifications/counts` | GET | Notification badges |
 
 ---
 
@@ -346,72 +557,12 @@ const post = await clout.post('Hello world!');
 // Get your personalized feed
 const feed = await clout.getFeed();
 const friendsPosts = await clout.getFeed({ tag: 'friends' });
-```
 
----
+// Edit a post (creates version chain, preserves replies)
+await clout.editPost(post.id, 'Updated hello world!');
 
-## Author Control: Edit & Retract
-
-Unlike centralized platforms where your content lives forever at their mercy, Clout gives you complete control:
-
-### Edit Posts
-Update your posts while preserving history:
-```bash
-clout edit <postId> "Updated content"
-```
-Edits create a transparent version chain—viewers see the current version with full history available.
-
-### Retract Posts
-Remove your content from circulation:
-```bash
-clout retract <postId>
-```
-Retracted posts are marked as withdrawn. Nodes respect author intent and filter them from feeds.
-
-### Mute Users
-Hide content without affecting trust relationships:
-```bash
-clout mute <publicKey>    # Silence without unfollowing
-clout unmute <publicKey>
-```
-
----
-
-## Content Warnings & NSFW Controls
-
-Mark sensitive content and let viewers decide what they see:
-
-```bash
-clout post --nsfw "Adult content here"
-clout post --cw "Spoilers for latest episode" "The ending was..."
-```
-
-Configure your feed preferences:
-```typescript
-const clout = new Clout({
-  // ...
-  nsfwEnabled: false,              // Hide NSFW by default
-  nsfwMinReputation: 0.7           // Only show NSFW from trusted sources
-});
-```
-
-**User control, not platform censorship**: Content isn't removed—you choose whether to see it.
-
----
-
-## Content-Type Filtering
-
-Set different trust thresholds per content type:
-
-```typescript
-const clout = new Clout({
-  // ...
-  contentTypeFilters: {
-    'slide': { maxHops: 5, minReputation: 0.2 },      // DMs: permissive
-    'image/png': { maxHops: 2, minReputation: 0.7 },  // Images: strict
-    'text/plain': { maxHops: 3, minReputation: 0.4 }  // Text: moderate
-  }
-});
+// Send encrypted DM
+await clout.sendSlide(aliceKey, 'Private message');
 ```
 
 ---
@@ -427,13 +578,34 @@ Clout inverts [Scarcity](https://github.com/flammafex/Scarcity)'s money protocol
 | Gossip Logic | "Seen this? REJECT" | "Trust author? ACCEPT" |
 | Validation | Prevent double-spend | Check trust distance |
 
-### Core Components
+### Core Modules
 
-- **IdentityManager**: Cryptographic keypair management
-- **ContentGossip**: Trust-based P2P propagation
-- **ReputationValidator**: Graph distance filtering
-- **TicketBooth**: Day pass economics
-- **Crypto**: X25519 + XChaCha20-Poly1305 encryption
+The codebase is organized into focused modules:
+
+**Backend (`src/clout/`)**
+| Module | Responsibility |
+|--------|----------------|
+| `economics.ts` | Day passes, tickets, delegation |
+| `content.ts` | Post creation, editing, retraction |
+| `media.ts` | WNFS storage, P2P media fetch |
+| `trust.ts` | Social graph, encrypted signals |
+| `reactions.ts` | Trust-weighted reactions |
+| `feed.ts` | Feed filtering, caching, edit chain resolution |
+| `backup.ts` | Export/import |
+| `relay.ts` | Browser identity relay |
+
+**Frontend (`src/web/public/js/`)**
+| Module | Responsibility |
+|--------|----------------|
+| `state.js` | Shared application state |
+| `api.js` | HTTP communication layer |
+| `feed.js` | Feed rendering and filtering |
+| `posts.js` | Post creation and editing |
+| `trust.js` | Trust list management |
+| `thread.js` | Thread view |
+| `slides.js` | Encrypted DMs |
+| `profile.js` | Identity and settings |
+| `notifications.js` | SSE and badges |
 
 ---
 
