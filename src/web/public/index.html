@@ -4,6 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Clout - Uncensorable Social Network</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="description" content="Uncensorable reputation protocol - Trust-based social network">
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Clout">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
+
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
@@ -33,6 +44,7 @@
       <div class="status">
         <span id="status-indicator" class="status-dot"></span>
         <span id="status-text">Not initialized</span>
+        <span id="offline-indicator" class="offline-indicator" style="display: none;">Offline</span>
       </div>
       <div id="day-pass-timer" class="day-pass-timer" style="display: none;">
         🕊️ Freebird Day Pass: <span id="day-pass-countdown">--:--:--</span> remaining
@@ -643,5 +655,55 @@
   </div>
 
   <script type="module" src="js/app.js"></script>
+
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async () => {
+        try {
+          const registration = await navigator.serviceWorker.register('/service-worker.js');
+          console.log('[PWA] Service worker registered:', registration.scope);
+
+          // Check for updates periodically
+          setInterval(() => {
+            registration.update();
+          }, 60 * 60 * 1000); // Check every hour
+
+          // Handle updates
+          registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // New version available
+                if (confirm('New version available! Reload to update?')) {
+                  newWorker.postMessage({ type: 'SKIP_WAITING' });
+                  window.location.reload();
+                }
+              }
+            });
+          });
+        } catch (error) {
+          console.error('[PWA] Service worker registration failed:', error);
+        }
+      });
+
+      // Offline/online detection
+      const offlineIndicator = document.getElementById('offline-indicator');
+
+      function updateOnlineStatus() {
+        if (navigator.onLine) {
+          offlineIndicator.style.display = 'none';
+          document.body.classList.remove('offline');
+        } else {
+          offlineIndicator.style.display = 'inline';
+          document.body.classList.add('offline');
+        }
+      }
+
+      window.addEventListener('online', updateOnlineStatus);
+      window.addEventListener('offline', updateOnlineStatus);
+      updateOnlineStatus();
+    }
+  </script>
 </body>
 </html>
