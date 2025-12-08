@@ -2278,3 +2278,23 @@ h2 {
   font-size: 0.9rem;
   color: var(--text-dim);
 }
+
+/* Decayed post content - "right to be forgotten" */
+.post-decayed {
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 1rem;
+  background: var(--bg);
+  border-radius: 4px;
+  display: block;
+  text-align: center;
+  border: 1px dashed var(--border);
+}
+
+.feed-item.decayed .post-content {
+  opacity: 0.7;
+}
+
+.feed-item.decayed .feed-actions {
+  display: none;
+}

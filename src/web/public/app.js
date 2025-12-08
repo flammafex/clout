@@ -2289,6 +2289,12 @@ function clearMediaPreview() {
 
 // Render media in post content
 function renderPostContent(post) {
+  // Handle decayed posts (content has expired)
+  if (post.decayedAt || post.content === null) {
+    const decayDate = post.decayedAt ? new Date(post.decayedAt).toLocaleDateString() : 'unknown';
+    return `<span class="post-decayed">This post's content has expired (${decayDate})</span>`;
+  }
+
   let content = escapeHtml(post.content);
 
   // Check if post has media

@@ -232,13 +232,129 @@ export class CloutStateManager extends Emitter {
     // 1. Load binary into an Automerge Doc
     // This is necessary because Chronicle.merge() expects a Doc object
     const remoteDoc = A.load<CloutState>(remoteBinary);
-    
+
     // 2. Pass Doc to Chronicle (which handles the WASM merge internally)
-    this.chronicle.merge(remoteDoc); 
+    this.chronicle.merge(remoteDoc);
+
+    // 3. Enforce monotonic decay - if any post was decayed on either side,
+    // ensure it stays decayed (prevents resurrection from conservative peers)
+    this.enforceMonotonicDecay(remoteDoc);
+  }
+
+  /**
+   * Enforce monotonic decay after CRDT merge
+   *
+   * If a post was decayed on EITHER side before merge, it must stay decayed.
+   * This prevents "resurrection" attacks where a peer with more conservative
+   * decay settings could restore content that was intentionally decayed.
+   *
+   * The rule: decay can only happen, never un-happen.
+   */
+  private enforceMonotonicDecay(remoteDoc: A.Doc<CloutState>): void {
+    const localState = this.getState();
+    const remotePosts = (remoteDoc as any).myPosts || [];
+
+    // Build set of decayed post IDs from both sides
+    const decayedIds = new Map<string, number>(); // postId -> earliest decayedAt
+
+    // Collect decay timestamps from local state
+    for (const post of localState.myPosts || []) {
+      if (post.decayedAt) {
+        decayedIds.set(post.id, post.decayedAt);
+      }
+    }
+
+    // Collect decay timestamps from remote state (take earliest)
+    for (const post of remotePosts) {
+      if (post.decayedAt) {
+        const existing = decayedIds.get(post.id);
+        if (!existing || post.decayedAt < existing) {
+          decayedIds.set(post.id, post.decayedAt);
+        }
+      }
+    }
+
+    // Re-apply decay to any posts that were decayed on either side
+    // but may have been "resurrected" by the merge
+    const currentState = this.getState();
+    for (const post of currentState.myPosts || []) {
+      const shouldBeDecayedAt = decayedIds.get(post.id);
+      if (shouldBeDecayedAt && !post.decayedAt) {
+        // Post was decayed on one side but merge restored it - re-decay
+        this.chronicle.change("enforce monotonic decay", (doc: any) => {
+          const idx = doc.myPosts.findIndex((p: any) => p.id === post.id);
+          if (idx !== -1) {
+            doc.myPosts[idx].content = null;
+            doc.myPosts[idx].media = null;
+            doc.myPosts[idx].decayedAt = shouldBeDecayedAt;
+          }
+        });
+      }
+    }
   }
 
   exportSync(): Uint8Array {
     // Returns WASM-optimized binary format
     return this.chronicle.save();
+  }
+
+  /**
+   * Decay a post's content while preserving the envelope
+   * The post ID, author, signature, and proof remain to prevent resurrection
+   * but the actual content is nulled out.
+   */
+  decayPost(postId: string): boolean {
+    let decayed = false;
+    this.chronicle.change("decay post content", (doc: any) => {
+      const idx = doc.myPosts.findIndex((p: any) => p.id === postId);
+      if (idx !== -1 && !doc.myPosts[idx].decayedAt) {
+        // Null out the content but keep the envelope
+        doc.myPosts[idx].content = null;
+        doc.myPosts[idx].media = null;
+        doc.myPosts[idx].decayedAt = Date.now();
+        decayed = true;
+      }
+    });
+    return decayed;
+  }
+
+  /**
+   * Process content decay for all posts based on settings
+   * Call this periodically (e.g., on feed load) to decay old content
+   *
+   * @param settings - Decay settings from TrustSettings.contentDecay
+   * @returns Number of posts that were decayed
+   */
+  processContentDecay(settings: { enabled: boolean; decayAfterDays: number; retractedDecayDays: number }): number {
+    if (!settings.enabled) return 0;
+
+    const state = this.getState();
+    const now = Date.now();
+    const normalDecayMs = settings.decayAfterDays * 24 * 60 * 60 * 1000;
+    const retractedDecayMs = settings.retractedDecayDays * 24 * 60 * 60 * 1000;
+
+    let decayedCount = 0;
+
+    for (const post of state.myPosts || []) {
+      // Skip already decayed posts
+      if (post.decayedAt) continue;
+
+      // Get post timestamp from proof
+      const postTimestamp = post.proof?.timestamp || 0;
+      if (!postTimestamp) continue;
+
+      // Check if this post was retracted (shorter decay window for propagation)
+      const isRetracted = this.isPostDeleted(post.id);
+      const decayThreshold = isRetracted ? retractedDecayMs : normalDecayMs;
+
+      // Check if post is old enough to decay
+      if (now - postTimestamp > decayThreshold) {
+        if (this.decayPost(post.id)) {
+          decayedCount++;
+        }
+      }
+    }
+
+    return decayedCount;
   }
 }

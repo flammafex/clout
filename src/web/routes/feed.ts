@@ -111,7 +111,8 @@ export function createFeedRoutes(
               myReaction: reactionData.myReaction,
               isBookmarked: clout.isBookmarked(post.id),
               isAuthor,
-              isEdited: !!post.editOf
+              isEdited: !!post.editOf,
+              isDecayed: clout.isPostDecayed(post)
             };
           }),
           totalPosts: allPosts.length,
@@ -308,7 +309,8 @@ export function createFeedRoutes(
           myReaction: reactionData.myReaction,
           isBookmarked: clout.isBookmarked(post.id),
           isAuthor,
-          isEdited: !!post.editOf
+          isEdited: !!post.editOf,
+          isDecayed: clout.isPostDecayed(post)
         };
       };
 
