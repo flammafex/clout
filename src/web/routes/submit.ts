@@ -326,11 +326,13 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       const userKey = validatePublicKey(publicKey);
 
       if (!token || typeof token !== 'string') {
-        throw new Error('token is required (base64 encoded Freebird token)');
+        throw new Error('token is required (base64/base64url encoded Freebird token)');
       }
 
-      // Decode the token from base64
-      const tokenBytes = Uint8Array.from(atob(token), c => c.charCodeAt(0));
+      // Decode the token from base64 or base64url
+      // Base64url uses -_ instead of +/ and no padding
+      const normalizedToken = token.replace(/-/g, '+').replace(/_/g, '/');
+      const tokenBytes = Uint8Array.from(atob(normalizedToken), c => c.charCodeAt(0));
 
       // Verify the token with Freebird
       const isValid = await clout.verifyFreebirdToken(tokenBytes);

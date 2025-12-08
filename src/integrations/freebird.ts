@@ -692,4 +692,19 @@ export class FreebirdAdapter implements FreebirdClient {
   isInsecureFallbackMode(): boolean {
     return this.allowInsecureFallback && this.metadata.size === 0;
   }
+
+  /**
+   * Get metadata from the first available issuer.
+   * Used by the proxy to provide issuer public key to browsers.
+   */
+  async getIssuerMetadata(): Promise<any | null> {
+    await this.init();
+
+    if (this.metadata.size === 0) {
+      return null;
+    }
+
+    // Return first available issuer's metadata
+    return Array.from(this.metadata.values())[0];
+  }
 }
