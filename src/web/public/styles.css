@@ -325,6 +325,34 @@ h2 {
   font-style: italic;
 }
 
+.feed-reply-indicator a {
+  color: var(--primary);
+  text-decoration: none;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.feed-reply-indicator a:hover {
+  text-decoration: underline;
+  color: var(--secondary);
+}
+
+/* Reply button in thread view */
+.btn-reply {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-reply:hover {
+  background: var(--secondary);
+}
+
 .feed-footer {
   display: flex;
   justify-content: space-between;
