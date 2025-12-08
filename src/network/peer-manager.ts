@@ -13,13 +13,17 @@ import type {
   PeerInfo,
   PeerDiscovery,
   NetworkStats,
-  NodeType
+  NodeType,
+  RelayMessage
 } from '../network-types.js';
-import { PeerState as State } from '../network-types.js';
+import { PeerState as State, RelayMessageType } from '../network-types.js';
+import { WebRTCPeer } from './webrtc-peer.js';
+import type { RelayClient } from './relay-client.js';
 
 export interface PeerManagerConfig {
   readonly network: NetworkConfig;
   readonly discovery: PeerDiscovery;
+  readonly relayClient?: RelayClient;
   readonly onPeerConnected?: (peer: NetworkPeer) => void;
   readonly onPeerDisconnected?: (peerId: string) => void;
   readonly onMessage?: (peer: NetworkPeer, message: any) => void;
@@ -34,6 +38,15 @@ export class PeerManager {
   private readonly peerMetadata = new Map<string, PeerMetadata>();
   private readonly trustGraph: Set<string>;
   private readonly maxPeers: number;
+  private readonly relayClient?: RelayClient;
+
+  // Pending connections awaiting signaling completion
+  private readonly pendingConnections = new Map<string, {
+    peer: WebRTCPeer;
+    iceCandidates: RTCIceCandidateInit[];
+    resolve: (peer: NetworkPeer) => void;
+    reject: (error: Error) => void;
+  }>();
 
   // Stats tracking
   private stats = {
@@ -46,6 +59,199 @@ export class PeerManager {
     this.config = config;
     this.trustGraph = config.network.trustGraph;
     this.maxPeers = config.network.maxPeers ?? 50;
+    this.relayClient = config.relayClient;
+
+    // Set up relay message handler for signaling
+    if (this.relayClient) {
+      this.relayClient.onMessage((message: RelayMessage) => {
+        this.handleRelayMessage(message);
+      });
+    }
+  }
+
+  /**
+   * Handle incoming relay messages (signaling)
+   */
+  private handleRelayMessage(message: RelayMessage): void {
+    if (message.type === RelayMessageType.SIGNAL) {
+      this.handleSignal(message);
+    } else if (message.type === RelayMessageType.FORWARD) {
+      // Handle forwarded gossip messages
+      const peer = this.peers.get(message.from!);
+      if (peer && this.config.onMessage) {
+        this.config.onMessage(peer, message.payload);
+      }
+    }
+  }
+
+  /**
+   * Handle WebRTC signaling message
+   */
+  private async handleSignal(message: RelayMessage): Promise<void> {
+    const { from, payload } = message;
+    if (!from || !payload) return;
+
+    const signalType = payload.type;
+    console.log(`[PeerManager] Received signal: ${signalType} from ${from.slice(0, 8)}`);
+
+    if (signalType === 'offer') {
+      // Incoming connection request
+      await this.handleOffer(from, payload.offer);
+    } else if (signalType === 'answer') {
+      // Response to our offer
+      await this.handleAnswer(from, payload.answer);
+    } else if (signalType === 'ice-candidate') {
+      // ICE candidate
+      await this.handleIceCandidate(from, payload.candidate);
+    }
+  }
+
+  /**
+   * Handle incoming WebRTC offer
+   */
+  private async handleOffer(from: string, offer: RTCSessionDescriptionInit): Promise<void> {
+    // Only accept connections from trusted peers
+    if (!this.trustGraph.has(from)) {
+      console.log(`[PeerManager] Rejecting offer from untrusted peer ${from.slice(0, 8)}`);
+      return;
+    }
+
+    // Create peer and accept offer
+    const metadata: PeerMetadata = {
+      publicKey: from,
+      nodeType: 'light' as any,
+      state: State.CONNECTING,
+      distance: 1,
+      lastSeen: Date.now()
+    };
+
+    const peer = new WebRTCPeer({
+      publicKey: from,
+      metadata,
+      onMessage: (msg) => {
+        if (this.config.onMessage) {
+          this.config.onMessage(peer, msg);
+        }
+      }
+    });
+
+    try {
+      // Accept the offer and create answer
+      const answer = await peer.acceptOffer(offer);
+
+      // Send answer back via relay
+      if (this.relayClient) {
+        await this.relayClient.signal(from, {
+          type: 'answer',
+          answer
+        });
+      }
+
+      // Store pending connection for ICE candidates
+      this.pendingConnections.set(from, {
+        peer,
+        iceCandidates: [],
+        resolve: () => {},
+        reject: () => {}
+      });
+
+      // Set up ICE candidate handler
+      this.setupIceCandidateHandler(peer, from);
+
+      console.log(`[PeerManager] Sent answer to ${from.slice(0, 8)}`);
+    } catch (error) {
+      console.error(`[PeerManager] Failed to handle offer from ${from.slice(0, 8)}:`, error);
+    }
+  }
+
+  /**
+   * Handle WebRTC answer to our offer
+   */
+  private async handleAnswer(from: string, answer: RTCSessionDescriptionInit): Promise<void> {
+    const pending = this.pendingConnections.get(from);
+    if (!pending) {
+      console.warn(`[PeerManager] Received answer for unknown connection: ${from.slice(0, 8)}`);
+      return;
+    }
+
+    try {
+      await pending.peer.completeConnection(answer);
+
+      // Apply any queued ICE candidates
+      for (const candidate of pending.iceCandidates) {
+        await pending.peer.addIceCandidate(candidate);
+      }
+
+      console.log(`[PeerManager] Connection completed with ${from.slice(0, 8)}`);
+    } catch (error) {
+      console.error(`[PeerManager] Failed to complete connection with ${from.slice(0, 8)}:`, error);
+      pending.reject(error as Error);
+    }
+  }
+
+  /**
+   * Handle ICE candidate
+   */
+  private async handleIceCandidate(from: string, candidate: RTCIceCandidateInit): Promise<void> {
+    const pending = this.pendingConnections.get(from);
+    const existingPeer = this.peers.get(from);
+
+    if (pending) {
+      // Queue candidate if connection not yet complete
+      try {
+        await pending.peer.addIceCandidate(candidate);
+      } catch {
+        pending.iceCandidates.push(candidate);
+      }
+    } else if (existingPeer && existingPeer instanceof WebRTCPeer) {
+      await existingPeer.addIceCandidate(candidate);
+    }
+  }
+
+  /**
+   * Set up ICE candidate forwarding via relay
+   */
+  private setupIceCandidateHandler(peer: WebRTCPeer, targetPublicKey: string): void {
+    // Access the internal connection to handle ICE candidates
+    // This is a bit hacky but necessary for signaling
+    const connection = (peer as any).connection as RTCPeerConnection;
+    if (!connection) return;
+
+    connection.onicecandidate = async (event) => {
+      if (event.candidate && this.relayClient) {
+        await this.relayClient.signal(targetPublicKey, {
+          type: 'ice-candidate',
+          candidate: event.candidate.toJSON()
+        });
+      }
+    };
+
+    // Handle connection state changes
+    connection.onconnectionstatechange = () => {
+      if (connection.connectionState === 'connected') {
+        // Move from pending to active peers
+        const pending = this.pendingConnections.get(targetPublicKey);
+        if (pending) {
+          this.peers.set(targetPublicKey, peer);
+          this.peerMetadata.set(targetPublicKey, peer.metadata);
+          this.pendingConnections.delete(targetPublicKey);
+
+          console.log(`[PeerManager] ✅ P2P connected to ${targetPublicKey.slice(0, 8)}`);
+
+          if (this.config.onPeerConnected) {
+            this.config.onPeerConnected(peer);
+          }
+
+          pending.resolve(peer);
+        }
+      } else if (connection.connectionState === 'failed') {
+        const pending = this.pendingConnections.get(targetPublicKey);
+        if (pending) {
+          this.pendingConnections.delete(targetPublicKey);
+          pending.reject(new Error('Connection failed'));
+        }
+      }
+    };
   }
 
   /**
@@ -145,18 +351,81 @@ export class PeerManager {
   }
 
   /**
-   * Establish connection to peer (stub - will be implemented with WebRTC)
+   * Establish WebRTC connection to peer via relay signaling
    */
   private async establishConnection(
     peerInfo: PeerInfo,
     distance: number
   ): Promise<NetworkPeer | null> {
-    // TODO: Implement actual WebRTC connection
-    // For now, return a mock peer
-    console.log(`[PeerManager] TODO: Establish WebRTC connection to ${peerInfo.publicKey.slice(0, 8)}`);
+    if (!this.relayClient) {
+      console.log(`[PeerManager] No relay client - cannot establish WebRTC connection to ${peerInfo.publicKey.slice(0, 8)}`);
+      return null;
+    }
 
-    // This will be replaced with real WebRTC implementation
-    return null;
+    const targetPublicKey = peerInfo.publicKey;
+
+    // Create metadata for the peer
+    const metadata: PeerMetadata = {
+      publicKey: targetPublicKey,
+      nodeType: peerInfo.nodeType,
+      state: State.CONNECTING,
+      distance,
+      lastSeen: Date.now()
+    };
+
+    // Create WebRTC peer
+    const peer = new WebRTCPeer({
+      publicKey: targetPublicKey,
+      metadata,
+      onMessage: (msg) => {
+        if (this.config.onMessage) {
+          this.config.onMessage(peer, msg);
+        }
+      }
+    });
+
+    return new Promise(async (resolve, reject) => {
+      // Set connection timeout
+      const timeout = setTimeout(() => {
+        this.pendingConnections.delete(targetPublicKey);
+        reject(new Error('Connection timeout'));
+      }, 30000); // 30 second timeout
+
+      // Store pending connection
+      this.pendingConnections.set(targetPublicKey, {
+        peer,
+        iceCandidates: [],
+        resolve: (connectedPeer) => {
+          clearTimeout(timeout);
+          resolve(connectedPeer);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        }
+      });
+
+      try {
+        // Create offer
+        const offer = await peer.connect();
+
+        // Set up ICE candidate forwarding
+        this.setupIceCandidateHandler(peer, targetPublicKey);
+
+        // Send offer via relay
+        await this.relayClient!.signal(targetPublicKey, {
+          type: 'offer',
+          offer
+        });
+
+        console.log(`[PeerManager] Sent offer to ${targetPublicKey.slice(0, 8)}`);
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingConnections.delete(targetPublicKey);
+        console.error(`[PeerManager] Failed to create offer for ${targetPublicKey.slice(0, 8)}:`, error);
+        reject(error);
+      }
+    });
   }
 
   /**
