@@ -75,6 +75,20 @@ export interface TrustSettings {
 
   /** Minimum reputation score to show NSFW content (default: 0.7) */
   readonly nsfwMinReputation?: number;
+
+  /**
+   * Content decay settings - enables "right to be forgotten"
+   * Posts older than decayAfterDays will have their content nulled
+   * but envelope (id, author, signature) persists to prevent resurrection
+   */
+  readonly contentDecay?: {
+    /** Enable automatic content decay (default: false) */
+    readonly enabled: boolean;
+    /** Days after which content decays (default: 90) */
+    readonly decayAfterDays: number;
+    /** Keep content for retracted posts longer to ensure propagation (default: 30) */
+    readonly retractedDecayDays: number;
+  };
 }
 
 /**
@@ -192,6 +206,13 @@ export interface PostPackage {
    * Populated by the system when displaying, not stored in gossip
    */
   readonly editHistory?: string[];
+
+  /**
+   * Content decay timestamp - when the content was decayed (nulled)
+   * The envelope (id, author, signature, proof) persists but content is gone.
+   * This enables "the right to be forgotten" while preventing resurrection.
+   */
+  readonly decayedAt?: number;
 }
 
 /**

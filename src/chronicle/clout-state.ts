@@ -241,4 +241,64 @@ export class CloutStateManager extends Emitter {
     // Returns WASM-optimized binary format
     return this.chronicle.save();
   }
+
+  /**
+   * Decay a post's content while preserving the envelope
+   * The post ID, author, signature, and proof remain to prevent resurrection
+   * but the actual content is nulled out.
+   */
+  decayPost(postId: string): boolean {
+    let decayed = false;
+    this.chronicle.change("decay post content", (doc: any) => {
+      const idx = doc.myPosts.findIndex((p: any) => p.id === postId);
+      if (idx !== -1 && !doc.myPosts[idx].decayedAt) {
+        // Null out the content but keep the envelope
+        doc.myPosts[idx].content = null;
+        doc.myPosts[idx].media = null;
+        doc.myPosts[idx].decayedAt = Date.now();
+        decayed = true;
+      }
+    });
+    return decayed;
+  }
+
+  /**
+   * Process content decay for all posts based on settings
+   * Call this periodically (e.g., on feed load) to decay old content
+   *
+   * @param settings - Decay settings from TrustSettings.contentDecay
+   * @returns Number of posts that were decayed
+   */
+  processContentDecay(settings: { enabled: boolean; decayAfterDays: number; retractedDecayDays: number }): number {
+    if (!settings.enabled) return 0;
+
+    const state = this.getState();
+    const now = Date.now();
+    const normalDecayMs = settings.decayAfterDays * 24 * 60 * 60 * 1000;
+    const retractedDecayMs = settings.retractedDecayDays * 24 * 60 * 60 * 1000;
+
+    let decayedCount = 0;
+
+    for (const post of state.myPosts || []) {
+      // Skip already decayed posts
+      if (post.decayedAt) continue;
+
+      // Get post timestamp from proof
+      const postTimestamp = post.proof?.timestamp || 0;
+      if (!postTimestamp) continue;
+
+      // Check if this post was retracted (shorter decay window for propagation)
+      const isRetracted = this.isPostDeleted(post.id);
+      const decayThreshold = isRetracted ? retractedDecayMs : normalDecayMs;
+
+      // Check if post is old enough to decay
+      if (now - postTimestamp > decayThreshold) {
+        if (this.decayPost(post.id)) {
+          decayedCount++;
+        }
+      }
+    }
+
+    return decayedCount;
+  }
 }

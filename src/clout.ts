@@ -2071,12 +2071,17 @@ export class Clout {
     limit?: number;
     includeNsfw?: boolean;
     includeDeleted?: boolean;
+    includeDecayed?: boolean;
     filterByTrust?: boolean;
     trustGraph?: Set<string>;
   }): Promise<PostPackage[]> {
     if (!this.store) {
       throw new Error('No store configured');
     }
+
+    // Process content decay on our own posts (lazy/periodic)
+    // This nulls content for old posts while preserving the envelope
+    this.processContentDecay();
 
     let posts: PostPackage[];
 
@@ -2182,6 +2187,31 @@ export class Clout {
    */
   getPostDeletions(): import('./clout-types.js').PostDeletePackage[] {
     return this.getPostRetractions();
+  }
+
+  /**
+   * Process content decay for old posts
+   * Called lazily on feed load to clean up old content
+   * Content is nulled but envelope (id, author, sig) persists to prevent resurrection
+   *
+   * @returns Number of posts that were decayed
+   */
+  processContentDecay(): number {
+    const settings = this.getProfile().trustSettings;
+    if (!settings.contentDecay?.enabled) return 0;
+
+    return this.state.processContentDecay({
+      enabled: settings.contentDecay.enabled,
+      decayAfterDays: settings.contentDecay.decayAfterDays,
+      retractedDecayDays: settings.contentDecay.retractedDecayDays
+    });
+  }
+
+  /**
+   * Check if a post's content has decayed
+   */
+  isPostDecayed(post: PostPackage): boolean {
+    return !!post.decayedAt || post.content === null;
   }
 
   /**
