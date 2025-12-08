@@ -2646,9 +2646,14 @@ export class Clout {
    * Get node statistics
    */
   async getStats() {
-    const gossipStats = (this.gossip && this.gossip.getStats)
-      ? this.gossip.getStats()
-      : { postCount: 0 };
+    // Get actual feed count from store (more accurate than gossip stats)
+    let feedCount = 0;
+    if (this.store) {
+      const feed = await this.store.getFeed();
+      feedCount = feed.length;
+    } else if (this.gossip && this.gossip.getStats) {
+      feedCount = this.gossip.getStats().postCount || 0;
+    }
 
     // Get inbox count safely
     let slideCount = 0;
@@ -2665,7 +2670,7 @@ export class Clout {
         publicKey: this.publicKeyHex
       },
       state: {
-        postCount: gossipStats.postCount,
+        postCount: feedCount,
         slideCount
       }
     };
