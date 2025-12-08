@@ -113,6 +113,8 @@ When your node receives content from the network:
 
 Instead of a black-box algorithm, your feed is determined by your **trust graph**—people you trust, and people they trust.
 
+<div align=center><br><img src="screenshot2.webp"></div>
+
 ```
 Distance 0: You (trust score: 1.0)
     │
