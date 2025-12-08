@@ -53,12 +53,14 @@ export class CloutNode {
     console.log(`[CloutNode] Public key: ${this.config.publicKey.slice(0, 16)}...`);
 
     // Create discovery mechanism based on config
+    // This also creates relayClient if needed
     const discovery = await this.createDiscovery();
 
-    // Create peer manager
+    // Create peer manager with relay client for WebRTC signaling
     this.peerManager = new PeerManager({
       network: this.config,
       discovery,
+      relayClient: this.relayClient, // Pass relay client for signaling
       onPeerConnected: this.config.onPeerConnected,
       onPeerDisconnected: this.config.onPeerDisconnected,
       onMessage: this.config.onMessage
