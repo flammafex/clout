@@ -821,24 +821,64 @@ function renderReactionsBar(postId, reactions, myReaction, availableEmojis) {
   return `<div class="reactions-bar">${reactionButtons}</div>`;
 }
 
-// Toggle a reaction on a post
+// Toggle a reaction on a post (optimistic UI update)
 async function toggleReaction(postId, emoji) {
   // Visitors cannot react - show invite popup
   if (!requireMembership()) return;
 
-  try {
-    // Check if we already have this reaction (need to get current state)
-    const data = await apiCall(`/reactions/${postId}`);
-    const isCurrentlyReacted = data.myReaction === emoji;
+  // Find the button that was clicked
+  const btn = document.querySelector(`.feed-item [onclick*="toggleReaction('${postId}', '${emoji}')"]`);
+  if (!btn) return;
 
-    if (isCurrentlyReacted) {
-      await apiCall('/unreact', 'POST', { postId, emoji });
-    } else {
-      await apiCall('/react', 'POST', { postId, emoji });
+  const wasActive = btn.classList.contains('active');
+  const countSpan = btn.querySelector('.reaction-count');
+  const currentCount = countSpan ? parseInt(countSpan.textContent) || 0 : 0;
+
+  // Optimistic UI update - toggle immediately
+  if (wasActive) {
+    btn.classList.remove('active');
+    if (countSpan) {
+      const newCount = Math.max(0, currentCount - 1);
+      countSpan.textContent = newCount > 0 ? newCount : '';
+      if (newCount === 0) countSpan.remove();
     }
+  } else {
+    // Remove 'active' from any other reaction button on this post
+    const postElement = btn.closest('.feed-item');
+    if (postElement) {
+      postElement.querySelectorAll('.reaction-btn.active').forEach(b => {
+        b.classList.remove('active');
+        const otherCount = b.querySelector('.reaction-count');
+        if (otherCount) {
+          const c = Math.max(0, (parseInt(otherCount.textContent) || 0) - 1);
+          otherCount.textContent = c > 0 ? c : '';
+          if (c === 0) otherCount.remove();
+        }
+      });
+    }
+    btn.classList.add('active');
+    if (countSpan) {
+      countSpan.textContent = currentCount + 1;
+    } else {
+      btn.insertAdjacentHTML('beforeend', `<span class="reaction-count">${currentCount + 1}</span>`);
+    }
+  }
 
-    // Reload feed to update reactions
-    await loadFeed();
+  // Make API call in background (no await, no reload)
+  try {
+    if (wasActive) {
+      apiCall('/unreact', 'POST', { postId, emoji }).catch(e => {
+        console.error('Failed to unreact:', e);
+        // Revert on failure
+        btn.classList.add('active');
+      });
+    } else {
+      apiCall('/react', 'POST', { postId, emoji }).catch(e => {
+        console.error('Failed to react:', e);
+        // Revert on failure
+        btn.classList.remove('active');
+      });
+    }
   } catch (error) {
     console.error('Error toggling reaction:', error);
   }
@@ -873,25 +913,43 @@ async function toggleBookmark(postId) {
   // Visitors cannot bookmark - show invite popup
   if (!requireMembership()) return;
 
+  if (!window.CloutUserData) {
+    console.error('User data not available');
+    return;
+  }
+
+  // Find the button that was clicked
+  const btn = document.querySelector(`.feed-item [onclick*="toggleBookmark('${postId}')"]`);
+  if (!btn) return;
+
+  const wasBookmarked = btn.classList.contains('active');
+
+  // Optimistic UI update - toggle immediately
+  if (wasBookmarked) {
+    btn.classList.remove('active');
+    btn.textContent = 'Save';
+  } else {
+    btn.classList.add('active');
+    btn.textContent = 'Saved';
+  }
+
+  // Update IndexedDB in background
   try {
-    if (!window.CloutUserData) {
-      console.error('User data not available');
-      return;
-    }
-
-    // Dark Social Graph: Check bookmark state from IndexedDB
-    const isCurrentlyBookmarked = await window.CloutUserData.isBookmarked(postId);
-
-    if (isCurrentlyBookmarked) {
+    if (wasBookmarked) {
       await window.CloutUserData.unbookmark(postId);
     } else {
       await window.CloutUserData.bookmark(postId);
     }
-
-    // Refresh feed to update bookmark icons
-    await loadFeedWithCurrentFilter();
   } catch (error) {
     console.error('Error toggling bookmark:', error);
+    // Revert on failure
+    if (wasBookmarked) {
+      btn.classList.add('active');
+      btn.textContent = 'Saved';
+    } else {
+      btn.classList.remove('active');
+      btn.textContent = 'Save';
+    }
   }
 }
 
