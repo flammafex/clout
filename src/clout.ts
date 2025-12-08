@@ -769,7 +769,11 @@ export class Clout {
       await (this.store as any).addDeletion(retraction);
     }
 
-    // 7. Gossip the retraction to the network
+    // 7. Immediately decay the content - why wait if you're retracting?
+    // The envelope persists but content is gone NOW
+    this.state.decayPost(postId);
+
+    // 8. Gossip the retraction to the network
     if (this.gossip) {
       await this.gossip.publish({
         type: 'post-delete',
