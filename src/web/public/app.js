@@ -1626,7 +1626,7 @@ async function viewThread(postId) {
             <div class="feed-avatar">${renderAvatar(avatar)}</div>
             <div class="feed-post-content">
               <div class="feed-author"><span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span></div>
-              ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); viewThread('${post.replyTo}')">View parent</a></div>` : ''}
+              ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); viewThread('${post.resolvedReplyTo || post.replyTo}')">View parent</a></div>` : ''}
               <div class="feed-content">${renderPostContent(post)}</div>
               <div class="feed-footer">
                 <div class="feed-timestamp">🙌 ${formatRelativeTime(timestamp)} ${editedIndicator}</div>
