@@ -272,11 +272,17 @@ export function createFeedRoutes(
         });
       }
 
-      const allPosts = await clout.getFeed({ includeDeleted: true });
+      const allPosts = await clout.getFeed();
       const parentPost = allPosts.find((p: any) => p.id === postId);
 
       if (!parentPost) {
-        return res.status(404).json({ success: false, error: 'Post not found', isRetracted: true });
+        // Check if it was retracted vs just not found
+        const wasRetracted = clout.isPostRetracted(postId);
+        return res.status(404).json({
+          success: false,
+          error: wasRetracted ? 'This post was retracted by the author' : 'Post not found',
+          isRetracted: wasRetracted
+        });
       }
 
       const replies = allPosts
