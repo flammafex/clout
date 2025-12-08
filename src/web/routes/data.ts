@@ -73,7 +73,6 @@ export function createDataRoutes(
       res.json({
         success: true,
         data: {
-          postsImported: result.postsImported,
           trustSignalsImported: result.trustSignalsImported,
           localDataImported: result.localDataImported
         }

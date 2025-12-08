@@ -258,13 +258,6 @@ export class CloutContent {
   }
 
   /**
-   * @deprecated Use retractPost instead
-   */
-  async deletePost(postId: string, reason?: 'retracted' | 'edited' | 'mistake' | 'other'): Promise<PostDeletePackage> {
-    return this.retractPost(postId, reason);
-  }
-
-  /**
    * Edit a post by creating a new version that supersedes the original
    */
   async editPost(
@@ -297,8 +290,8 @@ export class CloutContent {
       editOf: originalPostId
     });
 
-    // 3. Soft-delete the original post with reason 'edited'
-    await this.deletePost(originalPostId, 'edited');
+    // 3. Retract the original post with reason 'edited'
+    await this.retractPost(originalPostId, 'edited');
 
     console.log(`[Clout] ✏️ Edited post ${originalPostId.slice(0, 8)}... → ${newPost.getPackage().id.slice(0, 8)}...`);
     return newPost;

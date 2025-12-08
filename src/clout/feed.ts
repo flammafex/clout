@@ -202,13 +202,6 @@ export class CloutFeed {
   }
 
   /**
-   * @deprecated Use isPostRetracted instead
-   */
-  isPostDeleted(postId: string): boolean {
-    return this.isPostRetracted(postId);
-  }
-
-  /**
    * Get all post retractions
    */
   getPostRetractions(): PostDeletePackage[] {
@@ -216,13 +209,6 @@ export class CloutFeed {
       return (this.store as any).getDeletionsSync() || [];
     }
     return this.state.getPostDeletions();
-  }
-
-  /**
-   * @deprecated Use getPostRetractions instead
-   */
-  getPostDeletions(): PostDeletePackage[] {
-    return this.getPostRetractions();
   }
 
   /**
