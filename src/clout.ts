@@ -1329,10 +1329,17 @@ export class Clout {
       profile = { ...profile, publicKey: this.publicKeyHex };
     }
 
-    // Ensure trustGraph is always a Set
+    // Ensure trustGraph is always a Set and includes self
+    // (You should trust yourself above all)
+    let trustGraph: Set<string>;
     if (!profile.trustGraph || !(profile.trustGraph instanceof Set)) {
-      profile = { ...profile, trustGraph: this.trustGraph };
+      trustGraph = new Set(this.trustGraph);
+    } else {
+      trustGraph = new Set(profile.trustGraph);
     }
+    // Always ensure self is in the trust graph
+    trustGraph.add(this.publicKeyHex);
+    profile = { ...profile, trustGraph };
 
     // Ensure trustSettings always exists with defaults
     if (!profile.trustSettings) {
