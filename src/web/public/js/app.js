@@ -21,7 +21,12 @@ import {
   createPost, startReply, cancelReply, startEditPost, cancelEdit,
   retractPost, setupMediaUpload, setupCharCounter, clearMediaPreview
 } from './posts.js';
-import { toggleReaction, toggleBookmark, toggleCW } from './reactions.js';
+import {
+  toggleReaction, toggleBookmark, toggleCW, loadReactionPalette,
+  openEmojiPicker, closeEmojiPicker, filterEmojis, selectEmoji,
+  expandReactions, renderPaletteEditor, editPaletteSlot, closePalettePicker,
+  setPaletteEmoji, resetPalette
+} from './reactions.js';
 import { viewThread } from './thread.js';
 import {
   loadTrustedUsers, trustUser, quickTrust, muteUser, unmuteUser,
@@ -98,6 +103,9 @@ async function initializeClout() {
 
     const ticketExpiry = initResponse?.ticketInfo?.expiry;
     startDayPassTimer(ticketExpiry);
+
+    // Load user's reaction palette from IndexedDB
+    await loadReactionPalette();
 
     await loadFeed();
     await loadIdentity();
@@ -212,6 +220,18 @@ window.cloutApp = {
   toggleReaction: (postId, emoji) => toggleReaction(postId, emoji, requireMembership),
   toggleBookmark: (postId) => toggleBookmark(postId, requireMembership),
   toggleCW,
+  openEmojiPicker,
+  closeEmojiPicker,
+  filterEmojis,
+  selectEmoji,
+  expandReactions,
+
+  // Reaction Palette Settings
+  renderPaletteEditor,
+  editPaletteSlot,
+  closePalettePicker,
+  setPaletteEmoji,
+  resetPalette,
 
   // Thread
   viewThread,

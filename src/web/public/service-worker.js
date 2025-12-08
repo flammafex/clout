@@ -7,7 +7,7 @@
  * - Background sync queue for offline actions (future)
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const STATIC_CACHE = `clout-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `clout-dynamic-${CACHE_VERSION}`;
 

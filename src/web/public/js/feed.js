@@ -14,7 +14,7 @@ import {
   $, $$, showLoading, showResult, escapeHtml, formatRelativeTime,
   renderAvatar, getReputationColor, switchToTab
 } from './ui.js';
-import { renderReactionsBar } from './reactions.js';
+import { renderReactionsBar, getReactionPalette } from './reactions.js';
 
 /**
  * Load and render the main feed
@@ -448,7 +448,7 @@ export function renderFeedItem(post, fullFeatures = true) {
     : '';
 
   const authorActions = (post.isAuthor && fullFeatures)
-    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Edit post">Edit</button>
+    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Revise post">Revise</button>
        <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${post.id}')" title="Retract post">Retract</button>`
     : '';
 
@@ -459,8 +459,7 @@ export function renderFeedItem(post, fullFeatures = true) {
   const cwId = `cw-${post.id}`;
   const reactions = post.reactions || {};
   const myReaction = post.myReaction;
-  const reactionEmojis = ['&#x1F44D;', '&#x2764;&#xFE0F;', '&#x1F525;', '&#x1F602;', '&#x1F62E;', '&#x1F64F;'];
-  const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, reactionEmojis);
+  const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, getReactionPalette());
   const authorAvatar = post.authorAvatar || '&#x1F464;';
 
   return `
