@@ -249,6 +249,16 @@ export class FileSystemStore implements CloutStore {
   }
 
   /**
+   * Get all reactions (synchronous version for hot path)
+   */
+  getReactionsSync(): ReactionPackage[] {
+    if (!this.data.reactions) {
+      return [];
+    }
+    return Object.values(this.data.reactions);
+  }
+
+  /**
    * Check if a reaction exists
    */
   hasReaction(reactionId: string): boolean {
