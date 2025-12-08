@@ -570,10 +570,6 @@ export class Clout {
     return this.content.retractPost(postId, reason);
   }
 
-  async deletePost(postId: string, reason?: 'retracted' | 'edited' | 'mistake' | 'other'): Promise<import('./clout-types.js').PostDeletePackage> {
-    return this.content.deletePost(postId, reason);
-  }
-
   async editPost(
     originalPostId: string,
     newContent: string,
@@ -1004,16 +1000,8 @@ export class Clout {
     return this.feedModule.isPostRetracted(postId);
   }
 
-  isPostDeleted(postId: string): boolean {
-    return this.feedModule.isPostDeleted(postId);
-  }
-
   getPostRetractions(): import('./clout-types.js').PostDeletePackage[] {
     return this.feedModule.getPostRetractions();
-  }
-
-  getPostDeletions(): import('./clout-types.js').PostDeletePackage[] {
-    return this.feedModule.getPostDeletions();
   }
 
   processContentDecay(): number {
@@ -1060,43 +1048,14 @@ export class Clout {
   //  BACKUP - Delegated to CloutBackup
   // =================================================================
 
-  async exportBackup(): Promise<{
-    version: string;
-    exportedAt: number;
-    identity: { publicKey: string };
-    profile: {
-      trustSignals: TrustSignal[];
-      settings: any;
-    };
-    localData: {
-      tags: Record<string, string[]>;
-      nicknames: Record<string, string>;
-      muted: string[];
-    };
-  }> {
+  async exportBackup(): Promise<import('./clout/backup.js').BackupData> {
     return this.backup.exportBackup();
   }
 
   async importBackup(
-    backup: {
-      version: string;
-      profile?: {
-        trustSignals?: TrustSignal[];
-        settings?: any;
-      };
-      chronicleState?: {
-        posts?: PostPackage[];
-        trustSignals?: TrustSignal[];
-        profile?: any;
-      };
-      localData?: {
-        tags?: Record<string, string[]>;
-        nicknames?: Record<string, string>;
-        muted?: string[];
-      };
-    },
+    backup: import('./clout/backup.js').BackupData,
     options?: { replaceLocalData?: boolean }
-  ): Promise<{ postsImported: number; trustSignalsImported: number; localDataImported: boolean }> {
+  ): Promise<{ trustSignalsImported: number; localDataImported: boolean }> {
     return this.backup.importBackup(backup, options);
   }
 

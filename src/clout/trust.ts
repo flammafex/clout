@@ -190,7 +190,7 @@ export class CloutTrust {
 
         console.log(`[Clout] 🔐 Trusted ${trusteeKey.slice(0, 8)} (encrypted signal)`);
       } else {
-        // Legacy plaintext trust signal
+        // Plaintext trust signal (public social graph)
         const signalPayload = {
           truster: this.publicKeyHex,
           trustee: trusteeKey,
@@ -294,7 +294,7 @@ export class CloutTrust {
 
         console.log(`[Clout] 🔓 Revoked trust for ${trusteeKey.slice(0, 8)} (encrypted signal)`);
       } else {
-        // Legacy plaintext revocation signal
+        // Plaintext revocation signal (public social graph)
         const signalPayload = {
           truster: this.publicKeyHex,
           trustee: trusteeKey,
