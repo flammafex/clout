@@ -107,16 +107,14 @@ export class CloutWebServer {
   private isInitialized = (): boolean => this.initialized;
   private areVisitorsAllowed = (): boolean => this.allowVisitors;
 
-  // Per-user persistent data helpers for browser-identity mode
+  // Day Pass ticket storage helpers (only per-user data server stores)
+  // All other user data (trust graph, nicknames, etc.) lives in browser IndexedDB
   private getUserTicket = async (publicKey: string): Promise<any> => {
     return await this.userDataStore.getTicket(publicKey);
   };
   private setUserTicket = async (publicKey: string, ticket: any): Promise<void> => {
     await this.userDataStore.setTicket(publicKey, ticket);
   };
-
-  // Get the user data store for route modules
-  private getUserDataStore = (): UserDataStore => this.userDataStore;
 
   /**
    * Setup API routes
@@ -380,12 +378,13 @@ export class CloutWebServer {
     this.app.use('/api/data', createDataRoutes(this.getClout, this.isInitialized, this.identityManager));
 
     // Mount browser-identity submit routes (pre-signed payloads)
+    // Note: Server only stores Day Pass tickets. All social graph data
+    // lives in browser IndexedDB (Dark Social Graph architecture)
     this.app.use('/api', createSubmitRoutes({
       getClout: this.getClout,
       isInitialized: this.isInitialized,
       getUserTicket: this.getUserTicket,
-      setUserTicket: this.setUserTicket,
-      getUserDataStore: this.getUserDataStore
+      setUserTicket: this.setUserTicket
     }));
 
     // Legacy slide endpoints (for backwards compatibility)
