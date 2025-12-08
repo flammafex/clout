@@ -2057,9 +2057,8 @@ async function loadStats() {
   try {
     const data = await apiCall('/stats');
 
-    // Get actual feed count
-    const feedData = await apiCall('/feed');
-    const feedCount = feedData.totalPosts || feedData.posts?.length || 0;
+    // Use post count from stats (now returns accurate feed count from store)
+    const feedCount = data.state?.postCount || 0;
 
     $('stat-posts').textContent = feedCount;
     $('stat-trusted').textContent = data.identity?.trustCount || 0;
