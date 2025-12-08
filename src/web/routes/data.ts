@@ -85,6 +85,58 @@ export function createDataRoutes(
   });
 
   // =========================================================================
+  // PROFILE
+  // =========================================================================
+
+  // Get current user's profile
+  router.get('/identity', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+      const profile = clout.getProfile();
+
+      res.json({
+        success: true,
+        data: {
+          publicKey: profile.publicKey,
+          metadata: profile.metadata,
+          trustSettings: profile.trustSettings
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Update profile metadata
+  router.post('/profile', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const { displayName, bio, avatar } = req.body;
+
+      await clout.updateProfileMetadata({
+        displayName: displayName || undefined,
+        bio: bio || undefined,
+        avatar: avatar || undefined
+      });
+
+      const profile = clout.getProfile();
+
+      res.json({
+        success: true,
+        data: {
+          publicKey: profile.publicKey,
+          metadata: profile.metadata
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // =========================================================================
   // IDENTITY MANAGEMENT
   // =========================================================================
 

@@ -2064,9 +2064,14 @@ export class Clout {
 
     // Filter out deleted posts (unless includeDeleted is true)
     if (!options?.includeDeleted) {
-      const deletedPostIds = new Set(
-        this.state.getPostDeletions().map(d => d.postId)
-      );
+      // Read from file store for reliability (CRDT state may not persist)
+      let deletions: import('./clout-types.js').PostDeletePackage[] = [];
+      if (this.store && 'getDeletionsSync' in this.store) {
+        deletions = (this.store as any).getDeletionsSync() || [];
+      } else {
+        deletions = this.state.getPostDeletions();
+      }
+      const deletedPostIds = new Set(deletions.map(d => d.postId));
       posts = posts.filter(post => !deletedPostIds.has(post.id));
     }
 
@@ -2110,6 +2115,10 @@ export class Clout {
    * Check if a post has been retracted
    */
   isPostRetracted(postId: string): boolean {
+    // Read from file store for reliability
+    if (this.store && 'isDeleted' in this.store) {
+      return (this.store as any).isDeleted(postId);
+    }
     return this.state.isPostDeleted(postId);
   }
 
@@ -2124,6 +2133,10 @@ export class Clout {
    * Get all post retractions
    */
   getPostRetractions(): import('./clout-types.js').PostDeletePackage[] {
+    // Read from file store for reliability
+    if (this.store && 'getDeletionsSync' in this.store) {
+      return (this.store as any).getDeletionsSync() || [];
+    }
     return this.state.getPostDeletions();
   }
 
