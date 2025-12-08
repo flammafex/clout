@@ -302,6 +302,14 @@ export function createFeedRoutes(
       // Get replies using the edit-chain-aware method
       const replies = await clout.getRepliesForPost(parentPost.id);
 
+      // Pre-resolve all replyTo IDs so links point to the latest version
+      const replyToIds = new Set(replies.map(r => r.replyTo).filter(Boolean));
+      const resolvedReplyToMap = new Map<string, string>();
+      for (const replyToId of replyToIds) {
+        const resolvedId = await clout.resolvePostId(replyToId!);
+        resolvedReplyToMap.set(replyToId!, resolvedId);
+      }
+
       // Get current user's profile for avatar lookup
       const userProfile = clout.getProfile();
       const userPublicKey = userProfile.publicKey;
@@ -311,6 +319,8 @@ export function createFeedRoutes(
       const enrichPost = (post: any) => {
         const reactionData = getReactionsSummary(clout, post.id);
         const isAuthor = post.author === userPublicKey;
+        // Resolve replyTo to the latest version in the edit chain
+        const resolvedReplyTo = post.replyTo ? resolvedReplyToMap.get(post.replyTo) || post.replyTo : undefined;
         return {
           ...post,
           authorShort: post.author.slice(0, 8),
@@ -322,7 +332,9 @@ export function createFeedRoutes(
           isBookmarked: clout.isBookmarked(post.id),
           isAuthor,
           isEdited: !!post.editOf,
-          isDecayed: clout.isPostDecayed(post)
+          isDecayed: clout.isPostDecayed(post),
+          // Include resolved replyTo for correct thread navigation
+          resolvedReplyTo
         };
       };
 
