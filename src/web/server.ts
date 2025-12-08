@@ -23,7 +23,8 @@ import {
   createMediaRoutes,
   createSlidesRoutes,
   createSettingsRoutes,
-  createDataRoutes
+  createDataRoutes,
+  createSubmitRoutes
 } from './routes/index.js';
 import { createFreebirdAdminFromEnv } from '../integrations/freebird-admin.js';
 import { existsSync, writeFileSync } from 'fs';
@@ -49,6 +50,10 @@ export class CloutWebServer {
   private initialized = false;
   private port: number;
   private allowVisitors: boolean;
+  // Per-user ticket storage for browser-identity mode
+  private userTickets: Map<string, any> = new Map();
+  // Mapping from invitation codes to inviter public keys
+  private invitationCodeToInviter: Map<string, string> = new Map();
 
   constructor(config: WebServerConfig = {}) {
     this.port = config.port ?? 3000;
@@ -99,6 +104,14 @@ export class CloutWebServer {
   private getClout = (): Clout | undefined => this.clout;
   private isInitialized = (): boolean => this.initialized;
   private areVisitorsAllowed = (): boolean => this.allowVisitors;
+
+  // Per-user ticket storage helpers for browser-identity mode
+  private getUserTicket = async (publicKey: string): Promise<any> => {
+    return this.userTickets.get(publicKey) || null;
+  };
+  private setUserTicket = async (publicKey: string, ticket: any): Promise<void> => {
+    this.userTickets.set(publicKey, ticket);
+  };
 
   /**
    * Setup API routes
@@ -212,10 +225,54 @@ export class CloutWebServer {
       }
     });
 
+    // Decode an invitation code to get inviter info
+    // This is called before redemption so the browser can create a trust signal
+    this.app.post('/api/invitation/decode', async (req, res) => {
+      try {
+        const { code } = req.body;
+
+        if (!code) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invitation code is required'
+          });
+        }
+
+        // Look up the inviter from our local mapping
+        // This mapping is populated when invitations are created
+        const inviterKey = this.invitationCodeToInviter.get(code);
+
+        if (!inviterKey) {
+          // Code might be valid but we don't have the mapping
+          // This can happen for codes created before this feature
+          // Return success but without inviter info
+          return res.json({
+            success: true,
+            data: {
+              code,
+              hasInviter: false,
+              message: 'Invitation code format valid, but inviter unknown'
+            }
+          });
+        }
+
+        res.json({
+          success: true,
+          data: {
+            code,
+            hasInviter: true,
+            inviter: inviterKey
+          }
+        });
+      } catch (error: any) {
+        res.status(400).json({ success: false, error: error.message });
+      }
+    });
+
     // Redeem an invitation code
     this.app.post('/api/invitation/redeem', async (req, res) => {
       try {
-        const { code } = req.body;
+        const { code, publicKey } = req.body;
 
         if (!code) {
           return res.status(400).json({
@@ -236,9 +293,15 @@ export class CloutWebServer {
         // Store the invitation code in the Freebird adapter
         infra.freebird.setInvitationCode(code);
 
+        // Get the inviter for this code (for response)
+        const inviterKey = this.invitationCodeToInviter.get(code);
+
         res.json({
           success: true,
-          data: { message: 'Invitation code set successfully' }
+          data: {
+            message: 'Invitation code set successfully',
+            inviter: inviterKey || null
+          }
         });
       } catch (error: any) {
         res.status(400).json({ success: false, error: error.message });
@@ -310,6 +373,14 @@ export class CloutWebServer {
     this.app.use('/api/slides', createSlidesRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/settings', createSettingsRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/data', createDataRoutes(this.getClout, this.isInitialized, this.identityManager));
+
+    // Mount browser-identity submit routes (pre-signed payloads)
+    this.app.use('/api', createSubmitRoutes({
+      getClout: this.getClout,
+      isInitialized: this.isInitialized,
+      getUserTicket: this.getUserTicket,
+      setUserTicket: this.setUserTicket
+    }));
 
     // Legacy slide endpoints (for backwards compatibility)
     this.app.get('/api/slides', (req, res, next) => {
@@ -430,6 +501,11 @@ export class CloutWebServer {
       // Create the Dunbar pool (50 invitations - within Freebird's 1-100 limit)
       const invitations = await freebirdAdmin.bootstrapDunbarPool(selfPublicKey, 50);
 
+      // Store invitation-to-inviter mapping for mutual trust flow
+      for (const inv of invitations) {
+        this.invitationCodeToInviter.set(inv.code, selfPublicKey);
+      }
+
       // Save invitation codes to a file for admin reference
       const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
       const invitesFile = join(dataDir, 'invitations.json');
@@ -438,6 +514,7 @@ export class CloutWebServer {
         created: new Date().toISOString(),
         count: invitations.length,
         codes: invitations.map(i => i.code),
+        inviter: selfPublicKey,  // Include inviter for reference
         adminUrl: freebirdAdmin.getAdminUiUrl()
       }, null, 2));
 
@@ -452,11 +529,39 @@ export class CloutWebServer {
   }
 
   /**
+   * Load existing invitation-to-inviter mappings from file
+   */
+  private loadInvitationMappings(): void {
+    try {
+      const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+      const invitesFile = join(dataDir, 'invitations.json');
+
+      if (existsSync(invitesFile)) {
+        const data = JSON.parse(require('fs').readFileSync(invitesFile, 'utf-8'));
+        const inviter = data.inviter;
+        const codes = data.codes || [];
+
+        if (inviter && codes.length > 0) {
+          for (const code of codes) {
+            this.invitationCodeToInviter.set(code, inviter);
+          }
+          console.log(`[Bootstrap] Loaded ${codes.length} invitation code mappings`);
+        }
+      }
+    } catch (error) {
+      // File doesn't exist or is invalid - not an error, just no mappings yet
+    }
+  }
+
+  /**
    * Start the server
    */
   async start(): Promise<void> {
     // Initialize WASM backend for Chronicle (7x performance boost)
     await tryLoadWasm();
+
+    // Load existing invitation mappings
+    this.loadInvitationMappings();
 
     return new Promise((resolve) => {
       this.app.listen(this.port, () => {

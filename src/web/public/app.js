@@ -181,21 +181,103 @@ async function redeemInvite() {
     return;
   }
 
+  // Check if browser crypto modules are loaded
+  if (!window.CloutCrypto || !window.CloutIdentity) {
+    $('invite-result').textContent = 'Crypto modules not loaded. Please refresh the page.';
+    $('invite-result').className = 'result-message error';
+    return;
+  }
+
   try {
     $('redeem-invite-btn').disabled = true;
-    $('redeem-invite-btn').textContent = 'Redeeming...';
+    $('redeem-invite-btn').textContent = 'Checking...';
 
-    // Step 1: Redeem the invitation code
-    await apiCall('/invitation/redeem', 'POST', { code });
+    // Step 1: Decode invitation to get inviter info
+    $('invite-result').textContent = 'Validating invitation...';
+    $('invite-result').className = 'result-message';
 
-    $('invite-result').textContent = 'Invitation accepted! Creating your identity...';
-    $('invite-result').className = 'result-message success';
+    const decodeResult = await apiCall('/invitation/decode', 'POST', { code });
+    const inviterPubkey = decodeResult.hasInviter ? decodeResult.inviter : null;
+
+    // Step 2: Generate identity in browser
+    $('invite-result').textContent = 'Creating your identity...';
     $('redeem-invite-btn').textContent = 'Creating Identity...';
 
-    // Step 2: Initialize Clout (creates identity)
+    let identity = await window.CloutIdentity.load();
+    if (!identity) {
+      identity = window.CloutIdentity.generate();
+      await window.CloutIdentity.store(identity);
+      console.log('[Clout] New identity created:', identity.publicKeyHex.slice(0, 16) + '...');
+    } else {
+      console.log('[Clout] Using existing identity:', identity.publicKeyHex.slice(0, 16) + '...');
+    }
+
+    // Store identity globally for other functions
+    window.browserIdentity = identity;
+    window.userPublicKey = identity.publicKeyHex;
+
+    // Step 3: Redeem the invitation code with our public key
+    $('invite-result').textContent = 'Redeeming invitation...';
+    $('redeem-invite-btn').textContent = 'Redeeming...';
+
+    const redeemResult = await apiCall('/invitation/redeem', 'POST', {
+      code,
+      publicKey: identity.publicKeyHex
+    });
+
+    // Step 4: Initialize server (sets up Freebird, Witness, etc.)
+    $('invite-result').textContent = 'Initializing network connection...';
+    $('redeem-invite-btn').textContent = 'Connecting...';
+
     const initResponse = await apiCall('/init', 'POST');
 
-    // Step 3: Transition from visitor to member
+    // Step 5: Request Day Pass
+    $('invite-result').textContent = 'Getting your Day Pass...';
+    $('redeem-invite-btn').textContent = 'Getting Day Pass...';
+
+    // For now, skip the full Freebird token flow and use the server's ticket
+    // In the future, we'll implement browser-side blinding
+    const ticketExpiry = initResponse?.ticketInfo?.expiry;
+
+    // Step 6: Create trust signal for inviter (MUTUAL TRUST!)
+    if (inviterPubkey && inviterPubkey !== identity.publicKeyHex) {
+      $('invite-result').textContent = 'Establishing trust with your inviter...';
+      $('redeem-invite-btn').textContent = 'Building Trust...';
+
+      try {
+        const timestamp = Date.now();
+        const weight = 1.0; // Full trust for inviter
+
+        // Create encrypted trust signal
+        const trustSignal = window.CloutCrypto.createEncryptedTrustSignal(
+          identity.privateKey,
+          identity.publicKeyHex,
+          inviterPubkey,
+          weight,
+          timestamp
+        );
+
+        // Submit to server
+        await apiCall('/trust/submit', 'POST', {
+          truster: identity.publicKeyHex,
+          trusteeCommitment: trustSignal.trusteeCommitment,
+          encryptedTrustee: {
+            ephemeralPublicKey: window.CloutCrypto.toHex(trustSignal.encryptedTrustee.ephemeralPublicKey),
+            ciphertext: window.CloutCrypto.toHex(trustSignal.encryptedTrustee.ciphertext)
+          },
+          signature: window.CloutCrypto.toHex(trustSignal.signature),
+          weight,
+          timestamp
+        });
+
+        console.log('[Clout] Created mutual trust with inviter:', inviterPubkey.slice(0, 16) + '...');
+      } catch (trustError) {
+        // Trust signal failed but don't block onboarding
+        console.warn('[Clout] Failed to create trust signal for inviter:', trustError);
+      }
+    }
+
+    // Step 7: Transition from visitor to member
     initialized = true;
     isVisitor = false;
     pendingInviteCode = code;
@@ -205,12 +287,18 @@ async function redeemInvite() {
     $('main-app').style.display = 'block';
     updateStatus('Connected', true);
 
-    // Start day pass countdown timer with actual ticket expiry
-    const ticketExpiry = initResponse?.ticketInfo?.expiry;
+    // Start day pass countdown timer
     startDayPassTimer(ticketExpiry);
 
     $('invite-result').textContent = '🎉 Welcome to Clout! Your identity has been created.';
     $('invite-result').className = 'result-message success';
+
+    // Prompt user to backup their identity
+    setTimeout(() => {
+      if (confirm('Would you like to backup your identity now? This is important - your identity lives only in this browser!')) {
+        promptIdentityBackup();
+      }
+    }, 2000);
 
     // Close popover and load feed after a short delay
     setTimeout(async () => {
@@ -230,7 +318,29 @@ async function redeemInvite() {
     $('invite-result').className = 'result-message error';
   } finally {
     $('redeem-invite-btn').disabled = false;
-    $('redeem-invite-btn').textContent = 'Redeem';
+    $('redeem-invite-btn').textContent = 'Join Network';
+  }
+}
+
+// Prompt user to backup their browser identity
+async function promptIdentityBackup() {
+  const password = prompt('Enter a password to encrypt your identity backup:');
+  if (!password) return;
+
+  const confirmPassword = prompt('Confirm your password:');
+  if (password !== confirmPassword) {
+    alert('Passwords do not match. Please try again from Profile > Export Identity.');
+    return;
+  }
+
+  try {
+    const identity = await window.CloutIdentity.load();
+    if (identity) {
+      await window.CloutIdentity.downloadBackup(identity, password);
+      alert('Identity backup downloaded! Keep this file safe - you can use it to restore your identity on another device.');
+    }
+  } catch (error) {
+    alert('Failed to create backup: ' + error.message);
   }
 }
 
@@ -2560,18 +2670,42 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Auto-initialize Clout connection
-// Tries to initialize for returning users, falls back to visitor mode
+// Checks for browser identity first, then initializes server connection
 async function autoInitialize() {
   try {
     // Check if server is available
     const health = await apiCall('/health');
 
-    // Try to initialize - will work if an identity already exists on the server
     updateStatus('Connecting...', false);
 
+    // Check for existing browser identity first
+    if (window.CloutIdentity) {
+      try {
+        const identity = await window.CloutIdentity.load();
+        if (identity) {
+          console.log('[Clout] Found existing browser identity:', identity.publicKeyHex.slice(0, 16) + '...');
+          window.browserIdentity = identity;
+          window.userPublicKey = identity.publicKeyHex;
+
+          // Try to initialize server with existing identity
+          try {
+            await initializeClout();
+            isVisitor = false;
+            return; // Successfully initialized with browser identity
+          } catch (initError) {
+            console.warn('[Clout] Server init failed with browser identity:', initError.message);
+            // Fall through to visitor mode
+          }
+        }
+      } catch (loadError) {
+        console.warn('[Clout] Failed to load browser identity:', loadError);
+      }
+    }
+
+    // No browser identity or server init failed - try legacy server identity
     try {
       await initializeClout();
-      // Successfully initialized - user has an identity
+      // Successfully initialized - user has a server-side identity
       isVisitor = false;
     } catch (initError) {
       // Initialization failed - likely no identity exists
