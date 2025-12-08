@@ -13,7 +13,10 @@
  */
 
 const DB_NAME = 'clout-user-data';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+
+// Default reaction palette - 6 quick-access emojis
+const DEFAULT_REACTION_PALETTE = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
 
 /**
  * Open the IndexedDB database
@@ -65,6 +68,11 @@ async function openDatabase() {
       // Store for notification state
       if (!db.objectStoreNames.contains('notifications')) {
         db.createObjectStore('notifications', { keyPath: 'type' });
+      }
+
+      // Store for user preferences (reaction palette, etc.)
+      if (!db.objectStoreNames.contains('preferences')) {
+        db.createObjectStore('preferences', { keyPath: 'key' });
       }
     };
   });
@@ -511,6 +519,74 @@ export class BrowserUserData {
   }
 
   // =========================================================================
+  //  PREFERENCES (Reaction Palette, etc.)
+  // =========================================================================
+
+  async getReactionPalette() {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('preferences', 'readonly');
+      const store = tx.objectStore('preferences');
+      const request = store.get('reactionPalette');
+      request.onsuccess = () => {
+        const result = request.result?.value;
+        resolve(result && result.length > 0 ? result : DEFAULT_REACTION_PALETTE);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async setReactionPalette(emojis) {
+    if (!Array.isArray(emojis) || emojis.length === 0) {
+      throw new Error('Reaction palette must be a non-empty array of emojis');
+    }
+    // Limit to 6 emojis
+    const palette = emojis.slice(0, 6);
+
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('preferences', 'readwrite');
+      const store = tx.objectStore('preferences');
+      const request = store.put({
+        key: 'reactionPalette',
+        value: palette,
+        updated: Date.now()
+      });
+      request.onsuccess = () => {
+        console.log('[BrowserUserData] Reaction palette updated:', palette);
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getPreference(key, defaultValue = null) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('preferences', 'readonly');
+      const store = tx.objectStore('preferences');
+      const request = store.get(key);
+      request.onsuccess = () => resolve(request.result?.value ?? defaultValue);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async setPreference(key, value) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('preferences', 'readwrite');
+      const store = tx.objectStore('preferences');
+      const request = store.put({
+        key,
+        value,
+        updated: Date.now()
+      });
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // =========================================================================
   //  EXPORT / IMPORT (for backup)
   // =========================================================================
 
@@ -522,7 +598,8 @@ export class BrowserUserData {
       tags,
       muted,
       bookmarks,
-      notifications
+      notifications,
+      reactionPalette
     ] = await Promise.all([
       this.getProfile(window.browserIdentity?.publicKeyHex),
       this.getTrustGraph(),
@@ -530,11 +607,12 @@ export class BrowserUserData {
       this.getAllTagsWithUsers(),
       this.getMutedUsers(),
       this.getBookmarks(),
-      this.getNotificationState()
+      this.getNotificationState(),
+      this.getReactionPalette()
     ]);
 
     return {
-      version: '1.0',
+      version: '1.1',
       exportedAt: Date.now(),
       profile,
       trustGraph,
@@ -542,7 +620,8 @@ export class BrowserUserData {
       tags,
       muted,
       bookmarks,
-      notifications
+      notifications,
+      reactionPalette
     };
   }
 
@@ -608,6 +687,11 @@ export class BrowserUserData {
       }
     }
 
+    // Import reaction palette
+    if (data.reactionPalette && Array.isArray(data.reactionPalette)) {
+      await this.setReactionPalette(data.reactionPalette);
+    }
+
     console.log('[BrowserUserData] Import complete');
   }
 
@@ -617,7 +701,7 @@ export class BrowserUserData {
 
   async clearAll() {
     const db = await this.ensureDb();
-    const stores = ['profile', 'trust', 'nicknames', 'tags', 'muted', 'bookmarks', 'notifications'];
+    const stores = ['profile', 'trust', 'nicknames', 'tags', 'muted', 'bookmarks', 'notifications', 'preferences'];
 
     for (const storeName of stores) {
       await new Promise((resolve, reject) => {

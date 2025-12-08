@@ -10,7 +10,7 @@
 import * as state from './state.js';
 import { apiCall } from './api.js';
 import { $, $$, escapeHtml, formatRelativeTime, renderAvatar } from './ui.js';
-import { renderReactionsBar } from './reactions.js';
+import { renderReactionsBar, getReactionPalette } from './reactions.js';
 import { renderPostContent } from './feed.js';
 
 /**
@@ -103,8 +103,7 @@ function renderThreadPost(post, isParent = false) {
 
   // Reactions bar
   const reactions = post.reactions || {};
-  const reactionEmojis = ['&#x1F44D;', '&#x2764;&#xFE0F;', '&#x1F525;', '&#x1F602;', '&#x1F62E;', '&#x1F64F;'];
-  const reactionsHtml = renderReactionsBar(post.id, reactions, post.myReaction, reactionEmojis);
+  const reactionsHtml = renderReactionsBar(post.id, reactions, post.myReaction, getReactionPalette());
 
   // Mute button
   const muteBtn = !post.isAuthor
@@ -113,7 +112,7 @@ function renderThreadPost(post, isParent = false) {
 
   // Author actions
   const authorActions = post.isAuthor
-    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Edit">Edit</button>
+    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Revise">Revise</button>
        <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${post.id}')" title="Retract">Retract</button>`
     : '';
 
