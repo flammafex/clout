@@ -96,12 +96,33 @@ export class CloutStateManager extends Emitter {
   getState(): Readonly<CloutState> {
     // Chronicle.state getter automatically syncs from WASM to JS object
     const doc = this.chronicle.state;
-    
-    // Hydrate Sets for the application layer
+
+    // Hydrate the state for the application layer
+    // Automerge returns proxy objects that look like arrays but aren't real JS arrays
     const state = { ...doc } as any;
-    if (state.profile?.trustGraph) {
-        state.profile.trustGraph = new Set(state.profile.trustGraph);
+
+    // Ensure all array fields are real JS arrays (Automerge proxies don't have .filter, .map, etc.)
+    if (state.myPosts && !Array.isArray(state.myPosts)) {
+      state.myPosts = Array.from(state.myPosts);
     }
+    if (state.myTrustSignals && !Array.isArray(state.myTrustSignals)) {
+      state.myTrustSignals = Array.from(state.myTrustSignals);
+    }
+    if (state.myReactions && !Array.isArray(state.myReactions)) {
+      state.myReactions = Array.from(state.myReactions);
+    }
+    if (state.myPostDeletions && !Array.isArray(state.myPostDeletions)) {
+      state.myPostDeletions = Array.from(state.myPostDeletions);
+    }
+
+    // Hydrate trustGraph to a Set
+    if (state.profile?.trustGraph) {
+      const trustArray = Array.isArray(state.profile.trustGraph)
+        ? state.profile.trustGraph
+        : Array.from(state.profile.trustGraph);
+      state.profile.trustGraph = new Set(trustArray);
+    }
+
     return state;
   }
 
