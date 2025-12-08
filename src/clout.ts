@@ -8,7 +8,7 @@ import { ProfileStore } from './store/profile-store.js';
 import { CloutLocalData } from './clout/local-data.js';
 import { CloutMessaging } from './clout/messaging.js';
 import { CloutStateSync } from './clout/state-sync.js';
-import type { FreebirdClient, WitnessClient } from './types.js';
+import type { FreebirdClient, WitnessClient, Attestation } from './types.js';
 import {
   type TrustSignal,
   type EncryptedTrustSignal,
@@ -2311,5 +2311,150 @@ export class Clout {
     }
 
     return { postsImported, trustSignalsImported, localDataImported };
+  }
+
+  // =================================================================
+  //  SECTION 10: RELAY METHODS (for browser-side identity)
+  // =================================================================
+
+  /**
+   * Relay a pre-signed post to the gossip network
+   *
+   * Used when the browser has signed the post with the user's private key.
+   * The server verifies the signature and broadcasts to gossip.
+   *
+   * @param postPackage - Pre-signed post data from browser
+   * @returns Witness attestation
+   */
+  async relayPost(postPackage: {
+    id: string;
+    content: string;
+    author: string;
+    signature: Uint8Array;
+    ephemeralPublicKey?: Uint8Array;
+    ephemeralKeyProof?: Uint8Array;
+    replyTo?: string;
+    nsfw?: boolean;
+    contentWarning?: string;
+    media?: { cid: string };
+    authorshipProof?: Uint8Array;
+  }): Promise<Attestation> {
+    // Get witness proof for the post
+    const postHash = Crypto.hashObject({
+      id: postPackage.id,
+      content: postPackage.content,
+      author: postPackage.author,
+      signature: Crypto.toHex(postPackage.signature)
+    });
+
+    const proof = await this.witness.timestamp(postHash);
+
+    // Build full post package with proof
+    const fullPost: PostPackage = {
+      id: postPackage.id,
+      content: postPackage.content,
+      author: postPackage.author,
+      signature: postPackage.signature,
+      proof,
+      ephemeralPublicKey: postPackage.ephemeralPublicKey,
+      ephemeralKeyProof: postPackage.ephemeralKeyProof,
+      replyTo: postPackage.replyTo,
+      nsfw: postPackage.nsfw,
+      contentWarning: postPackage.contentWarning,
+      media: postPackage.media ? {
+        cid: postPackage.media.cid,
+        mimeType: 'application/octet-stream', // Will be resolved later
+        size: 0,
+        storedAt: Date.now()
+      } : undefined,
+      authorshipProof: postPackage.authorshipProof,
+      mentions: this.extractMentions(postPackage.content)
+    };
+
+    // Store locally
+    this.state.addPost(fullPost);
+    if (this.store) {
+      await this.store.addPost(fullPost);
+    }
+
+    // Broadcast via gossip
+    if (this.gossip) {
+      await this.gossip.publish({
+        type: 'post',
+        post: fullPost,
+        timestamp: proof.timestamp
+      });
+    }
+
+    console.log(`[Clout] Relayed post ${postPackage.id.slice(0, 8)} from ${postPackage.author.slice(0, 8)}`);
+    return proof;
+  }
+
+  /**
+   * Relay a pre-signed encrypted trust signal to the gossip network
+   *
+   * Used when the browser has created an encrypted trust signal with the user's private key.
+   * The server verifies the signature and broadcasts to gossip.
+   *
+   * @param signal - Pre-signed encrypted trust signal from browser
+   * @returns Witness attestation
+   */
+  async relayTrustSignal(signal: {
+    truster: string;
+    trusteeCommitment: string;
+    encryptedTrustee: {
+      ephemeralPublicKey: Uint8Array;
+      ciphertext: Uint8Array;
+    };
+    signature: Uint8Array;
+    weight: number;
+    version: 'encrypted-v1';
+  }): Promise<Attestation> {
+    // Get witness proof for the commitment
+    const proof = await this.witness.timestamp(signal.trusteeCommitment);
+
+    // Build full encrypted trust signal
+    const fullSignal: EncryptedTrustSignal = {
+      truster: signal.truster,
+      trusteeCommitment: signal.trusteeCommitment,
+      encryptedTrustee: signal.encryptedTrustee,
+      signature: signal.signature,
+      proof,
+      weight: signal.weight,
+      version: signal.version
+    };
+
+    // Broadcast via gossip
+    if (this.gossip) {
+      await this.gossip.publish({
+        type: 'trust-encrypted',
+        encryptedTrustSignal: fullSignal,
+        timestamp: proof.timestamp
+      });
+    }
+
+    console.log(`[Clout] Relayed trust signal from ${signal.truster.slice(0, 8)}`);
+    return proof;
+  }
+
+  /**
+   * Verify a Freebird token
+   *
+   * @param token - The VOPRF token bytes
+   * @returns true if valid
+   */
+  async verifyFreebirdToken(token: Uint8Array): Promise<boolean> {
+    return this.freebird.verifyToken(token);
+  }
+
+  /**
+   * Get a witness proof for arbitrary data
+   *
+   * @param data - Data to get proof for (will be hashed if string)
+   * @returns Witness attestation
+   */
+  async getWitnessProof(data: string | Uint8Array): Promise<Attestation> {
+    const hashInput = typeof data === 'string' ? data : Crypto.toHex(data);
+    return this.witness.timestamp(hashInput);
   }
 }
