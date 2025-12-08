@@ -1573,6 +1573,17 @@ async function viewThread(postId) {
 
     const data = result.data;
 
+    // If the post was resolved through an edit chain, update the URL silently
+    // This happens when someone clicks a link to an old (edited) post
+    if (data.resolved && data.parent) {
+      const newPostId = data.parent.id;
+      // Update URL without adding to history (replace state)
+      const newUrl = new URL(window.location);
+      newUrl.searchParams.set('thread', newPostId);
+      window.history.replaceState({}, '', newUrl);
+      console.log(`[Thread] Resolved edited post ${data.originalId.slice(0, 8)}... → ${newPostId.slice(0, 8)}...`);
+    }
+
     // Show thread tab button and switch to it
     const threadTabBtn = document.querySelector('.tab-btn[data-tab="thread"]');
     threadTabBtn.style.display = 'block';

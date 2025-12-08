@@ -212,6 +212,170 @@ export class CloutFeed {
   }
 
   /**
+   * Get the retraction reason for a post
+   */
+  getRetractionReason(postId: string): string | null {
+    const retractions = this.getPostRetractions();
+    const retraction = retractions.find(r => r.postId === postId);
+    return retraction?.reason || null;
+  }
+
+  /**
+   * Resolve a post ID through the edit chain to find the latest version
+   *
+   * If a post was edited, this follows the chain:
+   *   originalId -> editedId -> editedId2 -> ... -> latestId
+   *
+   * Returns the latest post ID in the chain, or the original if not edited.
+   */
+  async resolvePostId(postId: string): Promise<string> {
+    if (!this.store) {
+      return postId;
+    }
+
+    const allPosts = await this.getCachedFeed();
+
+    // Build edit chain map: originalId -> editedId
+    const editMap = new Map<string, string>();
+    for (const post of allPosts) {
+      if (post.editOf) {
+        editMap.set(post.editOf, post.id);
+      }
+    }
+
+    // Follow the chain to the latest version
+    let currentId = postId;
+    let iterations = 0;
+    const maxIterations = 100; // Prevent infinite loops
+
+    while (editMap.has(currentId) && iterations < maxIterations) {
+      currentId = editMap.get(currentId)!;
+      iterations++;
+    }
+
+    return currentId;
+  }
+
+  /**
+   * Get a post by ID, resolving through the edit chain
+   *
+   * If the post was edited, returns the latest version.
+   * Also returns info about whether resolution occurred.
+   */
+  async getPostById(postId: string): Promise<{
+    post: PostPackage | null;
+    resolved: boolean;
+    originalId: string;
+    wasRetracted: boolean;
+    retractionReason: string | null;
+  }> {
+    if (!this.store) {
+      return { post: null, resolved: false, originalId: postId, wasRetracted: false, retractionReason: null };
+    }
+
+    const allPosts = await this.getCachedFeed();
+
+    // First, check if this exact ID exists
+    let post = allPosts.find(p => p.id === postId) || null;
+
+    // If found directly, return it
+    if (post) {
+      return {
+        post,
+        resolved: false,
+        originalId: postId,
+        wasRetracted: false,
+        retractionReason: null
+      };
+    }
+
+    // Not found - check if it was retracted
+    const wasRetracted = this.isPostRetracted(postId);
+    const retractionReason = this.getRetractionReason(postId);
+
+    // If retracted due to edit, try to resolve to the new version
+    if (wasRetracted && retractionReason === 'edited') {
+      const resolvedId = await this.resolvePostId(postId);
+      if (resolvedId !== postId) {
+        post = allPosts.find(p => p.id === resolvedId) || null;
+        if (post) {
+          return {
+            post,
+            resolved: true,
+            originalId: postId,
+            wasRetracted: true,
+            retractionReason: 'edited'
+          };
+        }
+      }
+    }
+
+    // Post not found or couldn't resolve
+    return {
+      post: null,
+      resolved: false,
+      originalId: postId,
+      wasRetracted,
+      retractionReason
+    };
+  }
+
+  /**
+   * Get all replies to a post, including replies to older versions in the edit chain
+   *
+   * This ensures that when a post is edited, all replies to both the
+   * original and edited versions are shown together.
+   */
+  async getRepliesForPost(postId: string): Promise<PostPackage[]> {
+    if (!this.store) {
+      return [];
+    }
+
+    const allPosts = await this.getCachedFeed();
+
+    // Build the edit chain backwards: collect all IDs that lead to this post
+    // We need to find replies to ANY version in the chain
+    const chainIds = new Set<string>([postId]);
+
+    // Find all posts that were edited into this one (reverse chain)
+    let foundMore = true;
+    while (foundMore) {
+      foundMore = false;
+      for (const post of allPosts) {
+        if (post.editOf && chainIds.has(post.id) && !chainIds.has(post.editOf)) {
+          // This post is an edit of something - add the original to the chain
+          chainIds.add(post.editOf);
+          foundMore = true;
+        }
+      }
+    }
+
+    // Also check retractions for edit chains we might have missed
+    const retractions = this.getPostRetractions();
+    for (const retraction of retractions) {
+      if (retraction.reason === 'edited') {
+        // Find if this retracted post leads to our chain
+        const resolvedId = await this.resolvePostId(retraction.postId);
+        if (chainIds.has(resolvedId)) {
+          chainIds.add(retraction.postId);
+        }
+      }
+    }
+
+    // Find all replies to any post in the chain
+    const replies = allPosts.filter(p => p.replyTo && chainIds.has(p.replyTo));
+
+    // Sort by timestamp
+    replies.sort((a, b) => {
+      const timeA = a.proof?.timestamp || 0;
+      const timeB = b.proof?.timestamp || 0;
+      return timeA - timeB;
+    });
+
+    return replies;
+  }
+
+  /**
    * Process content decay for old posts
    */
   processContentDecay(): number {
