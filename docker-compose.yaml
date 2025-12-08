@@ -10,6 +10,11 @@
 #   docker compose run --rm cli post "Hello world"
 #   docker compose run --rm cli feed
 #
+# Browser VOPRF Proxy:
+#   The browser blinds tokens locally and sends blinded requests to Clout.
+#   Clout proxies to Freebird internally (http://freebird-issuer:8081).
+#   This bypasses CORS while keeping browser-side privacy intact.
+#
 # ============================================
 
 services:
