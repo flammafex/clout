@@ -1787,6 +1787,16 @@ async function loadIdentity() {
 
     // Store public key for QR code generation
     window.userPublicKey = data.publicKey;
+
+    // Dark Social Graph: Ensure self is trusted in IndexedDB
+    // This mirrors the server-side behavior where self is always in trustGraph
+    if (window.CloutUserData && data.publicKey) {
+      const isSelfTrusted = await window.CloutUserData.isTrusted(data.publicKey);
+      if (!isSelfTrusted) {
+        console.log('[Identity] Adding self to IndexedDB trust graph');
+        await window.CloutUserData.trust(data.publicKey, 1.0);
+      }
+    }
   } catch (error) {
     console.error('Error loading identity:', error);
   }
