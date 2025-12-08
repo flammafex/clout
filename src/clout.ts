@@ -1828,6 +1828,12 @@ export class Clout {
       throw new Error(`Invalid reaction. Allowed: ${Clout.REACTION_EMOJIS.join(' ')}`);
     }
 
+    // Remove any existing reaction on this post first (one reaction per post)
+    const existingReaction = this.getMyReaction(postId);
+    if (existingReaction && existingReaction !== emoji) {
+      await this.unreact(postId, existingReaction);
+    }
+
     // Create reaction ID
     const reactionId = Crypto.hashString(`${postId}:${this.publicKeyHex}:${emoji}`);
 
