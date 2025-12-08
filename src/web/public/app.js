@@ -1544,73 +1544,129 @@ function getReputationColor(score) {
 
 async function viewThread(postId) {
   try {
-    const data = await apiCall(`/thread/${postId}`);
+    const response = await fetch(`/api/thread/${postId}`);
+    const result = await response.json();
+
+    // Handle retracted/deleted posts gracefully
+    if (!response.ok || !result.success) {
+      // Show thread tab with friendly message
+      const threadTabBtn = document.querySelector('.tab-btn[data-tab="thread"]');
+      threadTabBtn.style.display = 'block';
+      $$('.tab-btn').forEach(b => b.classList.remove('active'));
+      threadTabBtn.classList.add('active');
+      $$('.tab-content').forEach(content => content.classList.remove('active'));
+      $('thread-tab').classList.add('active');
+
+      $('thread-parent').innerHTML = `
+        <div class="feed-item thread-parent-post" style="text-align: center; padding: 2rem;">
+          <div class="empty-state">
+            <p style="font-size: 2rem; margin-bottom: 1rem;">🗑️</p>
+            <p><strong>This post is no longer available</strong></p>
+            <p style="color: var(--text-dim); margin-top: 0.5rem;">It may have been retracted by the author.</p>
+            <button class="btn" onclick="switchToTab('feed')" style="margin-top: 1rem;">← Back to Feed</button>
+          </div>
+        </div>
+      `;
+      $('thread-replies-list').innerHTML = '';
+      return;
+    }
+
+    const data = result.data;
 
     // Show thread tab button and switch to it
-    // Tab order: Feed(0), Post(1), Trust(2), Slides(3), Profile(4), Thread(5), Settings(6), Identity(7), Stats(8)
     const threadTabBtn = document.querySelector('.tab-btn[data-tab="thread"]');
     threadTabBtn.style.display = 'block';
-
     $$('.tab-btn').forEach(b => b.classList.remove('active'));
     threadTabBtn.classList.add('active');
     $$('.tab-content').forEach(content => content.classList.remove('active'));
     $('thread-tab').classList.add('active');
 
-    // Display parent post
-    const parent = data.parent;
-    const parentHasMedia = parent.media && parent.media.cid;
-    const parentAuthorName = parent.authorDisplayName || parent.author.slice(0, 16) + '...';
-    const parentHasNickname = !!parent.authorNickname;
-    const parentAvatar = parent.authorAvatar || '👤';
-    const parentTimestamp = parent.proof?.timestamp || parent.timestamp;
-    $('thread-parent').innerHTML = `
-      <div class="feed-item thread-parent-post ${parentHasMedia ? 'has-media' : ''}">
-        <div class="feed-item-wrapper">
-          <div class="feed-avatar">${renderAvatar(parentAvatar)}</div>
-          <div class="feed-post-content">
-            <div class="feed-author"><span class="${parentHasNickname ? 'has-nickname' : ''}" title="${parent.author}">${escapeHtml(parentAuthorName)}</span></div>
-            ${parent.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${parent.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); viewThread('${parent.replyTo}')">View parent</a></div>` : ''}
-            <div class="feed-content">${renderPostContent(parent)}</div>
-            <div class="feed-footer">
-              <div class="feed-timestamp">${parentTimestamp ? new Date(parentTimestamp).toLocaleString() : 'Unknown'}</div>
-              <button class="btn-reply" onclick="startReply('${parent.id}', '${escapeHtml(parentAuthorName)}')">Reply</button>
+    // Helper to render a post with full actions
+    const renderThreadPost = (post, isParent = false) => {
+      const hasMedia = post.media && post.media.cid;
+      const authorName = post.authorDisplayName || post.author.slice(0, 16) + '...';
+      const hasNickname = !!post.authorNickname;
+      const avatar = post.authorAvatar || '👤';
+      const timestamp = post.proof?.timestamp || post.timestamp;
+      const editedIndicator = post.isEdited ? '<span class="edited-badge" title="This post has been edited">edited</span>' : '';
+
+      // Reactions bar
+      const reactions = post.reactions || {};
+      const reactionEmojis = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
+      const reactionsHtml = renderReactionsBar(post.id, reactions, post.myReaction, reactionEmojis);
+
+      // Mute button (not for your own posts)
+      const muteBtn = !post.isAuthor
+        ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Mute">Mute</button>`
+        : '';
+
+      // Edit/Retract buttons (only for your own posts)
+      const authorActions = post.isAuthor
+        ? `<button class="btn-action" onclick="event.stopPropagation(); startEditPost('${post.id}')" title="Edit">Edit</button>
+           <button class="btn-action btn-retract" onclick="event.stopPropagation(); retractPost('${post.id}')" title="Retract">Retract</button>`
+        : '';
+
+      const parentClass = isParent ? 'thread-parent-post' : '';
+      const clickHandler = isParent ? '' : `onclick="viewThread('${post.id}')" style="cursor: pointer;"`;
+
+      return `
+        <div class="feed-item ${parentClass} ${hasMedia ? 'has-media' : ''}" ${clickHandler}>
+          <div class="feed-item-wrapper">
+            <div class="feed-avatar">${renderAvatar(avatar)}</div>
+            <div class="feed-post-content">
+              <div class="feed-author"><span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span></div>
+              ${post.replyTo ? `<div class="feed-reply-indicator">↳ Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); viewThread('${post.replyTo}')">View parent</a></div>` : ''}
+              <div class="feed-content">${renderPostContent(post)}</div>
+              <div class="feed-footer">
+                <div class="feed-timestamp">🙌 ${formatRelativeTime(timestamp)} ${editedIndicator}</div>
+                <div class="feed-actions">
+                  ${reactionsHtml}
+                  <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+                    ${post.isBookmarked ? 'Saved' : 'Save'}
+                  </button>
+                  <button class="btn-action" onclick="event.stopPropagation(); startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+                  ${muteBtn}
+                  ${authorActions}
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
+    };
+
+    // Display parent post
+    $('thread-parent').innerHTML = renderThreadPost(data.parent, true);
 
     // Display replies
     const repliesList = $('thread-replies-list');
     if (data.replies.length === 0) {
       repliesList.innerHTML = '<p class="empty-state">No replies yet. Be the first to reply!</p>';
     } else {
-      repliesList.innerHTML = data.replies.map(reply => {
-        const replyHasMedia = reply.media && reply.media.cid;
-        const replyAuthorName = reply.authorDisplayName || reply.author.slice(0, 16) + '...';
-        const replyHasNickname = !!reply.authorNickname;
-        const replyAvatar = reply.authorAvatar || '👤';
-        const replyTimestamp = reply.proof?.timestamp || reply.timestamp;
-        return `
-          <div class="feed-item ${replyHasMedia ? 'has-media' : ''}" onclick="viewThread('${reply.id}')" style="cursor: pointer;">
-            <div class="feed-item-wrapper">
-              <div class="feed-avatar">${renderAvatar(replyAvatar)}</div>
-              <div class="feed-post-content">
-                <div class="feed-author"><span class="${replyHasNickname ? 'has-nickname' : ''}" title="${reply.author}">${escapeHtml(replyAuthorName)}</span></div>
-                <div class="feed-content">${renderPostContent(reply)}</div>
-                <div class="feed-footer">
-                  <div class="feed-timestamp">${replyTimestamp ? new Date(replyTimestamp).toLocaleString() : 'Unknown'}</div>
-                  <button class="btn-reply" onclick="event.stopPropagation(); startReply('${reply.id}', '${escapeHtml(replyAuthorName)}')">Reply</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('');
+      repliesList.innerHTML = data.replies.map(reply => renderThreadPost(reply, false)).join('');
     }
   } catch (error) {
     console.error('Error loading thread:', error);
-    alert(`Error loading thread: ${error.message}`);
+    // Show friendly error instead of alert
+    const threadTabBtn = document.querySelector('.tab-btn[data-tab="thread"]');
+    if (threadTabBtn) {
+      threadTabBtn.style.display = 'block';
+      $$('.tab-btn').forEach(b => b.classList.remove('active'));
+      threadTabBtn.classList.add('active');
+      $$('.tab-content').forEach(content => content.classList.remove('active'));
+      $('thread-tab').classList.add('active');
+    }
+    $('thread-parent').innerHTML = `
+      <div class="feed-item thread-parent-post" style="text-align: center; padding: 2rem;">
+        <div class="empty-state">
+          <p style="font-size: 2rem; margin-bottom: 1rem;">⚠️</p>
+          <p><strong>Could not load thread</strong></p>
+          <p style="color: var(--text-dim); margin-top: 0.5rem;">${escapeHtml(error.message)}</p>
+          <button class="btn" onclick="switchToTab('feed')" style="margin-top: 1rem;">← Back to Feed</button>
+        </div>
+      </div>
+    `;
+    $('thread-replies-list').innerHTML = '';
   }
 }
 
