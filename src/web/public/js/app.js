@@ -157,12 +157,44 @@ async function updateBrowserDayPassTimer() {
 }
 
 /**
+ * Load and display instance info
+ */
+async function loadInstanceInfo() {
+  try {
+    const result = await apiCall('/instance');
+    if (result.operator) {
+      $('instance-operator-text').textContent = `This instance is run by ${result.operator}`;
+      $('instance-info').style.display = 'block';
+    }
+  } catch (error) {
+    console.warn('[App] Could not load instance info:', error.message);
+  }
+}
+
+/**
+ * Show visitor banner
+ */
+function showVisitorBanner() {
+  $('visitor-banner').style.display = 'block';
+}
+
+/**
+ * Hide visitor banner
+ */
+function hideVisitorBanner() {
+  $('visitor-banner').style.display = 'none';
+}
+
+/**
  * Auto-initialize Clout connection
  */
 async function autoInitialize() {
   try {
     const health = await apiCall('/health');
     updateStatus('Connecting...', false);
+
+    // Load instance info (always show, even for visitors)
+    await loadInstanceInfo();
 
     // Check for existing browser identity
     if (window.CloutIdentity) {
@@ -176,6 +208,7 @@ async function autoInitialize() {
           try {
             await initializeClout();
             state.setIsVisitor(false);
+            hideVisitorBanner();
             return;
           } catch (initError) {
             console.warn('[Clout] Server init failed with browser identity:', initError.message);
@@ -190,6 +223,7 @@ async function autoInitialize() {
     try {
       await initializeClout();
       state.setIsVisitor(false);
+      hideVisitorBanner();
     } catch (initError) {
       // Enter visitor mode
       console.log('No existing identity, entering visitor mode');
@@ -199,6 +233,7 @@ async function autoInitialize() {
       $('init-section').style.display = 'none';
       $('main-app').style.display = 'block';
       updateStatus('Visitor Mode', false);
+      showVisitorBanner();
 
       await loadVisitorFeed();
     }
@@ -333,6 +368,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('refresh-feed-btn').addEventListener('click', loadFeed);
   $('send-slide-btn').addEventListener('click', () => sendSlide(requireMembership));
   $('refresh-slides-btn').addEventListener('click', loadSlides);
+
+  // Visitor banner - show invite popover
+  $('visitor-join-btn').addEventListener('click', showInvitePopover);
 
   $('back-to-feed-btn').addEventListener('click', () => {
     $$('.tab-btn').forEach(b => b.classList.remove('active'));

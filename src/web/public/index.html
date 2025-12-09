@@ -41,6 +41,12 @@
     <header>
       <img src="clout.webp" width=720>
       <p class="subtitle">Uncensorable reputation protocol - Trust-based social network</p>
+
+      <!-- Instance Info -->
+      <div id="instance-info" class="instance-info" style="display: none;">
+        <span id="instance-operator-text"></span>
+      </div>
+
       <div class="status">
         <span id="status-indicator" class="status-dot"></span>
         <span id="status-text">Not initialized</span>
@@ -48,6 +54,18 @@
       </div>
       <div id="day-pass-timer" class="day-pass-timer" style="display: none;">
         🕊️ Freebird Day Pass: <span id="day-pass-countdown">--:--:--</span> remaining
+      </div>
+
+      <!-- Visitor Banner -->
+      <div id="visitor-banner" class="visitor-banner" style="display: none;">
+        <div class="visitor-banner-content">
+          <span class="visitor-icon">👀</span>
+          <div class="visitor-text">
+            <strong>Browsing as a visitor</strong>
+            <span>You can view the feed, but you'll need an invitation to post and interact.</span>
+          </div>
+          <button id="visitor-join-btn" class="btn btn-primary">Have an invite code?</button>
+        </div>
       </div>
     </header>
 
