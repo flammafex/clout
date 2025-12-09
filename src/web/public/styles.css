@@ -2535,6 +2535,78 @@ h2 {
 }
 
 /* =========================================================================
+   INSTANCE INFO & VISITOR BANNER
+   ========================================================================= */
+
+/* Instance info line */
+.instance-info {
+  margin-top: 0.75rem;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.instance-info span {
+  display: inline-block;
+}
+
+/* Visitor banner */
+.visitor-banner {
+  margin-top: 1rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+  border: 1px solid var(--primary);
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+}
+
+.visitor-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.visitor-icon {
+  font-size: 1.75rem;
+  flex-shrink: 0;
+}
+
+.visitor-text {
+  flex: 1;
+  min-width: 200px;
+}
+
+.visitor-text strong {
+  display: block;
+  color: var(--text);
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.visitor-text span {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.visitor-banner .btn {
+  flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .visitor-banner-content {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .visitor-text {
+    min-width: auto;
+  }
+
+  .visitor-banner .btn {
+    width: 100%;
+  }
+}
+
+/* =========================================================================
    PWA Styles
    ========================================================================= */
 

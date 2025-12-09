@@ -130,6 +130,18 @@ export class CloutWebServer {
       res.json({ success: true, status: 'online' });
     });
 
+    // Instance info (public) - displayed to visitors
+    this.app.get('/api/instance', (req, res) => {
+      res.json({
+        success: true,
+        data: {
+          name: process.env.INSTANCE_NAME || 'Clout Instance',
+          operator: process.env.INSTANCE_OPERATOR || null,
+          description: process.env.INSTANCE_DESCRIPTION || 'An uncensorable social network instance'
+        }
+      });
+    });
+
     // Auth status (public) - check if auth is required
     this.app.get('/api/auth/status', (req, res) => {
       res.json({

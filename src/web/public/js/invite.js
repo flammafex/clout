@@ -153,6 +153,7 @@ export async function redeemInvite() {
 
     $('init-section').style.display = 'none';
     $('main-app').style.display = 'block';
+    $('visitor-banner').style.display = 'none'; // Hide visitor banner
     updateStatus('Connected', true);
 
     // Only show Day Pass timer if we obtained one
