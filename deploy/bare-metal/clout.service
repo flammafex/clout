@@ -1,0 +1,55 @@
+[Unit]
+Description=Clout Social - Uncensorable Reputation Protocol
+Documentation=https://github.com/flammafex/clout
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=clout
+Group=clout
+
+# Working directory where Clout is installed
+WorkingDirectory=/opt/clout
+
+# Start the web server
+ExecStart=/usr/bin/node dist/src/web/server.js
+
+# Environment file
+EnvironmentFile=/etc/clout/clout.env
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Allow write to data directory
+ReadWritePaths=/var/lib/clout
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=clout
+
+# Resource limits (adjust for CX11 - 2GB RAM)
+MemoryMax=1G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target
