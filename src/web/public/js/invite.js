@@ -90,13 +90,26 @@ export async function redeemInvite() {
     $('invite-result').textContent = 'Initializing network connection...';
     $('redeem-invite-btn').textContent = 'Connecting...';
 
-    const initResponse = await apiCall('/init', 'POST');
+    await apiCall('/init', 'POST');
 
-    // Step 5: Get Day Pass
+    // Step 5: Get Day Pass for THIS browser identity
     $('invite-result').textContent = 'Getting your Day Pass...';
     $('redeem-invite-btn').textContent = 'Getting Day Pass...';
 
-    const ticketExpiry = initResponse?.ticketInfo?.expiry;
+    // Request Day Pass using the invitation code
+    let ticketExpiry = null;
+    if (window.CloutDayPass) {
+      try {
+        const dayPass = await window.CloutDayPass.requestDayPass(identity.publicKey, {
+          invitationCode: code
+        });
+        ticketExpiry = dayPass.expiry;
+        console.log('[Clout] Day Pass obtained, expires:', new Date(ticketExpiry).toLocaleString());
+      } catch (dayPassError) {
+        console.warn('[Clout] Failed to get Day Pass:', dayPassError.message);
+        // Continue anyway - they can get a Day Pass when they try to post
+      }
+    }
 
     // Step 6: Create trust signal for inviter
     if (inviterPubkey && inviterPubkey !== identity.publicKeyHex) {
@@ -142,7 +155,10 @@ export async function redeemInvite() {
     $('main-app').style.display = 'block';
     updateStatus('Connected', true);
 
-    startDayPassTimer(ticketExpiry);
+    // Only show Day Pass timer if we obtained one
+    if (ticketExpiry) {
+      startDayPassTimer(ticketExpiry);
+    }
 
     $('invite-result').textContent = '&#x1F389; Welcome to Clout! Your identity has been created.';
     $('invite-result').className = 'result-message success';

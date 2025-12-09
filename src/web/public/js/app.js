@@ -93,7 +93,8 @@ async function initializeClout() {
     $('init-btn').textContent = 'Initializing...';
     updateStatus('Initializing...', false);
 
-    const initResponse = await apiCall('/init', 'POST');
+    // Initialize server connection (but ignore server's ticketInfo)
+    await apiCall('/init', 'POST');
 
     state.setInitialized(true);
     state.setIsVisitor(false);
@@ -101,8 +102,8 @@ async function initializeClout() {
     $('main-app').style.display = 'block';
     updateStatus('Connected', true);
 
-    const ticketExpiry = initResponse?.ticketInfo?.expiry;
-    startDayPassTimer(ticketExpiry);
+    // Check BROWSER identity's Day Pass (not server's)
+    await updateBrowserDayPassTimer();
 
     // Load user's reaction palette from IndexedDB
     await loadReactionPalette();
@@ -119,6 +120,39 @@ async function initializeClout() {
     updateStatus(`Error: ${error.message}`, false);
     $('init-btn').disabled = false;
     $('init-btn').textContent = 'Initialize Clout';
+  }
+}
+
+/**
+ * Update Day Pass timer based on BROWSER identity (not server's)
+ */
+async function updateBrowserDayPassTimer() {
+  try {
+    // Only check if we have browser identity modules
+    if (!window.CloutIdentity || !window.CloutDayPass) {
+      console.log('[App] Browser identity modules not loaded, skipping Day Pass check');
+      return;
+    }
+
+    // Load browser identity
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      console.log('[App] No browser identity, no Day Pass timer');
+      return;
+    }
+
+    // Check Day Pass status for THIS user's identity
+    const status = await window.CloutDayPass.getDayPassStatus(identity.publicKeyHex);
+
+    if (status.hasTicket && !status.isExpired) {
+      console.log('[App] Browser identity has valid Day Pass, expires:', new Date(status.expiry).toLocaleString());
+      startDayPassTimer(status.expiry);
+    } else {
+      console.log('[App] Browser identity has no valid Day Pass');
+      // Don't show timer - user needs to obtain a Day Pass when they try to post
+    }
+  } catch (error) {
+    console.warn('[App] Failed to check browser Day Pass status:', error.message);
   }
 }
 
