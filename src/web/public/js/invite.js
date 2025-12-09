@@ -154,6 +154,13 @@ export async function redeemInvite() {
     $('init-section').style.display = 'none';
     $('main-app').style.display = 'block';
     $('visitor-banner').style.display = 'none'; // Hide visitor banner
+
+    // Show all member tabs
+    ['post', 'trust', 'slides', 'profile', 'settings'].forEach(tabName => {
+      const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+      if (tabBtn) tabBtn.style.display = '';
+    });
+
     updateStatus('Connected', true);
 
     // Only show Day Pass timer if we obtained one
