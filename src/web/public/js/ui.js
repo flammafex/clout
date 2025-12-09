@@ -186,12 +186,19 @@ export function requireMembership(showInvitePopover) {
 }
 
 /**
- * Check if an error indicates invitation is required
+ * Check if an error indicates invitation/Day Pass is required
  */
 export function isInvitationRequiredError(error) {
+  // Check error code first (set by api.js)
+  if (error.code === 'NO_DAYPASS' || error.code === 'INVITATION_REQUIRED') {
+    return true;
+  }
+  // Fallback to message content check
   const msg = error.message?.toLowerCase() || '';
   return msg.includes('invitation') ||
          msg.includes('invite') ||
          msg.includes('sybil') ||
-         msg.includes('token');
+         msg.includes('day pass') ||
+         msg.includes('daypass') ||
+         msg.includes('no valid');
 }

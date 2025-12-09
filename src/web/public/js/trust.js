@@ -10,7 +10,7 @@
  */
 
 import * as state from './state.js';
-import { apiCall } from './api.js';
+import { apiCall, submitSignedTrust } from './api.js';
 import { $, showLoading, showResult, escapeHtml, getWeightLabel } from './ui.js';
 import { loadFeed } from './feed.js';
 
@@ -141,8 +141,10 @@ export async function trustUser(requireMembership) {
     $('trust-btn').disabled = true;
     $('trust-btn').textContent = 'Adding...';
 
-    await apiCall('/trust', 'POST', { publicKey, weight });
+    // Use browser-side signing for secure trust signal
+    await submitSignedTrust(publicKey, weight);
 
+    // Also store locally in Dark Social Graph (IndexedDB)
     if (window.CloutUserData) {
       console.log('[App] Saving trust to IndexedDB:', publicKey.slice(0, 12), 'weight:', weight);
       await window.CloutUserData.trust(publicKey, weight);
@@ -174,8 +176,10 @@ export async function quickTrust(publicKey, requireMembership) {
   if (!requireMembership()) return;
 
   try {
-    await apiCall('/trust', 'POST', { publicKey });
+    // Use browser-side signing for secure trust signal
+    await submitSignedTrust(publicKey, 1.0);
 
+    // Also store locally in Dark Social Graph (IndexedDB)
     if (window.CloutUserData) {
       console.log('[App] Saving trust to IndexedDB:', publicKey.slice(0, 12));
       await window.CloutUserData.trust(publicKey, 1.0);

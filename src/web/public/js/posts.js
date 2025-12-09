@@ -10,7 +10,7 @@
  */
 
 import * as state from './state.js';
-import { apiCall, uploadMediaFile, API_BASE } from './api.js';
+import { apiCall, uploadMediaFile, submitSignedPost, API_BASE } from './api.js';
 import { $, $$, showResult, formatFileSize, isInvitationRequiredError, startDayPassTimer } from './ui.js';
 import { loadFeed, loadFeedWithCurrentFilter } from './feed.js';
 
@@ -45,21 +45,23 @@ export async function createPost(requireMembership, showInvitePopover) {
     $('create-post-btn').disabled = true;
     $('create-post-btn').textContent = 'Posting...';
 
-    const body = { content, nsfw };
+    // Build post options
+    const options = { nsfw };
     if (state.replyingTo) {
-      body.replyTo = state.replyingTo;
+      options.replyTo = state.replyingTo;
     }
     if (state.pendingMedia && state.pendingMedia.cid) {
-      body.mediaCid = state.pendingMedia.cid;
+      options.mediaCid = state.pendingMedia.cid;
     }
     if (contentWarning) {
-      body.contentWarning = contentWarning;
+      options.contentWarning = contentWarning;
     }
 
-    const postResult = await apiCall('/post', 'POST', body);
+    // Use browser-side signing for secure post submission
+    const postResult = await submitSignedPost(content, options);
 
-    if (postResult.ticketInfo && postResult.ticketInfo.expiry) {
-      startDayPassTimer(postResult.ticketInfo.expiry);
+    if (postResult.ticketExpiry) {
+      startDayPassTimer(postResult.ticketExpiry);
     }
 
     const hasMedia = state.pendingMedia !== null;
