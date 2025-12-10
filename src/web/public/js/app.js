@@ -212,6 +212,7 @@ async function autoInitialize() {
     await loadInstanceInfo();
 
     // Check for existing browser identity
+    let hasBrowserIdentity = false;
     if (window.CloutIdentity) {
       try {
         const identity = await window.CloutIdentity.load();
@@ -219,6 +220,7 @@ async function autoInitialize() {
           console.log('[Clout] Found existing browser identity:', identity.publicKeyHex.slice(0, 16) + '...');
           window.browserIdentity = identity;
           window.userPublicKey = identity.publicKeyHex;
+          hasBrowserIdentity = true;
 
           try {
             await initializeClout();
@@ -228,6 +230,7 @@ async function autoInitialize() {
             return;
           } catch (initError) {
             console.warn('[Clout] Server init failed with browser identity:', initError.message);
+            // Fall through to visitor mode
           }
         }
       } catch (loadError) {
@@ -235,26 +238,19 @@ async function autoInitialize() {
       }
     }
 
-    // Try legacy server identity
-    try {
-      await initializeClout();
-      state.setIsVisitor(false);
-      hideVisitorBanner();
-      updateTabVisibility(false);
-    } catch (initError) {
-      // Enter visitor mode
-      console.log('No existing identity, entering visitor mode');
-      state.setIsVisitor(true);
-      state.setInitialized(false);
+    // No browser identity = visitor mode
+    // (The server has its own identity, but that doesn't authenticate the browser user)
+    console.log('[Clout] No browser identity found, entering visitor mode');
+    state.setIsVisitor(true);
+    state.setInitialized(false);
 
-      $('init-section').style.display = 'none';
-      $('main-app').style.display = 'block';
-      updateStatus('Visitor Mode', false);
-      showVisitorBanner();
-      updateTabVisibility(true);
+    $('init-section').style.display = 'none';
+    $('main-app').style.display = 'block';
+    updateStatus('Visitor Mode', false);
+    showVisitorBanner();
+    updateTabVisibility(true);
 
-      await loadVisitorFeed();
-    }
+    await loadVisitorFeed();
   } catch (error) {
     updateStatus('Server not responding. Click Initialize to retry.', false);
     console.error('Auto-init failed:', error);
