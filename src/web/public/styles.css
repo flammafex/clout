@@ -2514,6 +2514,20 @@ h2 {
   color: var(--text-dim);
 }
 
+.invite-section-alt {
+  background: transparent;
+  border: 1px dashed var(--border);
+  text-align: center;
+}
+
+.invite-section-alt h4 {
+  color: var(--text-dim);
+}
+
+.invite-section-alt .btn {
+  margin-top: 0.75rem;
+}
+
 /* Decayed post content - "right to be forgotten" */
 .post-decayed {
   color: var(--text-dim);
