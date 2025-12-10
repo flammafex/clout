@@ -313,12 +313,13 @@ export class FreebirdAdapter implements FreebirdClient {
   async issueToken(blindedValue: Uint8Array): Promise<Uint8Array> {
     await this.init();
 
-    // Retrieve blind state for finalization (may not exist in fallback mode)
+    // Retrieve blind state for finalization (may not exist in proxy mode)
     const blindedHex = Crypto.toHex(blindedValue);
     const state = this.blindStates.get(blindedHex);
 
     // Attempt real VOPRF issuance if at least one issuer is available
-    if (this.metadata.size > 0 && state) {
+    // Note: state may be null when operating as a proxy (browser has the blind state)
+    if (this.metadata.size > 0) {
       try {
         // Build sybil proof once (uses first available issuer's metadata for PoW challenge)
         const firstMetadata = Array.from(this.metadata.values())[0];
@@ -459,8 +460,10 @@ export class FreebirdAdapter implements FreebirdClient {
           );
         }
 
-        // Clean up blind state
-        this.blindStates.delete(blindedHex);
+        // Clean up blind state if it exists (may not exist in proxy mode)
+        if (state) {
+          this.blindStates.delete(blindedHex);
+        }
 
         // Single issuer: return token directly (backward compatibility)
         if (this.issuerEndpoints.length === 1 && validResponses.length === 1) {
@@ -514,14 +517,18 @@ export class FreebirdAdapter implements FreebirdClient {
         return aggregatedToken;
       } catch (error) {
         // Re-throw errors from threshold check or other security failures
-        this.blindStates.delete(blindedHex);
+        if (state) {
+          this.blindStates.delete(blindedHex);
+        }
         throw error;
       }
     }
 
     // Fallback: simulated token (only reached if allowInsecureFallback is true)
     // This is checked in init() - if we get here, the user explicitly opted in
-    this.blindStates.delete(blindedHex);
+    if (state) {
+      this.blindStates.delete(blindedHex);
+    }
     return Crypto.hash(blindedValue, 'ISSUED');
   }
 
