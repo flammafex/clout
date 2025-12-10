@@ -78,7 +78,8 @@ function setupTabs() {
       if (tab === 'slides') loadSlides();
       if (tab === 'settings') loadSettings();
       if (tab === 'trust') { loadTrustedUsers(); loadStats(); loadSettings(); }
-      if (tab === 'profile') { loadProfile(); loadIdentity(); loadIdentities(); }
+      if (tab === 'profile') { loadProfile(); loadIdentity(); }
+      if (tab === 'owner') { loadOwnerInfo(); }
     });
   });
 }
@@ -172,6 +173,42 @@ async function loadInstanceInfo() {
 }
 
 /**
+ * Load Owner tab info
+ */
+async function loadOwnerInfo() {
+  try {
+    // Get instance info
+    const instanceResult = await apiCall('/instance');
+    $('owner-instance-name').textContent = instanceResult.name || 'Clout Instance';
+    $('owner-operator-name').textContent = instanceResult.operator || 'Not specified';
+    $('owner-description').textContent = instanceResult.description || 'An uncensorable social network instance';
+
+    // Get server's public key (this is the instance identity)
+    const identityResult = await apiCall('/identity');
+    $('owner-public-key').textContent = identityResult.publicKey || 'Not available';
+
+    // Load PGP key and contact info if configured
+    if (instanceResult.pgpKey) {
+      $('owner-pgp-key').textContent = instanceResult.pgpKey;
+      $('copy-pgp-key-btn').style.display = 'inline-block';
+    } else {
+      $('owner-pgp-key').textContent = 'No PGP key configured';
+      $('copy-pgp-key-btn').style.display = 'none';
+    }
+
+    if (instanceResult.contact) {
+      $('owner-contact-info').textContent = instanceResult.contact;
+    } else {
+      $('owner-contact-info').textContent = 'Contact information not configured';
+    }
+  } catch (error) {
+    console.error('[App] Failed to load owner info:', error.message);
+    $('owner-instance-name').textContent = 'Error loading';
+    $('owner-operator-name').textContent = 'Error loading';
+  }
+}
+
+/**
  * Show visitor banner
  */
 function showVisitorBanner() {
@@ -187,7 +224,7 @@ function hideVisitorBanner() {
 
 /**
  * Show/hide tabs based on visitor status
- * Visitors can only see the Feed tab
+ * Visitors can see Feed and Owner tabs only
  */
 function updateTabVisibility(isVisitor) {
   const memberOnlyTabs = ['post', 'trust', 'slides', 'profile', 'settings'];
@@ -198,6 +235,12 @@ function updateTabVisibility(isVisitor) {
       tabBtn.style.display = isVisitor ? 'none' : '';
     }
   });
+
+  // Owner tab is always visible
+  const ownerBtn = document.querySelector('.tab-btn[data-tab="owner"]');
+  if (ownerBtn) {
+    ownerBtn.style.display = '';
+  }
 }
 
 /**

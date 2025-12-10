@@ -107,10 +107,12 @@ export class BrowserIdentity {
             return;
           }
 
+          const privateKey = new Uint8Array(record.privateKey);
           resolve({
-            privateKey: new Uint8Array(record.privateKey),
+            privateKey,
             publicKey: new Uint8Array(record.publicKey),
             publicKeyHex: record.publicKeyHex,
+            secretKeyHex: Crypto.toHex(privateKey), // Include for export
             created: record.created
           });
         };
@@ -332,6 +334,51 @@ export class BrowserIdentity {
   static async importFromFile(file, password) {
     const text = await file.text();
     return this.import(text, password);
+  }
+
+  /**
+   * Import identity from a raw hex secret key
+   *
+   * This OVERWRITES any existing identity in the browser.
+   * Used for identity swap/migration.
+   *
+   * @param {string} secretKeyHex - 64-character hex string (32 bytes)
+   * @returns {Object} The imported identity
+   */
+  static async importFromSecretKey(secretKeyHex) {
+    // Validate format
+    if (!secretKeyHex || typeof secretKeyHex !== 'string') {
+      throw new Error('Secret key is required');
+    }
+
+    if (secretKeyHex.length !== 64 || !/^[0-9a-fA-F]+$/.test(secretKeyHex)) {
+      throw new Error('Invalid secret key format: must be 64 hex characters');
+    }
+
+    // Convert hex to bytes
+    const privateKey = Crypto.fromHex(secretKeyHex);
+
+    // Derive public key from private key
+    const publicKey = Crypto.getPublicKey(privateKey);
+    const publicKeyHex = Crypto.toHex(publicKey);
+
+    // Create identity object
+    const identity = {
+      privateKey,
+      publicKey,
+      publicKeyHex,
+      created: Date.now()
+    };
+
+    // Store (this overwrites any existing identity)
+    await this.store(identity);
+
+    console.log('[BrowserIdentity] Imported identity:', publicKeyHex.slice(0, 16) + '...');
+
+    return {
+      ...identity,
+      secretKeyHex
+    };
   }
 }
 
