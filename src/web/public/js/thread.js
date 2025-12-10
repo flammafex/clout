@@ -11,7 +11,7 @@ import * as state from './state.js';
 import { apiCall } from './api.js';
 import { $, $$, escapeHtml, formatRelativeTime, renderAvatar } from './ui.js';
 import { renderReactionsBar, getReactionPalette } from './reactions.js';
-import { renderPostContent } from './feed.js';
+import { renderPostContent, recalculateTrustForPosts } from './feed.js';
 
 /**
  * View a thread
@@ -48,6 +48,11 @@ export async function viewThread(postId) {
       window.history.replaceState({}, '', newUrl);
       console.log(`[Thread] Resolved edited post ${data.originalId.slice(0, 8)}... -> ${newPostId.slice(0, 8)}...`);
     }
+
+    // Recalculate trust data using browser's Dark Social Graph
+    // This ensures isAuthor, isBookmarked, nicknames use browser identity
+    const allPosts = [data.parent, ...data.replies];
+    await recalculateTrustForPosts(allPosts);
 
     showThreadTab();
 
