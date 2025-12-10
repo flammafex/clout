@@ -20,7 +20,7 @@ import { renderReactionsBar, getReactionPalette } from './reactions.js';
  * Recalculate trust-related fields for posts using browser's trust graph
  * This overrides server-provided trust data with browser-local Dark Social Graph
  */
-async function recalculateTrustForPosts(posts) {
+export async function recalculateTrustForPosts(posts) {
   if (!window.CloutIdentity || !window.CloutUserData) {
     return posts;
   }
