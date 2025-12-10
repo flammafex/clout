@@ -202,6 +202,28 @@ export class BrowserUserData {
     });
   }
 
+  /**
+   * Get list of all trusted public keys
+   */
+  async getTrustedUsers() {
+    const trustGraph = await this.getTrustGraph();
+    return trustGraph.map(entry => entry.trustedKey);
+  }
+
+  /**
+   * Get full trust data for a specific user
+   */
+  async getTrustData(trustedKey) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust', 'readonly');
+      const store = tx.objectStore('trust');
+      const request = store.get(trustedKey);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   // =========================================================================
   //  NICKNAMES
   // =========================================================================
