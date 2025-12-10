@@ -21,44 +21,76 @@ import { renderPaletteEditor } from './reactions.js';
 // =========================================================================
 
 /**
- * Load identity information
+ * Load browser identity information
+ * This loads the identity stored in the browser's IndexedDB, not the server's identity
  */
 export async function loadIdentity() {
   try {
-    const data = await apiCall('/identity');
+    // Load browser identity from IndexedDB
+    if (!window.CloutIdentity) {
+      console.warn('[Identity] Browser identity module not loaded');
+      $('identity-public-key').textContent = 'Browser identity not available';
+      return;
+    }
 
-    $('identity-public-key').textContent = data.publicKey;
-    $('identity-created').textContent = formatRelativeTime(data.created);
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      console.warn('[Identity] No browser identity found');
+      $('identity-public-key').textContent = 'No identity - create one to post';
+      $('identity-created').textContent = 'N/A';
+      return;
+    }
 
-    window.userPublicKey = data.publicKey;
+    $('identity-public-key').textContent = identity.publicKeyHex;
+    $('identity-created').textContent = identity.created ? formatRelativeTime(identity.created) : 'Unknown';
+
+    window.userPublicKey = identity.publicKeyHex;
+    window.browserIdentity = identity;
 
     // Ensure self is trusted in IndexedDB
-    if (window.CloutUserData && data.publicKey) {
-      const isSelfTrusted = await window.CloutUserData.isTrusted(data.publicKey);
+    if (window.CloutUserData && identity.publicKeyHex) {
+      const isSelfTrusted = await window.CloutUserData.isTrusted(identity.publicKeyHex);
       if (!isSelfTrusted) {
         console.log('[Identity] Adding self to IndexedDB trust graph');
-        await window.CloutUserData.trust(data.publicKey, 1.0);
+        await window.CloutUserData.trust(identity.publicKeyHex, 1.0);
       }
     }
   } catch (error) {
-    console.error('Error loading identity:', error);
+    console.error('Error loading browser identity:', error);
+    $('identity-public-key').textContent = 'Error loading identity';
   }
 }
 
 /**
- * Load profile
+ * Load profile from browser storage
  */
 export async function loadProfile() {
   try {
-    const data = await apiCall('/identity');
-    const profile = data;
+    // Load browser identity first
+    if (!window.CloutIdentity) {
+      console.warn('[Profile] Browser identity module not loaded');
+      return;
+    }
 
-    $('profile-name-display').textContent = profile.metadata?.displayName || '(No name set)';
-    $('profile-bio-display').textContent = profile.metadata?.bio || '';
-    $('profile-avatar-display').innerHTML = renderAvatar(profile.metadata?.avatar);
-    $('identity-public-key').textContent = profile.publicKey;
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      $('profile-name-display').textContent = '(No identity)';
+      $('profile-bio-display').textContent = '';
+      $('profile-bio-display').style.display = 'none';
+      return;
+    }
 
-    if (profile.metadata?.bio) {
+    // Load profile from IndexedDB
+    let profile = null;
+    if (window.CloutUserData) {
+      profile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+    }
+
+    $('profile-name-display').textContent = profile?.displayName || '(No name set)';
+    $('profile-bio-display').textContent = profile?.bio || '';
+    $('profile-avatar-display').innerHTML = renderAvatar(profile?.avatar);
+
+    if (profile?.bio) {
       $('profile-bio-display').style.display = 'block';
     } else {
       $('profile-bio-display').style.display = 'none';
@@ -71,14 +103,22 @@ export async function loadProfile() {
 /**
  * Show profile edit form
  */
-export function showProfileEdit() {
-  apiCall('/identity').then(data => {
-    const profile = data;
-    $('profile-name').value = profile.metadata?.displayName || '';
-    $('profile-bio').value = profile.metadata?.bio || '';
-    $('profile-avatar').value = profile.metadata?.avatar || '';
-    $('bio-char-count').textContent = ($('profile-bio').value || '').length;
-  });
+export async function showProfileEdit() {
+  try {
+    // Load from browser storage
+    if (window.CloutIdentity && window.CloutUserData) {
+      const identity = await window.CloutIdentity.load();
+      if (identity) {
+        const profile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+        $('profile-name').value = profile?.displayName || '';
+        $('profile-bio').value = profile?.bio || '';
+        $('profile-avatar').value = profile?.avatar || '';
+        $('bio-char-count').textContent = ($('profile-bio').value || '').length;
+      }
+    }
+  } catch (error) {
+    console.error('[Profile] Error loading for edit:', error);
+  }
 
   $('profile-view').style.display = 'none';
   $('profile-edit').style.display = 'block';
@@ -95,7 +135,7 @@ export function cancelProfileEdit() {
 }
 
 /**
- * Save profile
+ * Save profile to browser storage
  */
 export async function saveProfile(requireMembership) {
   if (!requireMembership()) return;
@@ -108,9 +148,27 @@ export async function saveProfile(requireMembership) {
     $('save-profile-btn').disabled = true;
     $('save-profile-btn').textContent = 'Saving...';
 
-    await apiCall('/profile', 'POST', { displayName, bio, avatar });
+    // Save to browser storage
+    if (!window.CloutIdentity || !window.CloutUserData) {
+      throw new Error('Browser storage not available');
+    }
 
-    showResult('profile-result', 'Profile updated! Changes will sync to peers automatically.', true);
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      throw new Error('No browser identity found');
+    }
+
+    // Get existing profile and update
+    const existingProfile = await window.CloutUserData.getProfile(identity.publicKeyHex) || {};
+    await window.CloutUserData.saveProfile({
+      ...existingProfile,
+      publicKey: identity.publicKeyHex,
+      displayName,
+      bio,
+      avatar
+    });
+
+    showResult('profile-result', 'Profile saved to browser!', true);
 
     await loadProfile();
 
@@ -584,7 +642,7 @@ export async function exportIdentityKey() {
 }
 
 /**
- * Import identity from key
+ * Import identity from key (server-side - legacy)
  */
 export async function importIdentityKey() {
   const name = $('import-identity-name').value.trim();
@@ -611,6 +669,86 @@ export async function importIdentityKey() {
   }
 }
 
+// =========================================================================
+// Browser Identity Export/Import (for Profile tab)
+// =========================================================================
+
+/**
+ * Export browser identity secret key
+ */
+export async function exportBrowserIdentity() {
+  if (!confirm('WARNING: Your secret key gives FULL CONTROL of your identity!\n\nAnyone with this key can post as you, trust/distrust others as you, and impersonate you completely.\n\nOnly export for backup or to transfer to another device.\n\nContinue?')) {
+    return;
+  }
+
+  try {
+    if (!window.CloutIdentity) {
+      throw new Error('Browser identity module not available');
+    }
+
+    const identity = await window.CloutIdentity.load();
+    if (!identity || !identity.secretKeyHex) {
+      throw new Error('No browser identity found or secret key not available');
+    }
+
+    // Show the secret key in a prompt for copying
+    prompt('Your secret key (copy and store securely!):', identity.secretKeyHex);
+  } catch (error) {
+    alert(`Failed to export identity: ${error.message}`);
+  }
+}
+
+/**
+ * Import browser identity - OVERWRITES existing identity
+ */
+export async function importBrowserIdentity() {
+  const secretKey = $('import-browser-identity-key').value.trim();
+
+  if (!secretKey) {
+    showResult('browser-identity-result', 'Please enter a secret key', false);
+    return;
+  }
+
+  // Validate format: 64 hex characters (32 bytes)
+  if (secretKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(secretKey)) {
+    showResult('browser-identity-result', 'Invalid key format: must be 64 hex characters', false);
+    return;
+  }
+
+  if (!confirm('WARNING: This will REPLACE your current browser identity!\n\nYour current identity will be deleted and replaced with the imported one.\n\nMake sure you have backed up your current identity if you need it.\n\nContinue with identity swap?')) {
+    return;
+  }
+
+  try {
+    $('import-browser-identity-btn').disabled = true;
+    $('import-browser-identity-btn').textContent = 'Importing...';
+
+    if (!window.CloutIdentity) {
+      throw new Error('Browser identity module not available');
+    }
+
+    // Import the identity (this overwrites the existing one)
+    await window.CloutIdentity.importFromSecretKey(secretKey);
+
+    showResult('browser-identity-result', 'Identity imported! Reloading...', true);
+    $('import-browser-identity-key').value = '';
+
+    // Reload identity display
+    await loadIdentity();
+    await loadProfile();
+
+    // Reload the page to ensure all state is fresh
+    setTimeout(() => {
+      window.location.reload();
+    }, 1500);
+  } catch (error) {
+    showResult('browser-identity-result', `Error: ${error.message}`, false);
+  } finally {
+    $('import-browser-identity-btn').disabled = false;
+    $('import-browser-identity-btn').textContent = 'Import & Switch Identity';
+  }
+}
+
 /**
  * Setup settings event listeners
  */
@@ -631,7 +769,14 @@ export function setupSettings(requireMembership) {
     }
   });
 
-  $('create-identity-btn').addEventListener('click', createIdentity);
-  $('export-identity-btn').addEventListener('click', exportIdentityKey);
-  $('import-identity-btn').addEventListener('click', importIdentityKey);
+  // Browser identity export/import (in Profile tab)
+  const exportBrowserBtn = $('export-browser-identity-btn');
+  if (exportBrowserBtn) {
+    exportBrowserBtn.addEventListener('click', exportBrowserIdentity);
+  }
+
+  const importBrowserBtn = $('import-browser-identity-btn');
+  if (importBrowserBtn) {
+    importBrowserBtn.addEventListener('click', importBrowserIdentity);
+  }
 }

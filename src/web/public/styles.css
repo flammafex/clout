@@ -2710,3 +2710,91 @@ body.offline .btn-action::after {
     padding-top: env(safe-area-inset-top);
   }
 }
+
+/* ==========================================================================
+   Owner Tab Styles
+   ========================================================================== */
+
+.owner-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.owner-field {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.owner-field:last-child {
+  border-bottom: none;
+}
+
+.owner-field label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.owner-field span,
+.owner-field p {
+  color: var(--text);
+  font-size: 1rem;
+  margin: 0;
+}
+
+.pgp-key-section {
+  margin-bottom: 1.5rem;
+}
+
+.pgp-key-section h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.pgp-key-display {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+}
+
+.contact-section {
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.contact-section h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+/* Browser Identity Import/Export in Profile */
+.identity-import-export {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.identity-import-export .data-section {
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.identity-import-export .data-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}

@@ -137,7 +137,9 @@ export class CloutWebServer {
         data: {
           name: process.env.INSTANCE_NAME || 'Clout Instance',
           operator: process.env.INSTANCE_OPERATOR || null,
-          description: process.env.INSTANCE_DESCRIPTION || 'An uncensorable social network instance'
+          description: process.env.INSTANCE_DESCRIPTION || 'An uncensorable social network instance',
+          pgpKey: process.env.INSTANCE_PGP_KEY || null,
+          contact: process.env.INSTANCE_CONTACT || null
         }
       });
     });

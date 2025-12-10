@@ -107,6 +107,7 @@
         <button class="tab-btn" data-tab="trust">Trust</button>
         <button class="tab-btn" data-tab="slides">Slides <span id="slides-badge" class="tab-badge" style="display: none;">0</span></button>
         <button class="tab-btn" data-tab="profile">Profile</button>
+        <button class="tab-btn" data-tab="owner">Owner</button>
         <button class="tab-btn" data-tab="thread" style="display: none;">Thread</button>
         <button class="tab-btn" data-tab="settings">Settings</button>
       </nav>
@@ -496,7 +497,7 @@
       <!-- Profile Tab -->
       <div id="profile-tab" class="tab-content">
         <div class="section">
-          <h2>👤 Your Profile</h2>
+          <h2>👤 Your Identity</h2>
 
           <div class="profile-view" id="profile-view">
             <div class="profile-card">
@@ -512,7 +513,7 @@
               <button id="edit-profile-btn" class="btn btn-primary">Edit Profile</button>
             </div>
 
-            <!-- Your Identity Section (merged from Identity tab) -->
+            <!-- Your Identity Section -->
             <div class="identity-section">
               <h3>Your Public Key</h3>
               <p class="help-text">Share this so others can trust you and see your posts</p>
@@ -585,42 +586,25 @@
 
           <div id="profile-result" class="result-message" style="display: none;"></div>
 
-          <!-- Identity Management -->
+          <!-- Identity Backup/Swap -->
           <div class="settings-card">
-            <h3>Your Identities</h3>
-            <p class="help-text">Manage multiple identities (personas) - switch requires server restart</p>
+            <h3>Identity Backup & Swap</h3>
+            <p class="help-text">Export your identity for backup, or import a different identity to switch accounts on this device.</p>
 
             <div class="identity-management">
-              <div class="identities-list" id="identities-list">
-                <p class="empty-state">Loading identities...</p>
-              </div>
-
-              <div class="identity-actions">
-                <h4>Create New Identity</h4>
-                <div class="create-identity-form">
-                  <input type="text" id="new-identity-name" class="input" placeholder="Identity name (e.g., personal, work)">
-                  <button id="create-identity-btn" class="btn btn-primary">Create</button>
+              <div class="identity-import-export">
+                <div class="data-section">
+                  <h4>Export Identity</h4>
+                  <p class="help-text-small warning">Warning: Anyone with this key can control your identity! Store it securely.</p>
+                  <button id="export-browser-identity-btn" class="btn btn-danger">Export Secret Key</button>
                 </div>
-                <div id="identity-result" class="result-message" style="display: none;"></div>
-              </div>
-
-              <div class="identity-advanced">
-                <details>
-                  <summary>Advanced: Import/Export Identity</summary>
-                  <div class="identity-import-export">
-                    <div class="data-section">
-                      <h4>Export Secret Key</h4>
-                      <p class="help-text-small warning">Warning: Anyone with this key can control your identity!</p>
-                      <button id="export-identity-btn" class="btn btn-danger">Export Secret Key</button>
-                    </div>
-                    <div class="data-section">
-                      <h4>Import Identity from Secret Key</h4>
-                      <input type="text" id="import-identity-name" class="input" placeholder="Name for imported identity">
-                      <input type="text" id="import-identity-key" class="input" placeholder="64-character hex secret key">
-                      <button id="import-identity-btn" class="btn">Import Identity</button>
-                    </div>
-                  </div>
-                </details>
+                <div class="data-section">
+                  <h4>Import Identity (Swap)</h4>
+                  <p class="help-text-small">Import a secret key to switch to a different identity. This will replace your current browser identity.</p>
+                  <input type="password" id="import-browser-identity-key" class="input" placeholder="64-character hex secret key">
+                  <button id="import-browser-identity-btn" class="btn">Import & Switch Identity</button>
+                </div>
+                <div id="browser-identity-result" class="result-message" style="display: none;"></div>
               </div>
             </div>
           </div>
@@ -671,6 +655,61 @@
                 <button id="import-backup-btn" class="btn">Select Backup File</button>
                 <div id="import-result" class="result-message" style="display: none;"></div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Owner Tab -->
+      <div id="owner-tab" class="tab-content">
+        <div class="section">
+          <h2>🏠 Instance Owner</h2>
+
+          <div class="owner-info-card settings-card">
+            <h3>About This Instance</h3>
+            <div class="owner-details">
+              <div class="owner-field">
+                <label>Instance Name</label>
+                <span id="owner-instance-name">Loading...</span>
+              </div>
+              <div class="owner-field">
+                <label>Operated By</label>
+                <span id="owner-operator-name">Loading...</span>
+              </div>
+              <div class="owner-field">
+                <label>Description</label>
+                <p id="owner-description">Loading...</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="owner-key-card settings-card">
+            <h3>Instance Public Key</h3>
+            <p class="help-text">This is the server's identity on the network. Posts relayed through this instance are signed by this key.</p>
+            <div class="public-key-box">
+              <code id="owner-public-key">Loading...</code>
+              <div class="key-actions">
+                <button class="btn btn-small" onclick="copyToClipboard('owner-public-key')">Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="invite-request-card settings-card">
+            <h3>Request an Invitation</h3>
+            <p class="help-text">Want to join this Clout instance? Contact the operator using the information below.</p>
+
+            <div class="pgp-key-section">
+              <h4>PGP Public Key</h4>
+              <p class="help-text-small">Encrypt your invitation request with this key for privacy.</p>
+              <div id="owner-pgp-key-container">
+                <pre id="owner-pgp-key" class="pgp-key-display">No PGP key configured</pre>
+              </div>
+              <button class="btn btn-small" id="copy-pgp-key-btn" onclick="copyToClipboard('owner-pgp-key')" style="display: none;">Copy PGP Key</button>
+            </div>
+
+            <div class="contact-section">
+              <h4>Contact</h4>
+              <p id="owner-contact-info" class="help-text-small">Contact information not configured</p>
             </div>
           </div>
         </div>
