@@ -17,6 +17,62 @@ import {
 import { renderReactionsBar, getReactionPalette } from './reactions.js';
 
 /**
+ * Recalculate trust-related fields for posts using browser's trust graph
+ * This overrides server-provided trust data with browser-local Dark Social Graph
+ */
+async function recalculateTrustForPosts(posts) {
+  if (!window.CloutIdentity || !window.CloutUserData) {
+    return posts;
+  }
+
+  const identity = await window.CloutIdentity.load();
+  if (!identity) {
+    return posts;
+  }
+
+  const browserPublicKey = identity.publicKeyHex;
+  const trustGraph = await window.CloutUserData.getTrustGraph();
+  const trustedKeys = new Set(trustGraph.map(t => t.trustedKey));
+  trustedKeys.add(browserPublicKey);
+
+  const nicknames = await window.CloutUserData.getAllNicknames();
+  const bookmarkIds = await window.CloutUserData.getBookmarks();
+  const bookmarkSet = new Set(bookmarkIds);
+
+  posts.forEach(post => {
+    // Recalculate isAuthor based on browser identity
+    post.isAuthor = post.author === browserPublicKey;
+
+    // Recalculate isDirectlyTrusted based on browser's trust graph
+    post.isDirectlyTrusted = trustedKeys.has(post.author) && post.author !== browserPublicKey;
+
+    // Recalculate trust distance (reputation.distance)
+    if (post.author === browserPublicKey) {
+      post.reputation = { ...post.reputation, distance: 0, score: 1.0 };
+    } else if (trustedKeys.has(post.author)) {
+      post.reputation = { ...post.reputation, distance: 1, score: 0.8 };
+    } else {
+      post.reputation = { ...post.reputation, distance: 3, score: 0.2 };
+    }
+
+    // Overlay bookmark state from IndexedDB
+    post.isBookmarked = bookmarkSet.has(post.id);
+
+    // Override display name with browser's nickname if set
+    const browserNickname = nicknames.get(post.author);
+    if (browserNickname) {
+      post.authorDisplayName = browserNickname;
+      post.authorNickname = browserNickname;
+    }
+
+    // Clear server's trust path - we don't have multi-hop info in browser yet
+    post.trustPath = [];
+  });
+
+  return posts;
+}
+
+/**
  * Load and render the main feed
  */
 export async function loadFeed() {
@@ -25,17 +81,28 @@ export async function loadFeed() {
     const data = await apiCall('/feed');
     const feedList = $('feed-list');
 
+    // Get browser identity for trust-based filtering
+    let browserPublicKey = null;
+    let trustedKeys = new Set();
+
+    if (window.CloutIdentity) {
+      const identity = await window.CloutIdentity.load();
+      if (identity) {
+        browserPublicKey = identity.publicKeyHex;
+      }
+    }
+
     // Dark Social Graph: Filter posts client-side using browser's local trust graph
     let filteredPosts = data.posts || [];
-    if (window.CloutUserData && window.userPublicKey) {
+    if (window.CloutUserData && browserPublicKey) {
       try {
         const trustGraph = await window.CloutUserData.getTrustGraph();
         console.log('[Feed] Trust graph from IndexedDB:', trustGraph);
-        const trustedKeys = new Set(trustGraph.map(t => t.trustedKey));
-        trustedKeys.add(window.userPublicKey);
+        trustedKeys = new Set(trustGraph.map(t => t.trustedKey));
+        trustedKeys.add(browserPublicKey);
 
         filteredPosts = filteredPosts.filter(post =>
-          trustedKeys.has(post.author) || post.isAuthor
+          trustedKeys.has(post.author) || post.author === browserPublicKey
         );
         console.log(`[Feed] Filtered ${data.posts?.length || 0} posts to ${filteredPosts.length} from ${trustedKeys.size} trusted users`);
 
@@ -47,31 +114,23 @@ export async function loadFeed() {
           filteredPosts = filteredPosts.filter(post => !mutedSet.has(post.author));
           console.log(`[Feed] Filtered out ${beforeMute - filteredPosts.length} posts from ${mutedUsers.length} muted users`);
         }
-
-        // Overlay bookmark state from IndexedDB
-        const bookmarkIds = await window.CloutUserData.getBookmarks();
-        const bookmarkSet = new Set(bookmarkIds);
-        filteredPosts.forEach(post => {
-          post.isBookmarked = bookmarkSet.has(post.id);
-        });
       } catch (e) {
         console.warn('[Feed] Could not filter by trust graph:', e);
       }
     } else {
-      console.log('[Feed] No trust filtering:', { CloutUserData: !!window.CloutUserData, userPublicKey: !!window.userPublicKey });
+      console.log('[Feed] No trust filtering:', { CloutUserData: !!window.CloutUserData, browserPublicKey });
     }
+
+    // Recalculate trust data using browser's Dark Social Graph
+    filteredPosts = await recalculateTrustForPosts(filteredPosts);
 
     // Cache posts for edit lookups
-    if (filteredPosts) {
-      filteredPosts.forEach(post => {
-        state.cachePost(post);
-      });
-    }
+    filteredPosts.forEach(post => state.cachePost(post));
 
-    if (!filteredPosts || filteredPosts.length === 0) {
+    if (filteredPosts.length === 0) {
       feedList.innerHTML = `
         <div class="empty-state-helpful">
-          <div class="empty-icon">&#x1F3E0;</div>
+          <div class="empty-icon">🏠</div>
           <h4>Your feed is quiet</h4>
           <p>Posts from people in your trust circle will appear here.</p>
           <div class="empty-actions">
@@ -221,7 +280,7 @@ async function loadFeedByTag(tag) {
     if (!data.posts || data.posts.length === 0) {
       $('feed-list').innerHTML = `
         <div class="empty-state-helpful">
-          <div class="empty-icon">&#x1F3F7;</div>
+          <div class="empty-icon">🏷️</div>
           <h4>No posts from "${escapeHtml(tag)}"</h4>
           <p>Posts from users tagged "${escapeHtml(tag)}" will appear here.</p>
           <button class="btn btn-secondary" onclick="window.cloutApp.filterByTag('${escapeHtml(tag)}')">Clear Filter</button>
@@ -230,7 +289,9 @@ async function loadFeedByTag(tag) {
       return;
     }
 
-    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post, false)).join('');
+    // Recalculate trust data using browser's Dark Social Graph
+    const posts = await recalculateTrustForPosts(data.posts);
+    $('feed-list').innerHTML = posts.map(post => renderFeedItem(post, false)).join('');
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading tagged posts: ${error.message}</p>`;
   }
@@ -279,7 +340,7 @@ async function loadBookmarks() {
     if (!bookmarkIds || bookmarkIds.length === 0) {
       $('feed-list').innerHTML = `
         <div class="empty-state-helpful">
-          <div class="empty-icon">&#x1F516;</div>
+          <div class="empty-icon">🔖</div>
           <h4>No bookmarks yet</h4>
           <p>Bookmark posts to save them for later.</p>
         </div>
@@ -289,12 +350,12 @@ async function loadBookmarks() {
 
     const data = await apiCall('/feed');
     const bookmarkSet = new Set(bookmarkIds);
-    const bookmarkedPosts = (data.posts || []).filter(p => bookmarkSet.has(p.id));
+    let bookmarkedPosts = (data.posts || []).filter(p => bookmarkSet.has(p.id));
 
     if (bookmarkedPosts.length === 0) {
       $('feed-list').innerHTML = `
         <div class="empty-state-helpful">
-          <div class="empty-icon">&#x1F516;</div>
+          <div class="empty-icon">🔖</div>
           <h4>No bookmarks found</h4>
           <p>Your bookmarked posts may no longer be available.</p>
         </div>
@@ -302,7 +363,8 @@ async function loadBookmarks() {
       return;
     }
 
-    bookmarkedPosts.forEach(p => p.isBookmarked = true);
+    // Recalculate trust data using browser's Dark Social Graph
+    bookmarkedPosts = await recalculateTrustForPosts(bookmarkedPosts);
     $('feed-list').innerHTML = bookmarkedPosts.map(post => renderFeedItem(post, false)).join('');
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading bookmarks: ${error.message}</p>`;
@@ -323,7 +385,7 @@ async function loadReplies() {
     if (!data.posts || data.posts.length === 0) {
       $('feed-list').innerHTML = `
         <div class="empty-state-helpful">
-          <div class="empty-icon">&#x1F4AC;</div>
+          <div class="empty-icon">💬</div>
           <h4>No replies yet</h4>
           <p>When someone replies to your posts, they'll appear here.</p>
         </div>
@@ -331,7 +393,9 @@ async function loadReplies() {
       return;
     }
 
-    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post, false)).join('');
+    // Recalculate trust data using browser's Dark Social Graph
+    const posts = await recalculateTrustForPosts(data.posts);
+    $('feed-list').innerHTML = posts.map(post => renderFeedItem(post, false)).join('');
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading replies: ${error.message}</p>`;
   }
@@ -359,7 +423,9 @@ async function loadMentionsView() {
       return;
     }
 
-    $('feed-list').innerHTML = data.posts.map(post => renderFeedItem(post, false)).join('');
+    // Recalculate trust data using browser's Dark Social Graph
+    const posts = await recalculateTrustForPosts(data.posts);
+    $('feed-list').innerHTML = posts.map(post => renderFeedItem(post, false)).join('');
   } catch (error) {
     $('feed-list').innerHTML = `<p class="empty-state">Error loading mentions: ${error.message}</p>`;
   }
