@@ -63,6 +63,20 @@ export interface SubmitRoutesConfig {
   setUserTicket?: (publicKey: string, ticket: any) => Promise<void>;
 }
 
+// In-memory storage for browser-encrypted slides
+// In production, this should be persisted to disk
+interface EncryptedSlide {
+  id: string;
+  sender: string;
+  recipient: string;
+  ephemeralPublicKey: string;
+  ciphertext: string;
+  signature: string;
+  timestamp: number;
+}
+
+const slideStore: Map<string, EncryptedSlide[]> = new Map();
+
 export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
   const { getClout, isInitialized, getUserTicket, setUserTicket } = config;
   const router = Router();
@@ -421,6 +435,120 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           expiry: ticket.expiry,
           remainingMs,
           remainingHours: Math.floor(remainingMs / (1000 * 60 * 60))
+        }
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * Submit a browser-encrypted slide (DM)
+   *
+   * The browser encrypts the message with the recipient's public key
+   * using X25519 key exchange, then sends the encrypted data to the server.
+   * The server stores it indexed by recipient public key.
+   *
+   * The server cannot read the message content - only the recipient can decrypt.
+   */
+  router.post('/slide/submit', async (req, res) => {
+    try {
+      const {
+        sender,
+        recipient,
+        ephemeralPublicKey,
+        ciphertext,
+        signature,
+        timestamp
+      } = req.body;
+
+      // Validate required fields
+      const senderKey = validatePublicKey(sender, 'sender');
+      const recipientKey = validatePublicKey(recipient, 'recipient');
+
+      if (!ephemeralPublicKey || typeof ephemeralPublicKey !== 'string') {
+        throw new Error('ephemeralPublicKey is required');
+      }
+      if (!ciphertext || typeof ciphertext !== 'string') {
+        throw new Error('ciphertext is required');
+      }
+
+      const signatureBytes = validateSignature(signature);
+
+      // Verify the slide signature
+      const signaturePayload = `slide:${senderKey}:${recipientKey}:${timestamp}`;
+      const senderKeyBytes = Crypto.fromHex(senderKey);
+      const payloadBytes = new TextEncoder().encode(signaturePayload);
+
+      if (!Crypto.verify(payloadBytes, signatureBytes, senderKeyBytes)) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid signature - slide was not signed by the claimed sender'
+        });
+      }
+
+      // Create slide ID
+      const slideId = Crypto.hashString(`${senderKey}:${recipientKey}:${timestamp}`);
+
+      // Create slide record
+      const slide: EncryptedSlide = {
+        id: slideId,
+        sender: senderKey,
+        recipient: recipientKey,
+        ephemeralPublicKey,
+        ciphertext,
+        signature,
+        timestamp: timestamp || Date.now()
+      };
+
+      // Store by recipient public key
+      if (!slideStore.has(recipientKey)) {
+        slideStore.set(recipientKey, []);
+      }
+      slideStore.get(recipientKey)!.push(slide);
+
+      // Keep only the last 100 slides per recipient
+      const slides = slideStore.get(recipientKey)!;
+      if (slides.length > 100) {
+        slideStore.set(recipientKey, slides.slice(-100));
+      }
+
+      console.log(`[Slides] Stored encrypted slide from ${senderKey.slice(0, 12)}... to ${recipientKey.slice(0, 12)}...`);
+
+      res.json({
+        success: true,
+        data: {
+          id: slideId,
+          sender: senderKey,
+          recipient: recipientKey,
+          timestamp: slide.timestamp
+        }
+      });
+    } catch (error: any) {
+      console.error('[Submit] Slide error:', error.message);
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * Get slides addressed to a specific public key
+   *
+   * Returns encrypted slides that the recipient can decrypt with their private key.
+   */
+  router.get('/slides/:publicKey', async (req, res) => {
+    try {
+      const recipientKey = validatePublicKey(req.params.publicKey);
+
+      const slides = slideStore.get(recipientKey) || [];
+
+      // Return slides sorted by timestamp (newest first)
+      const sortedSlides = [...slides].sort((a, b) => b.timestamp - a.timestamp);
+
+      res.json({
+        success: true,
+        data: {
+          slides: sortedSlides,
+          count: sortedSlides.length
         }
       });
     } catch (error: any) {

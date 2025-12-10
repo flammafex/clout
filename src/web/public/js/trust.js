@@ -15,21 +15,100 @@ import { $, showLoading, showResult, escapeHtml, getWeightLabel } from './ui.js'
 import { loadFeed } from './feed.js';
 
 /**
- * Load and display trusted users list
+ * Load and display trusted users list from browser's Dark Social Graph (IndexedDB)
  */
 export async function loadTrustedUsers() {
   showLoading('trusted-users-list');
   try {
-    const data = await apiCall('/trusted');
     const container = $('trusted-users-list');
     const countBadge = $('trust-count-badge');
 
-    countBadge.textContent = data.count || 0;
-
-    if (!data.users || data.users.length === 0) {
+    // Get browser identity
+    if (!window.CloutIdentity || !window.CloutUserData) {
       container.innerHTML = `
         <div class="empty-state-helpful">
-          <div class="empty-icon">&#x1F331;</div>
+          <div class="empty-icon">⚠️</div>
+          <h4>Browser storage not available</h4>
+          <p>Your trust circle is stored locally in your browser. Please ensure JavaScript is enabled.</p>
+        </div>
+      `;
+      return;
+    }
+
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      container.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">🔑</div>
+          <h4>No identity found</h4>
+          <p>Create or import an identity to start building your trust circle.</p>
+        </div>
+      `;
+      countBadge.textContent = '0';
+      return;
+    }
+
+    // Load trust data from IndexedDB (browser-local Dark Social Graph)
+    const trustedKeys = await window.CloutUserData.getTrustedUsers();
+    const localNicknames = await window.CloutUserData.getAllNicknames();
+    const mutedList = await window.CloutUserData.getMutedUsers();
+    const localMuted = new Set(mutedList);
+    const localTags = await window.CloutUserData.getAllTagsWithUsers();
+
+    // Self entry - you trust yourself above all
+    const myKey = identity.publicKeyHex;
+    const myProfile = await window.CloutUserData.getProfile(myKey);
+
+    const users = [];
+
+    // Add self first
+    users.push({
+      publicKey: myKey,
+      publicKeyShort: myKey.slice(0, 12),
+      displayName: myProfile?.displayName || 'You',
+      nickname: null,
+      tags: [],
+      isMuted: false,
+      isSelf: true,
+      weight: 1.0
+    });
+
+    // Add trusted users (excluding self)
+    for (const publicKey of trustedKeys) {
+      if (publicKey === myKey) continue;
+
+      const localNickname = localNicknames.get(publicKey);
+      const profile = await window.CloutUserData.getProfile(publicKey);
+      const isMuted = localMuted.has(publicKey);
+      const trustData = await window.CloutUserData.getTrustData(publicKey);
+      const weight = trustData?.weight ?? 1.0;
+
+      // Get tags for this user
+      const userTags = [];
+      for (const [tag, tagUsers] of Object.entries(localTags)) {
+        if (tagUsers.includes(publicKey)) {
+          userTags.push(tag);
+        }
+      }
+
+      users.push({
+        publicKey,
+        publicKeyShort: publicKey.slice(0, 12),
+        displayName: profile?.displayName || localNickname || publicKey.slice(0, 12) + '...',
+        nickname: localNickname || null,
+        tags: userTags,
+        isMuted,
+        isSelf: false,
+        weight
+      });
+    }
+
+    countBadge.textContent = users.length || 0;
+
+    if (users.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">🌱</div>
           <h4>Your trust circle is empty</h4>
           <p>Start by trusting someone you know. Their posts will appear in your feed, and you'll see posts from people they trust too.</p>
         </div>
@@ -37,39 +116,18 @@ export async function loadTrustedUsers() {
       return;
     }
 
-    // Dark Social Graph: Load private data from IndexedDB
-    let localNicknames = new Map();
-    let localMuted = new Set();
-    let localTags = {};
-    if (window.CloutUserData) {
-      localNicknames = await window.CloutUserData.getAllNicknames();
-      const mutedList = await window.CloutUserData.getMutedUsers();
-      localMuted = new Set(mutedList);
-      localTags = await window.CloutUserData.getAllTagsWithUsers();
-    }
-
-    container.innerHTML = data.users.map(user => {
-      const localNickname = localNicknames.get(user.publicKey);
-      const nickname = localNickname || user.nickname;
-      const isMuted = localMuted.has(user.publicKey);
-
-      // Get tags for this user
-      const userTags = [];
-      for (const [tag, users] of Object.entries(localTags)) {
-        if (users.includes(user.publicKey)) {
-          userTags.push(tag);
-        }
-      }
-      const tags = userTags.length > 0 ? userTags : (user.tags || []);
-      const tagsHtml = tags.length > 0
-        ? `<div class="user-tags">${tags.map(t => `<span class="tag-badge-small">${escapeHtml(t)}</span>`).join('')}</div>`
+    container.innerHTML = users.map(user => {
+      const nickname = user.nickname;
+      const tagsHtml = user.tags.length > 0
+        ? `<div class="user-tags">${user.tags.map(t => `<span class="tag-badge-small">${escapeHtml(t)}</span>`).join('')}</div>`
         : '';
       const hasNickname = !!nickname;
-      const displayName = user.displayName || nickname || user.publicKeyShort + '...';
+      const displayName = user.displayName;
       const isSelf = user.isSelf || false;
       const weight = user.weight ?? 1.0;
       const weightLabel = getWeightLabel(weight);
       const weightClass = weight >= 0.9 ? 'weight-full' : weight >= 0.5 ? 'weight-medium' : 'weight-low';
+      const isMuted = user.isMuted;
 
       if (isSelf) {
         return `
@@ -89,8 +147,8 @@ export async function loadTrustedUsers() {
       }
 
       const muteBtn = isMuted
-        ? `<button class="btn-small btn-unmute" onclick="window.cloutApp.unmuteUser('${user.publicKey}')" title="Unredact">&#x1F50A;</button>`
-        : `<button class="btn-small btn-mute" onclick="window.cloutApp.muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Redact">&#x1F507;</button>`;
+        ? `<button class="btn-small btn-unmute" onclick="window.cloutApp.unmuteUser('${user.publicKey}')" title="Unredact">🔊</button>`
+        : `<button class="btn-small btn-mute" onclick="window.cloutApp.muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Redact">🔇</button>`;
 
       const weightBadge = weight < 1.0
         ? `<span class="weight-badge ${weightClass}" title="${weightLabel}">${weight.toFixed(1)}</span>`
@@ -109,7 +167,7 @@ export async function loadTrustedUsers() {
           </div>
           <div class="trusted-user-actions">
             ${muteBtn}
-            <button class="btn-small btn-nickname" onclick="window.cloutApp.editNickname('${user.publicKey}', '${escapeHtml(nickname || '')}')" title="Set nickname">&#x270F;&#xFE0F;</button>
+            <button class="btn-small btn-nickname" onclick="window.cloutApp.editNickname('${user.publicKey}', '${escapeHtml(nickname || '')}')" title="Set nickname">✏️</button>
             <button class="btn-small" onclick="window.cloutApp.copyToClipboard('${user.publicKey}')">Copy</button>
           </div>
         </div>
