@@ -186,6 +186,21 @@ function hideVisitorBanner() {
 }
 
 /**
+ * Show/hide tabs based on visitor status
+ * Visitors can only see the Feed tab
+ */
+function updateTabVisibility(isVisitor) {
+  const memberOnlyTabs = ['post', 'trust', 'slides', 'profile', 'settings'];
+
+  memberOnlyTabs.forEach(tabName => {
+    const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+    if (tabBtn) {
+      tabBtn.style.display = isVisitor ? 'none' : '';
+    }
+  });
+}
+
+/**
  * Auto-initialize Clout connection
  */
 async function autoInitialize() {
@@ -209,6 +224,7 @@ async function autoInitialize() {
             await initializeClout();
             state.setIsVisitor(false);
             hideVisitorBanner();
+            updateTabVisibility(false);
             return;
           } catch (initError) {
             console.warn('[Clout] Server init failed with browser identity:', initError.message);
@@ -224,6 +240,7 @@ async function autoInitialize() {
       await initializeClout();
       state.setIsVisitor(false);
       hideVisitorBanner();
+      updateTabVisibility(false);
     } catch (initError) {
       // Enter visitor mode
       console.log('No existing identity, entering visitor mode');
@@ -234,6 +251,7 @@ async function autoInitialize() {
       $('main-app').style.display = 'block';
       updateStatus('Visitor Mode', false);
       showVisitorBanner();
+      updateTabVisibility(true);
 
       await loadVisitorFeed();
     }
