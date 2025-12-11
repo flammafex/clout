@@ -556,5 +556,110 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
     }
   });
 
+  /**
+   * Submit a browser-signed post retraction
+   *
+   * The browser signs the retraction request with the author's private key,
+   * proving they own the post. The server verifies the signature and removes
+   * the post from the feed.
+   */
+  router.post('/retract/submit', async (req, res) => {
+    try {
+      if (!isInitialized()) {
+        throw new Error('Server not initialized');
+      }
+
+      const clout = getClout()!;
+      const {
+        postId,
+        author,
+        signature,
+        timestamp,
+        reason
+      } = req.body;
+
+      // Validate required fields
+      if (!postId || typeof postId !== 'string') {
+        throw new Error('postId is required');
+      }
+
+      const authorKey = validatePublicKey(author, 'author');
+      const signatureBytes = validateSignature(signature);
+      const retractionTimestamp = timestamp || Date.now();
+      const retractionReason = reason || 'retracted';
+
+      // Verify the retraction signature
+      // The browser signs: "retract:{postId}:{author}:{timestamp}"
+      const signaturePayload = `retract:${postId}:${authorKey}:${retractionTimestamp}`;
+      const authorKeyBytes = Crypto.fromHex(authorKey);
+      const payloadBytes = new TextEncoder().encode(signaturePayload);
+
+      if (!Crypto.verify(payloadBytes, signatureBytes, authorKeyBytes)) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid signature - retraction was not signed by the claimed author'
+        });
+      }
+
+      // Verify the post exists and belongs to this author
+      const store = clout.getStore();
+      if (!store) {
+        throw new Error('Store not available');
+      }
+
+      const feed = await store.getFeed();
+      const post = feed.find(p => p.id === postId);
+
+      if (!post) {
+        return res.status(404).json({
+          success: false,
+          error: `Post ${postId} not found`
+        });
+      }
+
+      if (post.author !== authorKey) {
+        return res.status(403).json({
+          success: false,
+          error: 'You are not the author of this post'
+        });
+      }
+
+      // Get witness proof for the retraction
+      const retractionPayload = { postId, deletedAt: retractionTimestamp };
+      const payloadHash = Crypto.hashObject(retractionPayload);
+      const proof = await clout.getWitnessProof(payloadHash);
+
+      // Create retraction package (PostDeletePackage)
+      const retraction = {
+        postId,
+        author: authorKey,
+        signature: signatureBytes,
+        proof,
+        deletedAt: retractionTimestamp,
+        reason: retractionReason as 'retracted' | 'edited' | 'mistake' | 'other'
+      };
+
+      // Store the retraction (FileSystemStore has addDeletion method)
+      if ('addDeletion' in store) {
+        await (store as any).addDeletion(retraction);
+      }
+
+      console.log(`[Retract] Post ${postId.slice(0, 12)}... retracted by ${authorKey.slice(0, 12)}...`);
+
+      res.json({
+        success: true,
+        data: {
+          postId,
+          author: authorKey,
+          reason: retractionReason,
+          timestamp: retractionTimestamp
+        }
+      });
+    } catch (error: any) {
+      console.error('[Submit] Retraction error:', error.message);
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   return router;
 }
