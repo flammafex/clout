@@ -634,6 +634,10 @@ h2 {
   border: 1px solid;
 }
 
+.result-message:empty {
+  display: none;
+}
+
 .result-message.success {
   background: rgba(16, 185, 129, 0.1);
   border-color: var(--success);
@@ -2502,10 +2506,16 @@ h2 {
 .invite-input-group {
   display: flex;
   gap: 0.5rem;
+  align-items: stretch;
 }
 
 .invite-input-group .input {
   flex: 1;
+  margin-bottom: 0;
+}
+
+.invite-input-group .btn {
+  white-space: nowrap;
 }
 
 .invite-section .help-text {
