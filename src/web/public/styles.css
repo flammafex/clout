@@ -2528,6 +2528,46 @@ h2 {
   margin-top: 0.75rem;
 }
 
+/* Owner Admin Section */
+.owner-admin-card {
+  border: 2px solid var(--primary);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(139, 92, 246, 0.05));
+}
+
+.owner-admin-card h3 {
+  color: var(--primary);
+}
+
+.admin-subsection {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.admin-subsection:first-of-type {
+  margin-top: 1rem;
+  padding-top: 0;
+  border-top: none;
+}
+
+.admin-subsection h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.95rem;
+}
+
+.backup-controls,
+.restore-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.restore-controls select {
+  flex: 1;
+  min-width: 200px;
+}
+
 /* Decayed post content - "right to be forgotten" */
 .post-decayed {
   color: var(--text-dim);
