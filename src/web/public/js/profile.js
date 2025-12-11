@@ -273,14 +273,6 @@ export async function loadSettings() {
     // Reaction palette editor
     renderPaletteEditor('reaction-palette-container');
 
-    // Admin section
-    if (data.admin && data.admin.enabled) {
-      $('admin-section').style.display = 'block';
-      $('freebird-admin-link').href = data.admin.freebirdUrl;
-    } else {
-      $('admin-section').style.display = 'none';
-    }
-
     await loadTags();
   } catch (error) {
     console.error('Error loading settings:', error);

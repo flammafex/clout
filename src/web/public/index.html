@@ -718,6 +718,39 @@
               <p id="owner-contact-info" class="help-text-small">Contact information not configured</p>
             </div>
           </div>
+
+          <!-- Owner Admin Section (only visible to instance owner) -->
+          <div id="owner-admin-section" class="owner-admin-card settings-card" style="display: none;">
+            <h3>Instance Administration</h3>
+            <p class="help-text">You are the owner of this instance. These tools help you manage your identity and invitations.</p>
+
+            <div class="admin-subsection">
+              <h4>Browser Identity Backup</h4>
+              <p class="help-text-small">Save your browser identity to this server for safekeeping. If you ever clear your browser data, you can restore it here.</p>
+              <div class="backup-controls">
+                <button id="backup-identity-btn" class="btn btn-primary" onclick="window.cloutApp.backupBrowserIdentity()">Backup Identity to Server</button>
+                <div id="backup-result" class="result-message"></div>
+              </div>
+            </div>
+
+            <div class="admin-subsection">
+              <h4>Restore from Server</h4>
+              <p class="help-text-small">Restore a previously backed-up identity from this server.</p>
+              <div class="restore-controls">
+                <select id="restore-identity-select" class="input">
+                  <option value="">Select a saved identity...</option>
+                </select>
+                <button id="restore-identity-btn" class="btn" onclick="window.cloutApp.restoreFromServer()">Restore</button>
+              </div>
+              <div id="restore-result" class="result-message"></div>
+            </div>
+
+            <div class="admin-subsection">
+              <h4>Freebird Admin</h4>
+              <p class="help-text-small">Manage invitations and sybil protection settings.</p>
+              <a id="freebird-admin-link" href="#" target="_blank" rel="noopener" class="btn btn-secondary">Open Freebird Admin</a>
+            </div>
+          </div>
         </div>
       </div>
 

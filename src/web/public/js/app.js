@@ -201,10 +201,168 @@ async function loadOwnerInfo() {
     } else {
       $('owner-contact-info').textContent = 'Contact information not configured';
     }
+
+    // Check if admin features are available (only for instance owner)
+    try {
+      const settingsResult = await apiCall('/settings');
+      if (settingsResult.admin && settingsResult.admin.enabled) {
+        // Show admin section
+        $('owner-admin-section').style.display = 'block';
+
+        // Set Freebird admin link
+        $('freebird-admin-link').href = settingsResult.admin.freebirdUrl;
+
+        // Load server-stored identities for restore dropdown
+        await loadServerIdentities();
+      }
+    } catch (settingsError) {
+      console.warn('[App] Could not load admin settings:', settingsError.message);
+    }
   } catch (error) {
     console.error('[App] Failed to load owner info:', error.message);
     $('owner-instance-name').textContent = 'Error loading';
     $('owner-operator-name').textContent = 'Error loading';
+  }
+}
+
+/**
+ * Load server-stored identities for restore dropdown
+ */
+async function loadServerIdentities() {
+  try {
+    const result = await apiCall('/data/identities');
+    const select = $('restore-identity-select');
+
+    // Clear existing options except the placeholder
+    select.innerHTML = '<option value="">Select a saved identity...</option>';
+
+    if (result.identities && result.identities.length > 0) {
+      result.identities.forEach(identity => {
+        const option = document.createElement('option');
+        option.value = identity.name;
+        option.textContent = `${identity.name} (${identity.publicKeyShort}...)`;
+        select.appendChild(option);
+      });
+    }
+  } catch (error) {
+    console.warn('[App] Could not load server identities:', error.message);
+  }
+}
+
+/**
+ * Backup browser identity to server storage
+ */
+async function backupBrowserIdentity() {
+  const resultEl = $('backup-result');
+  const btn = $('backup-identity-btn');
+
+  try {
+    // Check for browser identity
+    if (!window.CloutIdentity) {
+      resultEl.textContent = 'Browser identity module not loaded';
+      resultEl.className = 'result-message error';
+      return;
+    }
+
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      resultEl.textContent = 'No browser identity found. Create or import one first.';
+      resultEl.className = 'result-message error';
+      return;
+    }
+
+    // Get the private key hex
+    const Crypto = window.CloutCrypto;
+    const secretKeyHex = Crypto.toHex(identity.privateKey);
+
+    // Prompt for backup name
+    const defaultName = `browser-${identity.publicKeyHex.slice(0, 8)}`;
+    const name = prompt('Name for this backup:', defaultName);
+    if (!name) {
+      resultEl.textContent = 'Backup cancelled';
+      resultEl.className = 'result-message';
+      return;
+    }
+
+    // Validate name
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+      resultEl.textContent = 'Name can only contain letters, numbers, underscores, and hyphens';
+      resultEl.className = 'result-message error';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Backing up...';
+    resultEl.textContent = '';
+
+    // Import to server (this saves it server-side)
+    await apiCall('/data/identities/import', 'POST', {
+      name,
+      secretKey: secretKeyHex,
+      setDefault: false
+    });
+
+    resultEl.textContent = `Backed up as "${name}"!`;
+    resultEl.className = 'result-message success';
+
+    // Refresh the restore dropdown
+    await loadServerIdentities();
+  } catch (error) {
+    resultEl.textContent = `Backup failed: ${error.message}`;
+    resultEl.className = 'result-message error';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Backup Identity to Server';
+  }
+}
+
+/**
+ * Restore browser identity from server storage
+ */
+async function restoreFromServer() {
+  const resultEl = $('restore-result');
+  const select = $('restore-identity-select');
+  const btn = $('restore-identity-btn');
+
+  const selectedName = select.value;
+  if (!selectedName) {
+    resultEl.textContent = 'Please select an identity to restore';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (!confirm(`This will replace your current browser identity with "${selectedName}". Continue?`)) {
+    return;
+  }
+
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Restoring...';
+    resultEl.textContent = '';
+
+    // Get the secret key from server
+    const exportResult = await apiCall(`/data/identities/${selectedName}/export`);
+    const secretKey = exportResult.secretKey;
+
+    // Import to browser
+    if (!window.CloutIdentity) {
+      throw new Error('Browser identity module not loaded');
+    }
+
+    await window.CloutIdentity.importFromSecretKey(secretKey);
+
+    resultEl.textContent = 'Identity restored! Reloading...';
+    resultEl.className = 'result-message success';
+
+    // Reload the page to use the new identity
+    setTimeout(() => {
+      window.location.reload();
+    }, 1500);
+  } catch (error) {
+    resultEl.textContent = `Restore failed: ${error.message}`;
+    resultEl.className = 'result-message error';
+    btn.disabled = false;
+    btn.textContent = 'Restore';
   }
 }
 
@@ -392,6 +550,10 @@ window.cloutApp = {
   showInvitePopover,
   closeInvitePopover,
   redeemInvite,
+
+  // Owner Admin
+  backupBrowserIdentity,
+  restoreFromServer,
 
   // Notifications
   loadNewPosts
