@@ -595,7 +595,8 @@ export class CloutFeed {
   async getStats() {
     let feedCount = 0;
     if (this.store) {
-      const feed = await this.getCachedFeed();
+      // Use getFeed() to exclude retracted posts from the count
+      const feed = await this.getFeed({ includeNsfw: true });
       feedCount = feed.length;
     } else if (this.gossip && (this.gossip as any).getStats) {
       feedCount = (this.gossip as any).getStats().postCount || 0;
