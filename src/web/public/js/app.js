@@ -206,14 +206,31 @@ async function loadOwnerInfo() {
     try {
       const settingsResult = await apiCall('/settings');
       if (settingsResult.admin && settingsResult.admin.enabled) {
-        // Show admin section
-        $('owner-admin-section').style.display = 'block';
+        // Check if browser identity matches owner pubkey
+        let isOwner = false;
+        const ownerPubkey = settingsResult.admin.ownerPubkey;
 
-        // Set Freebird admin link
-        $('freebird-admin-link').href = settingsResult.admin.freebirdUrl;
+        if (!ownerPubkey) {
+          // No owner pubkey configured - don't show admin (require explicit config)
+          console.log('[App] Admin enabled but INSTANCE_OWNER_PUBKEY not set');
+        } else if (window.CloutIdentity) {
+          const browserIdentity = await window.CloutIdentity.load();
+          if (browserIdentity && browserIdentity.publicKeyHex === ownerPubkey) {
+            isOwner = true;
+            console.log('[App] Browser identity matches owner pubkey - showing admin');
+          }
+        }
 
-        // Load server-stored identities for restore dropdown
-        await loadServerIdentities();
+        if (isOwner) {
+          // Show admin section
+          $('owner-admin-section').style.display = 'block';
+
+          // Set Freebird admin link
+          $('freebird-admin-link').href = settingsResult.admin.freebirdUrl;
+
+          // Load server-stored identities for restore dropdown
+          await loadServerIdentities();
+        }
       }
     } catch (settingsError) {
       console.warn('[App] Could not load admin settings:', settingsError.message);

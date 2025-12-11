@@ -19,6 +19,7 @@ export function createSettingsRoutes(getClout: () => Clout | undefined, isInitia
       // Check if admin features are available
       const adminKey = process.env.FREEBIRD_ADMIN_KEY;
       const issuerUrl = process.env.FREEBIRD_ISSUER_URL || 'http://localhost:8081';
+      const ownerPubkey = process.env.INSTANCE_OWNER_PUBKEY;
       const isAdmin = !!adminKey;
 
       res.json({
@@ -29,7 +30,8 @@ export function createSettingsRoutes(getClout: () => Clout | undefined, isInitia
           admin: isAdmin ? {
             enabled: true,
             freebirdUrl: `${issuerUrl}/admin`,
-            sybilMode: process.env.FREEBIRD_SYBIL_MODE || 'invitation'
+            sybilMode: process.env.FREEBIRD_SYBIL_MODE || 'invitation',
+            ownerPubkey: ownerPubkey || null
           } : null
         }
       });
