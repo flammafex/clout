@@ -913,6 +913,17 @@ export class Clout {
   }
 
   // =================================================================
+  //  STORE ACCESS
+  // =================================================================
+
+  /**
+   * Get the underlying store instance (for direct operations)
+   */
+  getStore(): import('./clout-types.js').CloutStore | undefined {
+    return this.store;
+  }
+
+  // =================================================================
   //  NOTIFICATIONS - Delegated to CloutFeed
   // =================================================================
 

@@ -219,7 +219,7 @@ async function saveEdit(requireMembership) {
 }
 
 /**
- * Retract a post
+ * Retract a post (browser-signed)
  */
 export async function retractPost(postId, requireMembership) {
   if (!requireMembership()) return;
@@ -229,7 +229,36 @@ export async function retractPost(postId, requireMembership) {
   }
 
   try {
-    await apiCall(`/post/${postId}/retract`, 'POST', { reason: 'retracted' });
+    // Get browser identity
+    if (!window.CloutIdentity || !window.CloutCrypto) {
+      throw new Error('Identity or crypto module not loaded');
+    }
+
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      throw new Error('No browser identity found');
+    }
+
+    const Crypto = window.CloutCrypto;
+    const timestamp = Date.now();
+
+    // Create signature payload: "retract:{postId}:{author}:{timestamp}"
+    const signaturePayload = `retract:${postId}:${identity.publicKeyHex}:${timestamp}`;
+    const payloadBytes = new TextEncoder().encode(signaturePayload);
+
+    // Sign with private key
+    const signature = Crypto.sign(payloadBytes, identity.privateKey);
+    const signatureHex = Crypto.toHex(signature);
+
+    // Submit browser-signed retraction
+    await apiCall('/retract/submit', 'POST', {
+      postId,
+      author: identity.publicKeyHex,
+      signature: signatureHex,
+      timestamp,
+      reason: 'retracted'
+    });
+
     await loadFeedWithCurrentFilter();
   } catch (error) {
     alert(`Could not retract post: ${error.message}`);
