@@ -24,8 +24,7 @@ import {
 import {
   toggleReaction, toggleBookmark, toggleCW, loadReactionPalette,
   openEmojiPicker, closeEmojiPicker, filterEmojis, selectEmoji,
-  expandReactions, renderPaletteEditor, editPaletteSlot, closePalettePicker,
-  setPaletteEmoji, resetPalette
+  expandReactions
 } from './reactions.js';
 import { viewThread } from './thread.js';
 import {
@@ -526,13 +525,6 @@ window.cloutApp = {
   filterEmojis,
   selectEmoji,
   expandReactions,
-
-  // Reaction Palette Settings
-  renderPaletteEditor,
-  editPaletteSlot,
-  closePalettePicker,
-  setPaletteEmoji,
-  resetPalette,
 
   // Thread
   viewThread,
