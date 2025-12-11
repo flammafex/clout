@@ -42,6 +42,12 @@ header {
   border-bottom: 2px solid var(--border);
 }
 
+.header-logo {
+  max-width: 100%;
+  width: 720px;
+  height: auto;
+}
+
 h1 {
   font-size: 3rem;
   margin-bottom: 0.5rem;
