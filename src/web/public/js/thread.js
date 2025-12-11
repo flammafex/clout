@@ -14,6 +14,13 @@ import { renderReactionsBar, getReactionPalette } from './reactions.js';
 import { renderPostContent, recalculateTrustForPosts } from './feed.js';
 
 /**
+ * Check if current user is a visitor (no browser identity)
+ */
+function isVisitorMode() {
+  return state.isVisitor;
+}
+
+/**
  * View a thread
  */
 export async function viewThread(postId) {
@@ -105,21 +112,32 @@ function renderThreadPost(post, isParent = false) {
   const avatar = post.authorAvatar || '&#x1F464;';
   const timestamp = post.proof?.timestamp || post.timestamp;
   const editedIndicator = post.isEdited ? '<span class="edited-badge" title="This post has been edited">edited</span>' : '';
+  const visitor = isVisitorMode();
 
-  // Reactions bar
+  // Reactions bar - hide for visitors
   const reactions = post.reactions || {};
-  const reactionsHtml = renderReactionsBar(post.id, reactions, post.myReaction, getReactionPalette());
+  const reactionsHtml = visitor ? '' : renderReactionsBar(post.id, reactions, post.myReaction, getReactionPalette());
 
-  // Redact button
-  const muteBtn = !post.isAuthor
+  // Redact button - hide for visitors
+  const muteBtn = (!visitor && !post.isAuthor)
     ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Redact">Redact</button>`
     : '';
 
-  // Author actions
-  const authorActions = post.isAuthor
+  // Author actions - hide for visitors
+  const authorActions = (!visitor && post.isAuthor)
     ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Revise">Revise</button>
        <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${post.id}')" title="Retract">Retract</button>`
     : '';
+
+  // Save button - hide for visitors
+  const saveBtn = visitor ? '' : `
+    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+      ${post.isBookmarked ? 'Saved' : 'Save'}
+    </button>`;
+
+  // Reply button - hide for visitors
+  const replyBtn = visitor ? '' : `
+    <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>`;
 
   const parentClass = isParent ? 'thread-parent-post' : '';
   const clickHandler = isParent ? '' : `onclick="window.cloutApp.viewThread('${post.id}')" style="cursor: pointer;"`;
@@ -136,10 +154,8 @@ function renderThreadPost(post, isParent = false) {
             <div class="feed-timestamp">&#x1F64C; ${formatRelativeTime(timestamp)} ${editedIndicator}</div>
             <div class="feed-actions">
               ${reactionsHtml}
-              <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
-                ${post.isBookmarked ? 'Saved' : 'Save'}
-              </button>
-              <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+              ${saveBtn}
+              ${replyBtn}
               ${muteBtn}
               ${authorActions}
             </div>

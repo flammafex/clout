@@ -17,6 +17,13 @@ import {
 import { renderReactionsBar, getReactionPalette } from './reactions.js';
 
 /**
+ * Check if current user is a visitor (no browser identity)
+ */
+function isVisitorMode() {
+  return state.isVisitor;
+}
+
+/**
  * Recalculate trust-related fields for posts using browser's trust graph
  * This overrides server-provided trust data with browser-local Dark Social Graph
  */
@@ -493,27 +500,43 @@ export function renderFeedItem(post, fullFeatures = true) {
   const trustPath = post.trustPath || [];
   const isYou = post.isAuthor || rep.distance === 0;
   const isDirectTrust = post.isDirectlyTrusted || rep.distance === 1;
-  let trustContext = '';
+  const visitor = isVisitorMode();
 
-  if (isYou) {
-    trustContext = '<span class="trust-context trust-self">Self</span>';
-  } else if (isDirectTrust) {
-    trustContext = '<span class="trust-context trust-direct">In Your Circle</span>';
-  } else if (trustPath.length > 0) {
-    const pathDisplay = trustPath.slice(0, -1).join(' &#x2192; ');
-    trustContext = `<span class="trust-context trust-indirect">Via ${pathDisplay}</span>`;
+  // Trust context - hide for visitors
+  let trustContext = '';
+  if (!visitor) {
+    if (isYou) {
+      trustContext = '<span class="trust-context trust-self">Self</span>';
+    } else if (isDirectTrust) {
+      trustContext = '<span class="trust-context trust-direct">In Your Circle</span>';
+    } else if (trustPath.length > 0) {
+      const pathDisplay = trustPath.slice(0, -1).join(' &#x2192; ');
+      trustContext = `<span class="trust-context trust-indirect">Via ${pathDisplay}</span>`;
+    }
   }
 
-  const distanceClass = `distance-${Math.min(rep.distance, 3)}`;
-  const quickTrustBtn = (!isYou && !isDirectTrust && fullFeatures)
+  // Distance class for left border - hide for visitors
+  const distanceClass = visitor ? '' : `distance-${Math.min(rep.distance, 3)}`;
+
+  // Quick trust button (+ next to author) - hide for visitors
+  const quickTrustBtn = (!visitor && !isYou && !isDirectTrust && fullFeatures)
     ? `<button class="btn-trust-quick" onclick="event.stopPropagation(); window.cloutApp.quickTrust('${post.author}')" title="Add to your circle">+</button>`
     : '';
 
-  const muteBtn = (!isYou && fullFeatures)
+  // Reputation badge (hop distance) - hide for visitors
+  const reputationBadge = (!visitor && !isYou)
+    ? `<span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
+        ${rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
+      </span>`
+    : '';
+
+  // Mute/Redact button - hide for visitors
+  const muteBtn = (!visitor && !isYou && fullFeatures)
     ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Redact this user">Redact</button>`
     : '';
 
-  const authorActions = (post.isAuthor && fullFeatures)
+  // Author actions (Revise/Retract) - hide for visitors
+  const authorActions = (!visitor && post.isAuthor && fullFeatures)
     ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Revise post">Revise</button>
        <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${post.id}')" title="Retract post">Retract</button>`
     : '';
@@ -523,9 +546,22 @@ export function renderFeedItem(post, fullFeatures = true) {
   const hasNickname = !!post.authorNickname;
   const hasCW = !!post.contentWarning;
   const cwId = `cw-${post.id}`;
+
+  // Reactions - hide for visitors
   const reactions = post.reactions || {};
   const myReaction = post.myReaction;
-  const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, getReactionPalette());
+  const reactionsHtml = visitor ? '' : renderReactionsBar(post.id, reactions, myReaction, getReactionPalette());
+
+  // Save button - hide for visitors
+  const saveBtn = visitor ? '' : `
+    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+      ${post.isBookmarked ? 'Saved' : 'Save'}
+    </button>`;
+
+  // Reply button - hide for visitors
+  const replyBtn = visitor ? '' : `
+    <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>`;
+
   const authorAvatar = post.authorAvatar || '&#x1F464;';
 
   return `
@@ -536,9 +572,7 @@ export function renderFeedItem(post, fullFeatures = true) {
           <div class="feed-header">
             <div class="feed-author">
               <span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span>
-              ${!isYou ? `<span class="reputation-badge" style="background-color: ${repColor}" title="Reputation: ${rep.score.toFixed(2)}, Distance: ${rep.distance}">
-                ${rep.distance === 1 ? '1st' : rep.distance === 2 ? '2nd' : '3rd+'}
-              </span>` : ''}
+              ${reputationBadge}
               ${tagsHtml}
               ${quickTrustBtn}
             </div>
@@ -565,10 +599,8 @@ export function renderFeedItem(post, fullFeatures = true) {
             <div class="feed-timestamp">&#x1F64C; Witnessed ${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
             <div class="feed-actions">
               ${reactionsHtml}
-              <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
-                ${post.isBookmarked ? 'Saved' : 'Save'}
-              </button>
-              <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>
+              ${saveBtn}
+              ${replyBtn}
               ${muteBtn}
               ${authorActions}
             </div>
