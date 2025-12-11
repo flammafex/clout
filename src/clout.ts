@@ -33,6 +33,7 @@ import { CloutReactions, REACTION_EMOJIS } from './clout/reactions.js';
 import { CloutFeed } from './clout/feed.js';
 import { CloutBackup } from './clout/backup.js';
 import { CloutRelay } from './clout/relay.js';
+import { CloutProfileModule } from './clout/profile.js';
 
 import type { FreebirdClient, WitnessClient, Attestation } from './types.js';
 import {
@@ -118,6 +119,7 @@ export class Clout {
   private readonly feedModule: CloutFeed;
   private readonly backup: CloutBackup;
   private readonly relay: CloutRelay;
+  private readonly profileModule: CloutProfileModule;
 
   // State
   private readonly trustGraph: Set<string>;
@@ -298,6 +300,14 @@ export class Clout {
       store: this.store,
       state: this.state,
       extractMentions: (content) => this.content.extractMentions(content)
+    });
+
+    this.profileModule = new CloutProfileModule({
+      publicKey: this.publicKeyHex,
+      trustGraph: this.trustGraph,
+      state: this.state,
+      profileStore: this.profileStore,
+      defaultTrustSettings: DEFAULT_TRUST_SETTINGS
     });
 
     // 11. Initialize Storage & Gossip Subscription
@@ -659,44 +669,11 @@ export class Clout {
   }
 
   // =================================================================
-  //  PROFILE - Local implementation
+  //  PROFILE - Delegated to CloutProfileModule
   // =================================================================
 
   getProfile(): CloutProfile {
-    const state = this.state.getState();
-    let profile = state.profile || {
-      publicKey: this.publicKeyHex,
-      trustGraph: this.trustGraph,
-      trustSettings: DEFAULT_TRUST_SETTINGS
-    };
-
-    if (!profile.publicKey) {
-      profile = { ...profile, publicKey: this.publicKeyHex };
-    }
-
-    let trustGraph: Set<string>;
-    if (!profile.trustGraph || !(profile.trustGraph instanceof Set)) {
-      trustGraph = new Set(this.trustGraph);
-    } else {
-      trustGraph = new Set(profile.trustGraph);
-    }
-    trustGraph.add(this.publicKeyHex);
-    profile = { ...profile, trustGraph };
-
-    if (!profile.trustSettings) {
-      profile = { ...profile, trustSettings: DEFAULT_TRUST_SETTINGS };
-    }
-
-    const savedProfile = this.profileStore.getProfile();
-    if (savedProfile && savedProfile.publicKey === this.publicKeyHex) {
-      profile = {
-        ...profile,
-        metadata: { ...profile.metadata, ...savedProfile.metadata },
-        trustSettings: { ...profile.trustSettings, ...savedProfile.trustSettings }
-      };
-    }
-
-    return profile;
+    return this.profileModule.getProfile();
   }
 
   async setProfileMetadata(metadata: {
@@ -704,90 +681,30 @@ export class Clout {
     bio?: string;
     avatar?: string;
   }): Promise<void> {
-    console.log(`[Clout] 📝 Updating profile metadata`);
-
-    const currentProfile = this.getProfile();
-    const updatedMetadata = { ...currentProfile.metadata, ...metadata };
-
-    this.state.updateProfile({
-      publicKey: this.publicKeyHex,
-      trustGraph: this.trustGraph,
-      trustSettings: currentProfile.trustSettings,
-      metadata: updatedMetadata
-    });
-
-    this.profileStore.saveProfile(
-      this.publicKeyHex,
-      updatedMetadata,
-      currentProfile.trustSettings
-    );
-
-    if (metadata.avatar?.startsWith('http://') || metadata.avatar?.startsWith('https://')) {
-      this.profileStore.cacheAvatar(metadata.avatar).catch(err => {
-        console.warn('[Clout] Failed to cache avatar:', err);
-      });
-    }
+    return this.profileModule.setProfileMetadata(metadata);
   }
 
   async updateTrustSettings(settings: Partial<import('./clout-types.js').TrustSettings>): Promise<void> {
-    console.log(`[Clout] ⚙️ Updating trust settings`);
-
-    const currentProfile = this.getProfile();
-    const updatedSettings = { ...currentProfile.trustSettings, ...settings };
-
-    this.state.updateProfile({
-      publicKey: this.publicKeyHex,
-      trustGraph: this.trustGraph,
-      trustSettings: updatedSettings,
-      metadata: currentProfile.metadata
-    });
-
-    if (settings.maxHops !== undefined || settings.minReputation !== undefined) {
-      console.log(`[Clout] Updated filter settings: maxHops=${updatedSettings.maxHops}, minReputation=${updatedSettings.minReputation}`);
-    }
-
-    if (settings.showNsfw !== undefined) {
-      console.log(`[Clout] NSFW content: ${settings.showNsfw ? 'enabled' : 'disabled'}`);
-    }
-
-    this.profileStore.saveProfile(
-      this.publicKeyHex,
-      currentProfile.metadata || {},
-      updatedSettings
-    );
+    return this.profileModule.updateTrustSettings(settings);
   }
 
   async setContentTypeFilter(
     contentType: string,
     filter: import('./clout-types.js').ContentTypeFilter
   ): Promise<void> {
-    console.log(`[Clout] 🔧 Setting filter for content type: ${contentType}`);
-
-    const currentProfile = this.getProfile();
-    const currentFilters = currentProfile.trustSettings.contentTypeFilters || {};
-
-    await this.updateTrustSettings({
-      contentTypeFilters: { ...currentFilters, [contentType]: filter }
-    });
+    return this.profileModule.setContentTypeFilter(contentType, filter);
   }
 
   async removeContentTypeFilter(contentType: string): Promise<void> {
-    const currentProfile = this.getProfile();
-    const currentFilters = { ...currentProfile.trustSettings.contentTypeFilters };
-
-    if (currentFilters[contentType]) {
-      delete currentFilters[contentType];
-      await this.updateTrustSettings({ contentTypeFilters: currentFilters });
-      console.log(`[Clout] 🔧 Removed filter for content type: ${contentType}`);
-    }
+    return this.profileModule.removeContentTypeFilter(contentType);
   }
 
   async setNsfwEnabled(enabled: boolean): Promise<void> {
-    await this.updateTrustSettings({ showNsfw: enabled });
+    return this.profileModule.setNsfwEnabled(enabled);
   }
 
   isNsfwEnabled(): boolean {
-    return this.getProfile().trustSettings.showNsfw ?? false;
+    return this.profileModule.isNsfwEnabled();
   }
 
   // =================================================================

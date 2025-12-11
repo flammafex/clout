@@ -11,6 +11,9 @@
  */
 
 import { Crypto } from './crypto.js';
+import { GossipMessageSigner } from './gossip/message-signer.js';
+import { PeerRateLimiter } from './gossip/rate-limiter.js';
+import { TrustGraphCache } from './gossip/trust-graph-cache.js';
 import type { WitnessClient, FreebirdClient } from './types.js';
 import type {
   ContentGossipMessage,
@@ -110,14 +113,6 @@ export interface ContentGossipConfig {
   };
 }
 
-/**
- * Per-peer rate limiting tracker
- */
-interface PeerRateLimit {
-  messageCount: number;
-  windowStart: number;
-  bannedUntil?: number;
-}
 
 export interface PeerConnection {
   readonly id: string;
@@ -151,16 +146,6 @@ interface SlideRecord {
   firstSeen: number;
 }
 
-/**
- * Seen message record for replay protection
- */
-interface SeenMessageRecord {
-  /** When this message was first seen */
-  firstSeen: number;
-  /** Message expiry (for cleanup) */
-  expiresAt: number;
-}
-
 interface PeerStateRecord {
   publicKey: string;
   version: number;
@@ -179,38 +164,25 @@ export class ContentGossip {
   private readonly seenTrustSignals = new Map<string, TrustRecord>();
   private readonly seenEncryptedTrustSignals = new Map<string, EncryptedTrustRecord>();
   private readonly seenSlides = new Map<string, SlideRecord>();
-  private readonly seenMessages = new Map<string, SeenMessageRecord>(); // Replay protection
   private readonly peerStates = new Map<string, PeerStateRecord>();
   private readonly peerConnections: PeerConnection[] = [];
-  private readonly peerRateLimits = new Map<string, PeerRateLimit>();
   private readonly witness: WitnessClient;
   private readonly freebird: FreebirdClient;
   private readonly trustGraph: Set<string>;
   private readonly maxPosts: number;
   private readonly pruneInterval: number;
   private readonly maxPostAge: number;
-  private readonly maxHops: number;
   private readonly maxClockSkew: number;
 
-  // Rate limiting configuration
-  private readonly rateLimitMaxMessages: number;
-  private readonly rateLimitWindowMs: number;
-  private readonly rateLimitBanDurationMs: number;
+  // Extracted modules
+  private readonly messageSigner: GossipMessageSigner;
+  private readonly rateLimiter: PeerRateLimiter;
+  private readonly trustGraphCache: TrustGraphCache;
 
-  // Replay protection configuration
-  private readonly messageExpiryMs: number; // How long before messages expire (default: 5 min)
-  private readonly seenMessagesTtlMs: number; // How long to keep seen message IDs (default: 10 min)
   private receiveHandler?: (data: ContentGossipMessage) => Promise<void>;
   private pruneTimer?: NodeJS.Timeout;
   private stateSyncHandler?: (publicKey: string, stateBinary: Uint8Array) => Promise<void>;
   private stateRequestHandler?: (publicKey: string) => Promise<Uint8Array | null>;
-
-  // Signing configuration for gossip message authentication
-  private readonly signingKey?: {
-    readonly publicKey: Uint8Array;
-    readonly privateKey: Uint8Array;
-  };
-  private readonly requireSignatures: boolean;
 
   // Encryption keys for decrypting trust signals addressed to us
   private readonly encryptionKey?: {
@@ -219,13 +191,6 @@ export class ContentGossip {
   };
   private readonly ourPublicKey?: string;
 
-  // OPTIMIZATION: Cached adjacency list for O(1) hop distance lookups
-  private readonly trustAdjacencyList = new Map<string, Set<string>>();
-  private readonly hopDistanceCache = new Map<string, number>();
-
-  // Trust graph persistence callback
-  private readonly onTrustEdge?: (truster: string, trustee: string) => void;
-
   constructor(config: ContentGossipConfig) {
     this.witness = config.witness;
     this.freebird = config.freebird;
@@ -233,37 +198,30 @@ export class ContentGossip {
     this.maxPosts = config.maxPosts ?? 100_000;
     this.pruneInterval = config.pruneInterval ?? 3600_000; // 1 hour
     this.maxPostAge = config.maxPostAge ?? (30 * 24 * 3600 * 1000); // 30 days
-    this.maxHops = config.maxHops ?? 3; // Up to 3 degrees of separation
     this.maxClockSkew = config.maxClockSkew ?? 60_000; // 60 seconds default
-    this.signingKey = config.signingKey;
-    this.requireSignatures = config.requireSignatures ?? false;
     this.encryptionKey = config.encryptionKey;
     this.ourPublicKey = config.ourPublicKey;
-    this.onTrustEdge = config.onTrustEdge;
 
-    // Rate limiting defaults
-    this.rateLimitMaxMessages = config.rateLimit?.maxMessagesPerWindow ?? 100;
-    this.rateLimitWindowMs = config.rateLimit?.windowMs ?? 60_000; // 1 minute
-    this.rateLimitBanDurationMs = config.rateLimit?.banDurationMs ?? 300_000; // 5 minutes
+    // Initialize extracted modules
+    this.messageSigner = new GossipMessageSigner({
+      signingKey: config.signingKey,
+      requireSignatures: config.requireSignatures,
+      messageExpiryMs: config.replayProtection?.messageExpiryMs,
+      seenMessagesTtlMs: config.replayProtection?.seenMessagesTtlMs
+    });
 
-    // Replay protection defaults
-    this.messageExpiryMs = config.replayProtection?.messageExpiryMs ?? 300_000; // 5 minutes
-    this.seenMessagesTtlMs = config.replayProtection?.seenMessagesTtlMs ?? 600_000; // 10 minutes
+    this.rateLimiter = new PeerRateLimiter({
+      maxMessagesPerWindow: config.rateLimit?.maxMessagesPerWindow,
+      windowMs: config.rateLimit?.windowMs,
+      banDurationMs: config.rateLimit?.banDurationMs
+    });
 
-    // Initialize adjacency list from initial trust graph (distance 1)
-    for (const trustedKey of this.trustGraph) {
-      this.hopDistanceCache.set(trustedKey, 1);
-    }
-
-    // Load persisted trust graph if provided
-    if (config.persistedTrustGraph) {
-      for (const [truster, trustees] of config.persistedTrustGraph) {
-        for (const trustee of trustees) {
-          this.updateGraphCaches(truster, trustee);
-        }
-      }
-      console.log(`[ContentGossip] Loaded ${config.persistedTrustGraph.size} persisted trust graph entries`);
-    }
+    this.trustGraphCache = new TrustGraphCache({
+      trustGraph: config.trustGraph,
+      maxHops: config.maxHops,
+      onTrustEdge: config.onTrustEdge,
+      persistedTrustGraph: config.persistedTrustGraph
+    });
 
     this.startPruning();
   }
@@ -376,12 +334,12 @@ export class ContentGossip {
    */
   async onReceive(data: ContentGossipMessage | SignedContentGossipMessage, peerId?: string): Promise<void> {
     // Rate limit check - protect against flooding
-    if (peerId && !this.checkRateLimit(peerId)) {
+    if (peerId && !this.rateLimiter.checkLimit(peerId)) {
       return;
     }
 
     // Verify signature and unwrap message
-    const message = this.verifyMessage(data);
+    const message = this.messageSigner.verify(data);
     if (!message) {
       // Invalid signature or unsigned when signatures required
       return;
@@ -429,13 +387,13 @@ export class ContentGossip {
     }
 
     // LAYER 2: TRUST GRAPH FILTERING - THE KEY LOGIC
-    const hopDistance = this.calculateHopDistance(post.author);
+    const hopDistance = this.trustGraphCache.calculateHopDistance(post.author);
 
-    if (hopDistance > this.maxHops) {
+    if (hopDistance > this.trustGraphCache.maxHopsLimit) {
       // THE "SHADOWBAN" - Post from untrusted source vanishes
       console.log(
         `[ContentGossip] Dropping post from ${post.author.slice(0, 8)} ` +
-        `(hop distance ${hopDistance} > max ${this.maxHops})`
+        `(hop distance ${hopDistance} > max ${this.trustGraphCache.maxHopsLimit})`
       );
       return;
     }
@@ -508,7 +466,7 @@ export class ContentGossip {
     });
 
     // OPTIMIZATION: Incrementally update adjacency list and hop distance cache
-    this.updateGraphCaches(signal.truster, signal.trustee);
+    this.trustGraphCache.updateCaches(signal.truster, signal.trustee);
 
     // Propagate
     await this.broadcast({ type: 'trust', trustSignal: signal, timestamp: Date.now() }, true);
@@ -598,7 +556,7 @@ export class ContentGossip {
         console.log(`[ContentGossip] 🔐 Decrypted trust signal: ${signal.truster.slice(0, 8)} trusts us!`);
 
         // Update our trust graph caches
-        this.updateGraphCaches(signal.truster, decryptedTrustee);
+        this.trustGraphCache.updateCaches(signal.truster, decryptedTrustee);
       }
     }
 
@@ -705,8 +663,8 @@ export class ContentGossip {
 
     // Check if this is a trusted peer (within our trust graph)
     if (!this.trustGraph.has(stateSync.publicKey)) {
-      const hopDistance = this.calculateHopDistance(stateSync.publicKey);
-      if (hopDistance > this.maxHops) {
+      if (!this.trustGraphCache.isWithinMaxHops(stateSync.publicKey)) {
+        const hopDistance = this.trustGraphCache.calculateHopDistance(stateSync.publicKey);
         console.log(`[ContentGossip] Ignoring state from untrusted peer (${hopDistance} hops)`);
         return;
       }
@@ -745,8 +703,8 @@ export class ContentGossip {
 
     // Check if this is a trusted peer
     if (!this.trustGraph.has(stateRequest.publicKey)) {
-      const hopDistance = this.calculateHopDistance(stateRequest.publicKey);
-      if (hopDistance > this.maxHops) {
+      if (!this.trustGraphCache.isWithinMaxHops(stateRequest.publicKey)) {
+        const hopDistance = this.trustGraphCache.calculateHopDistance(stateRequest.publicKey);
         console.log(`[ContentGossip] Ignoring request from untrusted peer (${hopDistance} hops)`);
         return;
       }
@@ -771,137 +729,6 @@ export class ContentGossip {
   }
 
   /**
-   * Check if a peer has exceeded rate limits
-   *
-   * Uses a sliding window rate limiter with temporary bans for abuse.
-   * Returns true if the message should be processed, false if rate limited.
-   *
-   * @param peerId - The peer's identifier
-   * @returns true if within limits, false if rate limited
-   */
-  private checkRateLimit(peerId: string): boolean {
-    const now = Date.now();
-    let peerLimit = this.peerRateLimits.get(peerId);
-
-    // Initialize if first message from this peer
-    if (!peerLimit) {
-      peerLimit = { messageCount: 0, windowStart: now };
-      this.peerRateLimits.set(peerId, peerLimit);
-    }
-
-    // Check if currently banned
-    if (peerLimit.bannedUntil && now < peerLimit.bannedUntil) {
-      console.warn(
-        `[ContentGossip] ⛔ Rate limited peer ${peerId.slice(0, 8)} ` +
-        `(banned until ${new Date(peerLimit.bannedUntil).toISOString()})`
-      );
-      return false;
-    }
-
-    // Clear ban if expired
-    if (peerLimit.bannedUntil && now >= peerLimit.bannedUntil) {
-      peerLimit.bannedUntil = undefined;
-      peerLimit.messageCount = 0;
-      peerLimit.windowStart = now;
-    }
-
-    // Reset window if expired
-    if (now - peerLimit.windowStart >= this.rateLimitWindowMs) {
-      peerLimit.messageCount = 0;
-      peerLimit.windowStart = now;
-    }
-
-    // Increment message count
-    peerLimit.messageCount++;
-
-    // Check if limit exceeded
-    if (peerLimit.messageCount > this.rateLimitMaxMessages) {
-      peerLimit.bannedUntil = now + this.rateLimitBanDurationMs;
-      console.warn(
-        `[ContentGossip] ⛔ Peer ${peerId.slice(0, 8)} exceeded rate limit ` +
-        `(${peerLimit.messageCount}/${this.rateLimitMaxMessages} in ${this.rateLimitWindowMs}ms). ` +
-        `Banned for ${this.rateLimitBanDurationMs}ms`
-      );
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * OPTIMIZATION: Incrementally update graph caches when trust signals arrive
-   *
-   * This updates the adjacency list and recalculates hop distances
-   * for affected nodes, avoiding the need to traverse the entire graph
-   * on every message.
-   */
-  private updateGraphCaches(truster: string, trustee: string): void {
-    // Update adjacency list
-    if (!this.trustAdjacencyList.has(truster)) {
-      this.trustAdjacencyList.set(truster, new Set());
-    }
-
-    const isNewEdge = !this.trustAdjacencyList.get(truster)!.has(trustee);
-    this.trustAdjacencyList.get(truster)!.add(trustee);
-
-    // Persist new trust edge
-    if (isNewEdge && this.onTrustEdge) {
-      this.onTrustEdge(truster, trustee);
-    }
-
-    // Calculate hop distance for trustee based on truster's distance
-    const trusterDistance = this.hopDistanceCache.get(truster);
-
-    if (trusterDistance !== undefined) {
-      const newDistance = trusterDistance + 1;
-      const existingDistance = this.hopDistanceCache.get(trustee);
-
-      // Update if this is a shorter path or first path
-      if (existingDistance === undefined || newDistance < existingDistance) {
-        this.hopDistanceCache.set(trustee, newDistance);
-
-        // Recursively update neighbors of trustee (if within maxHops)
-        if (newDistance < this.maxHops) {
-          const neighbors = this.trustAdjacencyList.get(trustee);
-          if (neighbors) {
-            for (const neighbor of neighbors) {
-              this.updateGraphCaches(trustee, neighbor);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Calculate hop distance in trust graph (OPTIMIZED)
-   *
-   * Returns:
-   * - 0: Self
-   * - 1: Direct follow
-   * - 2: Friend of friend
-   * - 999: Not trusted (beyond maxHops)
-   *
-   * OPTIMIZATION: O(1) lookup instead of O(n) BFS traversal.
-   * The hop distance cache is maintained incrementally as trust signals arrive.
-   */
-  private calculateHopDistance(publicKey: string): number {
-    // Distance 1: Direct trust
-    if (this.trustGraph.has(publicKey)) {
-      return 1;
-    }
-
-    // Distance 2+: Lookup in pre-computed cache
-    const cachedDistance = this.hopDistanceCache.get(publicKey);
-    if (cachedDistance !== undefined) {
-      return cachedDistance;
-    }
-
-    // Not reachable within maxHops
-    return 999;
-  }
-
-  /**
    * Update local trust graph
    *
    * Allows dynamic trust graph updates.
@@ -911,15 +738,18 @@ export class ContentGossip {
     this.trustGraph.clear();
     for (const key of newTrustGraph) {
       this.trustGraph.add(key);
-      // Update cache: all directly trusted nodes are at distance 1
-      this.hopDistanceCache.set(key, 1);
     }
 
+    // Update the trust graph cache
+    this.trustGraphCache.updateDirectTrustGraph(newTrustGraph);
+
     // Rebuild extended network cache from existing trust signals
-    for (const [key, record] of this.seenTrustSignals.entries()) {
+    const signals = new Map<string, { truster: string; trustee: string }>();
+    for (const [key] of this.seenTrustSignals.entries()) {
       const [truster, trustee] = key.split(':');
-      this.updateGraphCaches(truster, trustee);
+      signals.set(key, { truster, trustee });
     }
+    this.trustGraphCache.rebuildFromSignals(signals);
   }
 
   /**
@@ -927,7 +757,7 @@ export class ContentGossip {
    */
   getFeed(): PostPackage[] {
     const posts = Array.from(this.seenPosts.values())
-      .filter(record => record.hopDistance <= this.maxHops)
+      .filter(record => record.hopDistance <= this.trustGraphCache.maxHopsLimit)
       .sort((a, b) => b.post.proof.timestamp - a.post.proof.timestamp)
       .map(record => record.post);
 
@@ -1058,13 +888,7 @@ export class ContentGossip {
    * Get gossip network statistics
    */
   getStats() {
-    const now = Date.now();
-    let bannedPeers = 0;
-    for (const limit of this.peerRateLimits.values()) {
-      if (limit.bannedUntil && now < limit.bannedUntil) {
-        bannedPeers++;
-      }
-    }
+    const rateLimiterStats = this.rateLimiter.getStats();
 
     return {
       postCount: this.seenPosts.size,
@@ -1074,9 +898,9 @@ export class ContentGossip {
       peerCount: this.peerConnections.length,
       activePeers: this.peerConnections.filter(p => p.isConnected()).length,
       trustGraphSize: this.trustGraph.size,
-      rateLimitedPeers: bannedPeers,
-      trackedPeers: this.peerRateLimits.size,
-      seenMessageIds: this.seenMessages.size // Replay protection tracking
+      rateLimitedPeers: rateLimiterStats.bannedPeers,
+      trackedPeers: rateLimiterStats.trackedPeers,
+      seenMessageIds: this.messageSigner.seenMessageCount
     };
   }
 
@@ -1084,137 +908,14 @@ export class ContentGossip {
    * Check if a peer is currently rate-limited (banned)
    */
   isPeerBanned(peerId: string): boolean {
-    const limit = this.peerRateLimits.get(peerId);
-    if (!limit || !limit.bannedUntil) return false;
-    return Date.now() < limit.bannedUntil;
+    return this.rateLimiter.isPeerBanned(peerId);
   }
 
   /**
    * Manually unban a peer (for administrative use)
    */
   unbanPeer(peerId: string): void {
-    const limit = this.peerRateLimits.get(peerId);
-    if (limit) {
-      limit.bannedUntil = undefined;
-      limit.messageCount = 0;
-      limit.windowStart = Date.now();
-    }
-  }
-
-  /**
-   * Sign a gossip message for authentication
-   *
-   * Includes nonce and expiry for replay protection:
-   * - Nonce: Random 32 bytes to ensure message uniqueness
-   * - Expiry: Timestamp after which message should be rejected
-   *
-   * @param message - The message to sign
-   * @returns Signed message wrapper, or original message if no signing key
-   */
-  private signMessage(message: ContentGossipMessage): ContentGossipMessage | SignedContentGossipMessage {
-    if (!this.signingKey) {
-      return message;
-    }
-
-    // Generate nonce and expiry for replay protection
-    const nonce = Crypto.toHex(Crypto.randomBytes(32));
-    const expiresAt = Date.now() + this.messageExpiryMs;
-
-    // Serialize message + nonce + expiry to bytes for signing
-    const signPayload = JSON.stringify({ message, nonce, expiresAt });
-    const messageBytes = new TextEncoder().encode(signPayload);
-
-    // Sign with Ed25519
-    const signature = Crypto.sign(messageBytes, this.signingKey.privateKey);
-
-    const signedMessage: SignedContentGossipMessage = {
-      message,
-      senderPublicKey: Crypto.toHex(this.signingKey.publicKey),
-      signature: Crypto.toHex(signature),
-      nonce,
-      expiresAt
-    };
-
-    return signedMessage;
-  }
-
-  /**
-   * Verify a signed gossip message
-   *
-   * Performs the following checks:
-   * 1. Signature verification (Ed25519)
-   * 2. Expiry check (message not too old)
-   * 3. Replay detection (nonce not seen before)
-   *
-   * @param data - The incoming message (may be signed or unsigned)
-   * @returns The unwrapped message if valid, or null if invalid
-   */
-  private verifyMessage(data: ContentGossipMessage | SignedContentGossipMessage): ContentGossipMessage | null {
-    // Check if this is a signed message
-    if ('message' in data && 'senderPublicKey' in data && 'signature' in data) {
-      const signedData = data as SignedContentGossipMessage;
-      const now = Date.now();
-
-      try {
-        // REPLAY PROTECTION CHECK 1: Expiry
-        if (signedData.expiresAt && signedData.expiresAt < now) {
-          console.warn(
-            `[ContentGossip] ⚠️ Rejecting expired message from ${signedData.senderPublicKey.slice(0, 8)} ` +
-            `(expired ${Math.round((now - signedData.expiresAt) / 1000)}s ago)`
-          );
-          return null;
-        }
-
-        // REPLAY PROTECTION CHECK 2: Nonce deduplication
-        if (signedData.nonce) {
-          const messageId = `${signedData.senderPublicKey}:${signedData.nonce}`;
-          if (this.seenMessages.has(messageId)) {
-            console.warn(
-              `[ContentGossip] ⚠️ Rejecting replayed message from ${signedData.senderPublicKey.slice(0, 8)} ` +
-              `(nonce: ${signedData.nonce.slice(0, 8)}...)`
-            );
-            return null;
-          }
-
-          // Track this message to prevent future replays
-          this.seenMessages.set(messageId, {
-            firstSeen: now,
-            expiresAt: signedData.expiresAt ?? (now + this.seenMessagesTtlMs)
-          });
-        }
-
-        // Deserialize public key and signature
-        const publicKey = Crypto.fromHex(signedData.senderPublicKey);
-        const signature = Crypto.fromHex(signedData.signature);
-
-        // Serialize the inner message + nonce + expiry for verification (must match signing)
-        const signPayload = signedData.nonce
-          ? JSON.stringify({ message: signedData.message, nonce: signedData.nonce, expiresAt: signedData.expiresAt })
-          : JSON.stringify(signedData.message); // Backward compatibility
-        const messageBytes = new TextEncoder().encode(signPayload);
-
-        // Verify signature
-        if (!Crypto.verify(messageBytes, signature, publicKey)) {
-          console.warn(`[ContentGossip] ⚠️ Invalid signature from ${signedData.senderPublicKey.slice(0, 8)}`);
-          return null;
-        }
-
-        console.log(`[ContentGossip] ✓ Verified signature from ${signedData.senderPublicKey.slice(0, 8)}`);
-        return signedData.message;
-      } catch (error) {
-        console.warn('[ContentGossip] Failed to verify message signature:', error);
-        return null;
-      }
-    }
-
-    // Unsigned message
-    if (this.requireSignatures) {
-      console.warn('[ContentGossip] ⚠️ Rejecting unsigned message (requireSignatures=true)');
-      return null;
-    }
-
-    // Accept unsigned message (backward compatibility)
-    return data as ContentGossipMessage;
+    this.rateLimiter.unbanPeer(peerId);
   }
 
   /**
@@ -1222,7 +923,7 @@ export class ContentGossip {
    */
   private async broadcast(message: ContentGossipMessage, skipFailed = false): Promise<void> {
     // Sign the message if we have a signing key
-    const outgoingMessage = this.signMessage(message);
+    const outgoingMessage = this.messageSigner.sign(message);
 
     const promises = this.peerConnections
       .filter(peer => peer.isConnected())
@@ -1290,27 +991,11 @@ export class ContentGossip {
         }
       }
 
-      // Cleanup stale rate limit entries (no activity in 2x window + not banned)
-      const rateLimitCutoff = now - (this.rateLimitWindowMs * 2);
-      for (const [peerId, limit] of this.peerRateLimits.entries()) {
-        const isStale = limit.windowStart < rateLimitCutoff;
-        const notBanned = !limit.bannedUntil || now >= limit.bannedUntil;
-        if (isStale && notBanned) {
-          this.peerRateLimits.delete(peerId);
-        }
-      }
+      // Cleanup stale rate limit entries
+      this.rateLimiter.cleanup();
 
       // Cleanup expired seen messages (replay protection)
-      let expiredMessages = 0;
-      for (const [messageId, record] of this.seenMessages.entries()) {
-        if (record.expiresAt < now) {
-          this.seenMessages.delete(messageId);
-          expiredMessages++;
-        }
-      }
-      if (expiredMessages > 0) {
-        console.log(`[ContentGossip] Cleaned up ${expiredMessages} expired message IDs`);
-      }
+      this.messageSigner.cleanupExpiredMessages();
     }, this.pruneInterval);
   }
 
