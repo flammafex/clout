@@ -14,7 +14,7 @@ import {
   $, $$, showLoading, showResult, escapeHtml, formatRelativeTime,
   renderAvatar, getReputationColor, switchToTab
 } from './ui.js';
-import { renderReactionsBar, getReactionPalette } from './reactions.js';
+import { renderReactionsBar } from './reactions.js';
 
 /**
  * Check if current user is a visitor (no browser identity)
@@ -550,7 +550,7 @@ export function renderFeedItem(post, fullFeatures = true) {
   // Reactions - hide for visitors
   const reactions = post.reactions || {};
   const myReaction = post.myReaction;
-  const reactionsHtml = visitor ? '' : renderReactionsBar(post.id, reactions, myReaction, getReactionPalette());
+  const reactionsHtml = visitor ? '' : renderReactionsBar(post.id, reactions, myReaction);
 
   // Save button - hide for visitors
   const saveBtn = visitor ? '' : `

@@ -22,7 +22,7 @@ import {
   retractPost, setupMediaUpload, setupCharCounter, clearMediaPreview
 } from './posts.js';
 import {
-  toggleReaction, toggleBookmark, toggleCW, loadReactionPalette,
+  toggleReaction, toggleBookmark, toggleCW,
   openEmojiPicker, closeEmojiPicker, filterEmojis, selectEmoji,
   expandReactions
 } from './reactions.js';
@@ -104,9 +104,6 @@ async function initializeClout() {
 
     // Check BROWSER identity's Day Pass (not server's)
     await updateBrowserDayPassTimer();
-
-    // Load user's reaction palette from IndexedDB
-    await loadReactionPalette();
 
     await loadFeed();
     await loadIdentity();

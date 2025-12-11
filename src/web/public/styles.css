@@ -2181,49 +2181,6 @@ h2 {
   background: var(--bg-hover);
 }
 
-.emoji-option.in-palette {
-  background: rgba(99, 102, 241, 0.2);
-  border: 1px solid var(--primary);
-}
-
-/* =========================================================================
-   PALETTE EDITOR (Settings)
-   ========================================================================= */
-
-.palette-editor {
-  padding: 0.5rem 0;
-}
-
-.palette-slots {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.palette-slot {
-  width: 48px;
-  height: 48px;
-  font-size: 1.5rem;
-  background: var(--bg);
-  border: 2px dashed var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.palette-slot:hover {
-  border-color: var(--primary);
-  border-style: solid;
-  background: var(--bg-hover);
-}
-
-.palette-picker {
-  width: 280px;
-}
-
 /* Responsive emoji picker */
 @media (max-width: 400px) {
   .emoji-picker {
