@@ -174,7 +174,7 @@ export function cancelEdit() {
 }
 
 /**
- * Save edit
+ * Save edit (browser-signed)
  */
 async function saveEdit(requireMembership) {
   if (!state.editingPost) return;
@@ -193,12 +193,38 @@ async function saveEdit(requireMembership) {
     $('create-post-btn').disabled = true;
     $('create-post-btn').textContent = 'Saving...';
 
-    const body = { content, nsfw };
-    if (contentWarning) {
-      body.contentWarning = contentWarning;
+    // Get browser identity for signing
+    if (!window.CloutIdentity || !window.CloutCrypto) {
+      throw new Error('Identity or crypto module not loaded');
     }
 
-    await apiCall(`/post/${state.editingPost.id}`, 'PUT', body);
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      throw new Error('No browser identity found');
+    }
+
+    const Crypto = window.CloutCrypto;
+    const timestamp = Date.now();
+    const originalPostId = state.editingPost.id;
+
+    // Create signature payload: "edit:{originalPostId}:{content}:{author}:{timestamp}"
+    const signaturePayload = `edit:${originalPostId}:${content}:${identity.publicKeyHex}:${timestamp}`;
+    const payloadBytes = new TextEncoder().encode(signaturePayload);
+
+    // Sign with private key
+    const signature = Crypto.sign(payloadBytes, identity.privateKey);
+    const signatureHex = Crypto.toHex(signature);
+
+    // Submit browser-signed edit
+    await apiCall('/edit/submit', 'POST', {
+      originalPostId,
+      content,
+      author: identity.publicKeyHex,
+      signature: signatureHex,
+      timestamp,
+      nsfw,
+      contentWarning
+    });
 
     showResult('post-result', 'Post edited successfully!', true);
     $('post-content').value = '';
