@@ -22,10 +22,9 @@ import {
   retractPost, setupMediaUpload, setupCharCounter, clearMediaPreview
 } from './posts.js';
 import {
-  toggleReaction, toggleBookmark, toggleCW, loadReactionPalette,
+  toggleReaction, toggleBookmark, toggleCW,
   openEmojiPicker, closeEmojiPicker, filterEmojis, selectEmoji,
-  expandReactions, renderPaletteEditor, editPaletteSlot, closePalettePicker,
-  setPaletteEmoji, resetPalette
+  expandReactions
 } from './reactions.js';
 import { viewThread } from './thread.js';
 import {
@@ -105,9 +104,6 @@ async function initializeClout() {
 
     // Check BROWSER identity's Day Pass (not server's)
     await updateBrowserDayPassTimer();
-
-    // Load user's reaction palette from IndexedDB
-    await loadReactionPalette();
 
     await loadFeed();
     await loadIdentity();
@@ -526,13 +522,6 @@ window.cloutApp = {
   filterEmojis,
   selectEmoji,
   expandReactions,
-
-  // Reaction Palette Settings
-  renderPaletteEditor,
-  editPaletteSlot,
-  closePalettePicker,
-  setPaletteEmoji,
-  resetPalette,
 
   // Thread
   viewThread,

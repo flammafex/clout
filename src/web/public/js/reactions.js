@@ -2,7 +2,6 @@
  * Reactions Module - Reactions, bookmarks, and content warnings
  *
  * Handles:
- * - Customizable reaction palette (stored in IndexedDB)
  * - Emoji picker with full emoji selection
  * - Reaction buttons and toggling
  * - Bookmark management
@@ -12,9 +11,6 @@
 import * as state from './state.js';
 import { apiCall } from './api.js';
 import { $, showResult } from './ui.js';
-
-// Default reaction palette (used until user customizes)
-const DEFAULT_PALETTE = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
 
 // Common emoji categories for the picker
 const EMOJI_CATEGORIES = {
@@ -26,140 +22,76 @@ const EMOJI_CATEGORIES = {
   'Nature': ['🌈', '☀️', '🌤️', '⛅', '🌥️', '☁️', '🌧️', '⛈️', '🌩️', '❄️', '🌊', '🌸', '🌺', '🌻', '🌹', '🌷', '🌱', '🌲', '🌳', '🍀', '🍁', '🍂', '🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐨', '🦁', '🐯', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🐦', '🦅', '🦋', '🐝', '🐞']
 };
 
-// Cached palette for synchronous access
-let cachedPalette = null;
-
 /**
- * Load reaction palette from IndexedDB
+ * Render reactions bar for a post (Discord-style)
+ * Shows only reactions that exist on the post, plus a React button
  */
-export async function loadReactionPalette() {
-  if (window.CloutUserData) {
-    try {
-      cachedPalette = await window.CloutUserData.getReactionPalette();
-    } catch (e) {
-      console.warn('[Reactions] Could not load palette:', e);
-      cachedPalette = DEFAULT_PALETTE;
-    }
-  } else {
-    cachedPalette = DEFAULT_PALETTE;
-  }
-  return cachedPalette;
-}
+export function renderReactionsBar(postId, reactions, myReaction) {
+  // Get reactions with counts > 0, sorted by count (highest first)
+  const activeReactions = Object.entries(reactions)
+    .filter(([emoji, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
 
-/**
- * Get current reaction palette (sync)
- */
-export function getReactionPalette() {
-  return cachedPalette || DEFAULT_PALETTE;
-}
-
-/**
- * Save reaction palette to IndexedDB
- */
-export async function saveReactionPalette(emojis) {
-  if (window.CloutUserData) {
-    await window.CloutUserData.setReactionPalette(emojis);
-    cachedPalette = emojis;
-  }
-}
-
-/**
- * Render reactions bar for a post
- * Shows: user's palette emojis + any other emojis that have reactions
- */
-export function renderReactionsBar(postId, reactions, myReaction, userPalette) {
-  const palette = userPalette || getReactionPalette();
-
-  // Collect all emojis that have reactions
-  const reactedEmojis = Object.keys(reactions).filter(e => reactions[e] > 0);
-
-  // Build display set: palette emojis first, then any additional reacted emojis
-  const displayEmojis = [...palette];
-  for (const emoji of reactedEmojis) {
-    if (!displayEmojis.includes(emoji)) {
-      displayEmojis.push(emoji);
-    }
+  if (activeReactions.length === 0) {
+    // No reactions yet - just show React button
+    return `<div class="reactions-bar" data-post-id="${postId}">
+      <button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>
+    </div>`;
   }
 
-  // Count unique emojis with reactions
-  const uniqueReactedCount = reactedEmojis.length;
-  const shouldCollapse = uniqueReactedCount > 8;
+  // Show up to 3 reactions on mobile, all on desktop (CSS handles visibility)
+  const visibleReactions = activeReactions.slice(0, 3);
+  const hiddenReactions = activeReactions.slice(3);
 
-  // Render palette buttons
-  const paletteButtons = palette.map(emoji => {
-    const count = reactions[emoji] || 0;
+  // Render visible reaction buttons
+  const visibleButtons = visibleReactions.map(([emoji, count]) => {
     const isMyReaction = myReaction === emoji;
     const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
-    const countHtml = count > 0 ? `<span class="reaction-count">${count}</span>` : '';
-
-    return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="React with ${emoji}">
-      ${emoji}${countHtml}
+    return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="${count} reaction${count !== 1 ? 's' : ''}">
+      ${emoji}<span class="reaction-count">${count}</span>
     </button>`;
   }).join('');
 
-  // Render additional reactions (not in palette but have counts)
-  const additionalEmojis = reactedEmojis.filter(e => !palette.includes(e));
-  let additionalHtml = '';
+  // Render hidden reactions (visible on desktop, collapsed on mobile)
+  let hiddenButtons = '';
+  if (hiddenReactions.length > 0) {
+    hiddenButtons = hiddenReactions.map(([emoji, count]) => {
+      const isMyReaction = myReaction === emoji;
+      const btnClass = isMyReaction ? 'reaction-btn active reaction-overflow' : 'reaction-btn reaction-overflow';
+      return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="${count} reaction${count !== 1 ? 's' : ''}">
+        ${emoji}<span class="reaction-count">${count}</span>
+      </button>`;
+    }).join('');
 
-  if (additionalEmojis.length > 0) {
-    if (shouldCollapse) {
-      // Show collapsed view with expand button
-      const visibleExtra = additionalEmojis.slice(0, 3);
-      const hiddenCount = additionalEmojis.length - 3;
-
-      additionalHtml = visibleExtra.map(emoji => {
-        const count = reactions[emoji] || 0;
-        const isMyReaction = myReaction === emoji;
-        const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
-        return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="React with ${emoji}">
-          ${emoji}<span class="reaction-count">${count}</span>
-        </button>`;
-      }).join('');
-
-      if (hiddenCount > 0) {
-        additionalHtml += `<button class="reaction-btn reaction-more" onclick="event.stopPropagation(); window.cloutApp.expandReactions('${postId}')" title="Show ${hiddenCount} more reactions">
-          +${hiddenCount}
-        </button>`;
-      }
-    } else {
-      // Show all additional reactions
-      additionalHtml = additionalEmojis.map(emoji => {
-        const count = reactions[emoji] || 0;
-        const isMyReaction = myReaction === emoji;
-        const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
-        return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="React with ${emoji}">
-          ${emoji}<span class="reaction-count">${count}</span>
-        </button>`;
-      }).join('');
-    }
+    // Mobile ellipsis button to expand
+    hiddenButtons += `<button class="reaction-btn reaction-expand-btn" onclick="event.stopPropagation(); window.cloutApp.expandReactions('${postId}')" title="Show ${hiddenReactions.length} more reactions">
+      <span class="reaction-ellipsis">...</span>
+    </button>`;
   }
 
-  // React button to open emoji picker
-  const reactButton = `<button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Choose emoji reaction">
-    React
-  </button>`;
+  // React button to add new reaction
+  const reactButton = `<button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>`;
 
   return `<div class="reactions-bar" data-post-id="${postId}">
-    ${paletteButtons}${additionalHtml}${reactButton}
+    ${visibleButtons}${hiddenButtons}${reactButton}
   </div>`;
 }
 
 /**
- * Expand collapsed reactions
+ * Expand collapsed reactions on mobile
  */
 export function expandReactions(postId) {
   const bar = document.querySelector(`.reactions-bar[data-post-id="${postId}"]`);
   if (!bar) return;
 
-  // Re-render with all reactions visible
-  bar.classList.add('expanded');
-  // The actual re-render happens via feed refresh
+  // Toggle expanded state
+  bar.classList.toggle('expanded');
 }
 
 /**
  * Open emoji picker for a post
  */
-export function openEmojiPicker(postId, targetElement) {
+export function openEmojiPicker(postId) {
   // Close any existing picker
   closeEmojiPicker();
 
@@ -407,118 +339,4 @@ export function toggleCW(cwId) {
     content.style.display = 'none';
     revealBtn.style.display = 'block';
   }
-}
-
-/**
- * Render emoji palette editor for settings
- */
-export function renderPaletteEditor(containerId) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  const palette = getReactionPalette();
-
-  let html = `
-    <div class="palette-editor">
-      <p class="help-text">Your quick-react emojis (click to change)</p>
-      <div class="palette-slots">
-        ${palette.map((emoji, i) => `
-          <button class="palette-slot" onclick="window.cloutApp.editPaletteSlot(${i})" title="Click to change">
-            ${emoji}
-          </button>
-        `).join('')}
-      </div>
-      <button class="btn btn-small" onclick="window.cloutApp.resetPalette()" style="margin-top: 0.75rem;">Reset to Default</button>
-    </div>
-  `;
-
-  container.innerHTML = html;
-}
-
-/**
- * Edit a palette slot
- */
-export function editPaletteSlot(slotIndex) {
-  const currentPalette = getReactionPalette();
-
-  // Create mini emoji picker for this slot
-  const picker = document.createElement('div');
-  picker.className = 'emoji-picker palette-picker';
-  picker.id = 'palette-picker';
-
-  let pickerHtml = `<div class="emoji-picker-header">
-    <span class="emoji-picker-title">Choose Emoji</span>
-    <button class="emoji-picker-close" onclick="window.cloutApp.closePalettePicker()">&times;</button>
-  </div>
-  <div class="emoji-picker-content">`;
-
-  for (const [category, emojis] of Object.entries(EMOJI_CATEGORIES)) {
-    pickerHtml += `<div class="emoji-category">
-      <div class="emoji-category-label">${category}</div>
-      <div class="emoji-grid">
-        ${emojis.map(e => `<button class="emoji-option${currentPalette.includes(e) ? ' in-palette' : ''}" onclick="window.cloutApp.setPaletteEmoji(${slotIndex}, '${e}')">${e}</button>`).join('')}
-      </div>
-    </div>`;
-  }
-
-  pickerHtml += '</div>';
-  picker.innerHTML = pickerHtml;
-
-  // Position picker
-  document.body.appendChild(picker);
-  const slot = document.querySelectorAll('.palette-slot')[slotIndex];
-  if (slot) {
-    const rect = slot.getBoundingClientRect();
-    picker.style.top = `${rect.bottom + 8}px`;
-    picker.style.left = `${Math.max(8, rect.left - 100)}px`;
-  }
-
-  // Close on outside click
-  setTimeout(() => {
-    document.addEventListener('click', handlePalettePickerClickOutside);
-  }, 100);
-}
-
-/**
- * Handle click outside palette picker
- */
-function handlePalettePickerClickOutside(e) {
-  const picker = document.getElementById('palette-picker');
-  if (picker && !picker.contains(e.target) && !e.target.classList.contains('palette-slot')) {
-    closePalettePicker();
-  }
-}
-
-/**
- * Close palette picker
- */
-export function closePalettePicker() {
-  const picker = document.getElementById('palette-picker');
-  if (picker) {
-    picker.remove();
-    document.removeEventListener('click', handlePalettePickerClickOutside);
-  }
-}
-
-/**
- * Set emoji in palette slot
- */
-export async function setPaletteEmoji(slotIndex, emoji) {
-  closePalettePicker();
-
-  const currentPalette = [...getReactionPalette()];
-  currentPalette[slotIndex] = emoji;
-
-  await saveReactionPalette(currentPalette);
-
-  // Re-render palette editor
-  renderPaletteEditor('reaction-palette-container');
-}
-
-/**
- * Reset palette to default
- */
-export async function resetPalette() {
-  await saveReactionPalette(DEFAULT_PALETTE);
-  renderPaletteEditor('reaction-palette-container');
 }

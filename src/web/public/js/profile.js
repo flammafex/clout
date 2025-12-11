@@ -14,7 +14,6 @@ import * as state from './state.js';
 import { apiCall } from './api.js';
 import { $, showLoading, showResult, escapeHtml, formatRelativeTime, renderAvatar } from './ui.js';
 import { loadFeed } from './feed.js';
-import { renderPaletteEditor } from './reactions.js';
 
 // =========================================================================
 // Identity & Profile
@@ -269,9 +268,6 @@ export async function loadSettings() {
     $('media-filter-audio-hops').value = audioHops;
 
     $('settings-auto-follow-back').checked = data.trustSettings?.autoFollowBack || false;
-
-    // Reaction palette editor
-    renderPaletteEditor('reaction-palette-container');
 
     await loadTags();
   } catch (error) {

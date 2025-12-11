@@ -10,7 +10,7 @@
 import * as state from './state.js';
 import { apiCall } from './api.js';
 import { $, $$, escapeHtml, formatRelativeTime, renderAvatar } from './ui.js';
-import { renderReactionsBar, getReactionPalette } from './reactions.js';
+import { renderReactionsBar } from './reactions.js';
 import { renderPostContent, recalculateTrustForPosts } from './feed.js';
 
 /**
@@ -116,7 +116,7 @@ function renderThreadPost(post, isParent = false) {
 
   // Reactions bar - hide for visitors
   const reactions = post.reactions || {};
-  const reactionsHtml = visitor ? '' : renderReactionsBar(post.id, reactions, post.myReaction, getReactionPalette());
+  const reactionsHtml = visitor ? '' : renderReactionsBar(post.id, reactions, post.myReaction);
 
   // Redact button - hide for visitors
   const muteBtn = (!visitor && !post.isAuthor)
