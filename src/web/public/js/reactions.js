@@ -64,96 +64,70 @@ export async function saveReactionPalette(emojis) {
 }
 
 /**
- * Render reactions bar for a post
- * Shows: user's palette emojis + any other emojis that have reactions
+ * Render reactions bar for a post (Discord-style)
+ * Shows only reactions that exist on the post, plus a React button
  */
 export function renderReactionsBar(postId, reactions, myReaction, userPalette) {
-  const palette = userPalette || getReactionPalette();
+  // Get reactions with counts > 0, sorted by count (highest first)
+  const activeReactions = Object.entries(reactions)
+    .filter(([emoji, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
 
-  // Collect all emojis that have reactions
-  const reactedEmojis = Object.keys(reactions).filter(e => reactions[e] > 0);
-
-  // Build display set: palette emojis first, then any additional reacted emojis
-  const displayEmojis = [...palette];
-  for (const emoji of reactedEmojis) {
-    if (!displayEmojis.includes(emoji)) {
-      displayEmojis.push(emoji);
-    }
+  if (activeReactions.length === 0) {
+    // No reactions yet - just show React button
+    return `<div class="reactions-bar" data-post-id="${postId}">
+      <button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>
+    </div>`;
   }
 
-  // Count unique emojis with reactions
-  const uniqueReactedCount = reactedEmojis.length;
-  const shouldCollapse = uniqueReactedCount > 8;
+  // Show up to 3 reactions on mobile, all on desktop (CSS handles visibility)
+  const visibleReactions = activeReactions.slice(0, 3);
+  const hiddenReactions = activeReactions.slice(3);
 
-  // Render palette buttons
-  const paletteButtons = palette.map(emoji => {
-    const count = reactions[emoji] || 0;
+  // Render visible reaction buttons
+  const visibleButtons = visibleReactions.map(([emoji, count]) => {
     const isMyReaction = myReaction === emoji;
     const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
-    const countHtml = count > 0 ? `<span class="reaction-count">${count}</span>` : '';
-
-    return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="React with ${emoji}">
-      ${emoji}${countHtml}
+    return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="${count} reaction${count !== 1 ? 's' : ''}">
+      ${emoji}<span class="reaction-count">${count}</span>
     </button>`;
   }).join('');
 
-  // Render additional reactions (not in palette but have counts)
-  const additionalEmojis = reactedEmojis.filter(e => !palette.includes(e));
-  let additionalHtml = '';
+  // Render hidden reactions (visible on desktop, collapsed on mobile)
+  let hiddenButtons = '';
+  if (hiddenReactions.length > 0) {
+    hiddenButtons = hiddenReactions.map(([emoji, count]) => {
+      const isMyReaction = myReaction === emoji;
+      const btnClass = isMyReaction ? 'reaction-btn active reaction-overflow' : 'reaction-btn reaction-overflow';
+      return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="${count} reaction${count !== 1 ? 's' : ''}">
+        ${emoji}<span class="reaction-count">${count}</span>
+      </button>`;
+    }).join('');
 
-  if (additionalEmojis.length > 0) {
-    if (shouldCollapse) {
-      // Show collapsed view with expand button
-      const visibleExtra = additionalEmojis.slice(0, 3);
-      const hiddenCount = additionalEmojis.length - 3;
-
-      additionalHtml = visibleExtra.map(emoji => {
-        const count = reactions[emoji] || 0;
-        const isMyReaction = myReaction === emoji;
-        const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
-        return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="React with ${emoji}">
-          ${emoji}<span class="reaction-count">${count}</span>
-        </button>`;
-      }).join('');
-
-      if (hiddenCount > 0) {
-        additionalHtml += `<button class="reaction-btn reaction-more" onclick="event.stopPropagation(); window.cloutApp.expandReactions('${postId}')" title="Show ${hiddenCount} more reactions">
-          +${hiddenCount}
-        </button>`;
-      }
-    } else {
-      // Show all additional reactions
-      additionalHtml = additionalEmojis.map(emoji => {
-        const count = reactions[emoji] || 0;
-        const isMyReaction = myReaction === emoji;
-        const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
-        return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="React with ${emoji}">
-          ${emoji}<span class="reaction-count">${count}</span>
-        </button>`;
-      }).join('');
-    }
+    // Mobile ellipsis button to expand
+    const totalHidden = hiddenReactions.reduce((sum, [, count]) => sum + count, 0);
+    hiddenButtons += `<button class="reaction-btn reaction-expand-btn" onclick="event.stopPropagation(); window.cloutApp.expandReactions('${postId}')" title="Show ${hiddenReactions.length} more reactions">
+      <span class="reaction-ellipsis">...</span>
+    </button>`;
   }
 
-  // React button to open emoji picker
-  const reactButton = `<button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Choose emoji reaction">
-    React
-  </button>`;
+  // React button to add new reaction
+  const reactButton = `<button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>`;
 
   return `<div class="reactions-bar" data-post-id="${postId}">
-    ${paletteButtons}${additionalHtml}${reactButton}
+    ${visibleButtons}${hiddenButtons}${reactButton}
   </div>`;
 }
 
 /**
- * Expand collapsed reactions
+ * Expand collapsed reactions on mobile
  */
 export function expandReactions(postId) {
   const bar = document.querySelector(`.reactions-bar[data-post-id="${postId}"]`);
   if (!bar) return;
 
-  // Re-render with all reactions visible
-  bar.classList.add('expanded');
-  // The actual re-render happens via feed refresh
+  // Toggle expanded state
+  bar.classList.toggle('expanded');
 }
 
 /**

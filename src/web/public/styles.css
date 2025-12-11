@@ -1977,36 +1977,37 @@ h2 {
 }
 
 /* =========================================================================
-   REACTIONS
+   REACTIONS (Discord-style)
    ========================================================================= */
 
 .reactions-bar {
   display: flex;
   gap: 0.25rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
 }
 
 .reaction-btn {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 1rem;
-  padding: 0.15rem 0.5rem;
-  font-size: 0.85rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.9rem;
   cursor: pointer;
   transition: all 0.2s;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  opacity: 0.6;
+  gap: 0.2rem;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .reaction-btn:hover {
-  opacity: 1;
   background: var(--bg-hover);
+  border-color: var(--primary);
 }
 
 .reaction-btn.active {
-  opacity: 1;
   background: rgba(99, 102, 241, 0.2);
   border-color: var(--primary);
 }
@@ -2014,7 +2015,7 @@ h2 {
 .reaction-count {
   font-size: 0.75rem;
   color: var(--text-dim);
-  min-width: 0.75rem;
+  min-width: 0.5rem;
   text-align: center;
 }
 
@@ -2022,24 +2023,54 @@ h2 {
   color: var(--primary);
 }
 
-/* React button (emoji picker trigger) */
+/* Add reaction button (+) */
 .reaction-btn.reaction-picker-btn {
-  opacity: 0.8;
-  font-size: 0.75rem;
+  font-size: 0.9rem;
   padding: 0.2rem 0.5rem;
   color: var(--text-dim);
+  font-weight: bold;
 }
 
 .reaction-btn.reaction-picker-btn:hover {
-  opacity: 1;
   color: var(--primary);
   background: rgba(99, 102, 241, 0.1);
 }
 
-/* More reactions button */
-.reaction-btn.reaction-more {
-  font-size: 0.75rem;
+/* Expand button for mobile (...) */
+.reaction-btn.reaction-expand-btn {
+  display: none;
+  font-size: 0.85rem;
   color: var(--text-dim);
+  padding: 0.2rem 0.4rem;
+}
+
+.reaction-btn.reaction-expand-btn:hover {
+  color: var(--primary);
+}
+
+/* Overflow reactions - hidden on mobile by default */
+.reaction-btn.reaction-overflow {
+  /* Visible on desktop */
+}
+
+/* Mobile: hide overflow reactions and show expand button */
+@media (max-width: 768px) {
+  .reaction-btn.reaction-overflow {
+    display: none;
+  }
+
+  .reaction-btn.reaction-expand-btn {
+    display: inline-flex;
+  }
+
+  /* When expanded, show all reactions */
+  .reactions-bar.expanded .reaction-btn.reaction-overflow {
+    display: inline-flex;
+  }
+
+  .reactions-bar.expanded .reaction-btn.reaction-expand-btn {
+    display: none;
+  }
 }
 
 /* =========================================================================
