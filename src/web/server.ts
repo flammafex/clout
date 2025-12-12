@@ -25,7 +25,8 @@ import {
   createSlidesRoutes,
   createSettingsRoutes,
   createDataRoutes,
-  createSubmitRoutes
+  createSubmitRoutes,
+  createAdminRoutes
 } from './routes/index.js';
 import { createFreebirdProxyRoutes } from './routes/freebird-proxy.js';
 import { createFreebirdAdminFromEnv } from '../integrations/freebird-admin.js';
@@ -59,6 +60,10 @@ export class CloutWebServer {
   private invitationCodeToInviter: Map<string, string> = new Map();
   // Freebird adapter for browser VOPRF proxy
   private freebirdAdapter?: FreebirdAdapter;
+  // File system store for quota tracking
+  private store?: FileSystemStore;
+  // Instance owner public key (has admin privileges)
+  private ownerPublicKey?: string;
 
   constructor(config: WebServerConfig = {}) {
     this.port = config.port ?? 3000;
@@ -111,6 +116,8 @@ export class CloutWebServer {
   private isInitialized = (): boolean => this.initialized;
   private areVisitorsAllowed = (): boolean => this.allowVisitors;
   private getFreebirdAdapter = (): FreebirdAdapter | undefined => this.freebirdAdapter;
+  private getStore = (): FileSystemStore | undefined => this.store;
+  private getOwnerPublicKey = (): string | undefined => this.ownerPublicKey;
 
   // Day Pass ticket storage helpers (only per-user data server stores)
   // All other user data (trust graph, nicknames, etc.) lives in browser IndexedDB
@@ -413,6 +420,16 @@ export class CloutWebServer {
       isInitialized: this.isInitialized
     }));
 
+    // Mount admin routes for invitation quota management
+    // Owner routes: /api/admin/* (require admin key)
+    // Member routes: /api/invitations/* (for users with quota)
+    this.app.use('/api', createAdminRoutes({
+      getClout: this.getClout,
+      isInitialized: this.isInitialized,
+      getStore: this.getStore,
+      getOwnerPublicKey: this.getOwnerPublicKey
+    }));
+
     // Legacy slide endpoints (for backwards compatibility)
     this.app.get('/api/slides', (req, res, next) => {
       req.url = '/';
@@ -452,21 +469,26 @@ export class CloutWebServer {
     await this.bootstrapFreebirdOwner(identity.publicKey);
 
     // Check if we're the instance owner (have admin key)
-    const isOwner = !!process.env.FREEBIRD_ADMIN_KEY;
+    const isOwnerInstance = !!process.env.FREEBIRD_ADMIN_KEY;
+
+    // Save owner public key if this is the owner instance
+    if (isOwnerInstance) {
+      this.ownerPublicKey = identity.publicKey;
+    }
 
     // Initialize infrastructure (Freebird, Witness, Gossip)
     console.log('Initializing Clout infrastructure...');
     const infra = await this.infraManager.initialize({
       userPublicKey: identity.publicKey,
-      isOwner
+      isOwner: isOwnerInstance
     });
 
     // Store Freebird adapter for browser VOPRF proxy
     this.freebirdAdapter = infra.freebird;
 
     // Initialize persistent storage (path logged by FileStore)
-    const store = new FileSystemStore();
-    await store.init();
+    this.store = new FileSystemStore();
+    await this.store.init();
 
     this.clout = new Clout({
       publicKey: identity.publicKey,
@@ -474,7 +496,7 @@ export class CloutWebServer {
       freebird: infra.freebird,
       witness: infra.witness,
       gossip: infra.gossip,
-      store
+      store: this.store
     });
 
     // Load persisted ticket if available (survives Docker restarts)
@@ -482,6 +504,9 @@ export class CloutWebServer {
 
     this.initialized = true;
     console.log(`Clout initialized with identity: ${identity.publicKey.slice(0, 16)}...`);
+    if (isOwnerInstance) {
+      console.log(`Instance owner: ${identity.publicKey.slice(0, 16)}... (admin features enabled)`);
+    }
   }
 
   /**

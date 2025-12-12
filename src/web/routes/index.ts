@@ -11,3 +11,4 @@ export { createSlidesRoutes } from './slides.js';
 export { createSettingsRoutes } from './settings.js';
 export { createDataRoutes } from './data.js';
 export { createSubmitRoutes, type SubmitRoutesConfig } from './submit.js';
+export { createAdminRoutes, type AdminRoutesConfig } from './admin.js';
