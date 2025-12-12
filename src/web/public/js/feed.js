@@ -621,11 +621,19 @@ export function renderPostContent(post) {
   }
 
   let content = escapeHtml(post.content);
+  const visitor = isVisitorMode();
 
+  // Hide media for visitors - only show text content
   if (post.media && post.media.cid) {
+    content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
+
+    if (visitor) {
+      // Show placeholder for visitors
+      return content.trim() + `<div class="post-media-placeholder"><span class="media-placeholder-icon">&#x1F512;</span><span class="media-placeholder-text">Media available to members</span></div>`;
+    }
+
     const mediaUrl = `${API_BASE}/media/post/${post.id}`;
     const mimeType = post.media.mimeType;
-    content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
 
     let mediaHtml = '';
     const hopDistance = post.reputation?.distance ?? 999;
@@ -647,8 +655,13 @@ export function renderPostContent(post) {
   const mediaMatch = post.content.match(/\[clout-media:\s*([^\]]+)\]/);
   if (mediaMatch) {
     const cid = mediaMatch[1].trim();
-    const mediaUrl = `${API_BASE}/media/${cid}`;
     content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
+
+    if (visitor) {
+      return content.trim() + `<div class="post-media-placeholder"><span class="media-placeholder-icon">&#x1F512;</span><span class="media-placeholder-text">Media available to members</span></div>`;
+    }
+
+    const mediaUrl = `${API_BASE}/media/${cid}`;
     return content.trim() + `<div class="post-media"><img src="${mediaUrl}" alt="Post media" loading="lazy" onerror="this.parentElement.innerHTML='<span class=\\'media-error\\'>Media unavailable</span>'"></div>`;
   }
 

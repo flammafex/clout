@@ -3230,3 +3230,26 @@ body.offline .btn-action::after {
 .btn-tiny.btn-danger:hover {
   background: #dc2626;
 }
+
+/* Media Placeholder for Visitors */
+.post-media-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem 1rem;
+  margin-top: 0.75rem;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+}
+
+.media-placeholder-icon {
+  font-size: 1.25rem;
+  opacity: 0.6;
+}
+
+.media-placeholder-text {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
