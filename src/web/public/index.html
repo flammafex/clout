@@ -743,6 +743,92 @@
               <p class="help-text-small">Manage invitations and sybil protection settings.</p>
               <a id="freebird-admin-link" href="#" target="_blank" rel="noopener" class="btn btn-secondary">Open Freebird Admin</a>
             </div>
+
+            <!-- Member Management -->
+            <div class="admin-subsection">
+              <h4>🎫 Grant Invitation Quota</h4>
+              <p class="help-text-small">Allow trusted members to invite others. They can vouch for people they know.</p>
+              <div class="grant-quota-form">
+                <input type="text" id="grant-quota-pubkey" class="input" placeholder="Member's public key (64 hex chars)">
+                <div class="grant-quota-row">
+                  <input type="number" id="grant-quota-amount" class="input input-small" min="1" max="100" value="3" placeholder="Amount">
+                  <button id="grant-quota-btn" class="btn btn-primary" onclick="window.cloutApp.grantQuota()">Grant Quota</button>
+                </div>
+              </div>
+              <div id="grant-quota-result" class="result-message"></div>
+            </div>
+
+            <!-- Members with Quota -->
+            <div class="admin-subsection">
+              <h4>👥 Members with Invitation Quota</h4>
+              <p class="help-text-small">Members who can invite others to the network.</p>
+              <button class="btn btn-small" onclick="window.cloutApp.loadMembersWithQuota()">Refresh</button>
+              <div id="members-quota-list" class="members-list">
+                <p class="empty-state">Loading...</p>
+              </div>
+            </div>
+
+            <!-- Create Admin Invitations -->
+            <div class="admin-subsection">
+              <h4>📨 Create Invitations</h4>
+              <p class="help-text-small">Create invitation codes directly (bypasses quota system).</p>
+              <div class="create-invites-form">
+                <div class="create-invites-row">
+                  <input type="number" id="create-invites-count" class="input input-small" min="1" max="100" value="5" placeholder="Count">
+                  <input type="number" id="create-invites-days" class="input input-small" min="1" max="365" value="30" placeholder="Days valid">
+                  <button id="create-invites-btn" class="btn btn-primary" onclick="window.cloutApp.createAdminInvitations()">Create</button>
+                </div>
+              </div>
+              <div id="create-invites-result" class="result-message"></div>
+              <div id="created-codes-display" class="created-codes" style="display: none;">
+                <h5>Created Invitation Codes:</h5>
+                <div id="created-codes-list" class="codes-list"></div>
+                <button class="btn btn-small" onclick="window.cloutApp.copyAllCodes()">Copy All</button>
+              </div>
+            </div>
+
+            <!-- All Invitations -->
+            <div class="admin-subsection">
+              <h4>📋 All Invitations</h4>
+              <p class="help-text-small">View all invitations created on this instance.</p>
+              <button class="btn btn-small" onclick="window.cloutApp.loadAllInvitations()">Refresh</button>
+              <div id="all-invitations-list" class="invitations-list">
+                <p class="empty-state">Loading...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Member Invitation Section (visible to members with quota) -->
+          <div id="member-invites-section" class="member-invites-card settings-card" style="display: none;">
+            <h3>🎟️ Your Invitations</h3>
+            <p class="help-text">You can invite people you personally vouch for to join the network.</p>
+
+            <!-- Quota Status -->
+            <div class="quota-status">
+              <div class="quota-display">
+                <span class="quota-label">Remaining Invites:</span>
+                <span id="my-quota-remaining" class="quota-value">0</span>
+              </div>
+            </div>
+
+            <!-- Create Invitation -->
+            <div class="create-invite-section">
+              <button id="create-member-invite-btn" class="btn btn-primary" onclick="window.cloutApp.createMemberInvitation()">Generate Invitation Code</button>
+              <div id="member-invite-result" class="result-message"></div>
+              <div id="member-created-code" class="member-code-display" style="display: none;">
+                <p>Share this code with someone you vouch for:</p>
+                <code id="member-invite-code"></code>
+                <button class="btn btn-small" onclick="window.cloutApp.copyMemberCode()">Copy</button>
+              </div>
+            </div>
+
+            <!-- My Invitations List -->
+            <div class="my-invitations">
+              <h4>Your Created Invitations</h4>
+              <div id="my-invitations-list" class="invitations-list">
+                <p class="empty-state">You haven't created any invitations yet.</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -45,6 +45,11 @@ import {
 import {
   showInvitePopover, closeInvitePopover, redeemInvite, promptIdentityBackup
 } from './invite.js';
+import {
+  grantQuota, loadMembersWithQuota, createAdminInvitations, copySingleCode,
+  copyAllCodes, loadAllInvitations, loadMyInvitationStatus, loadMyInvitations,
+  createMemberInvitation, copyMemberCode
+} from './admin.js';
 
 // =========================================================================
 // Create requireMembership wrapper
@@ -226,11 +231,21 @@ async function loadOwnerInfo() {
 
           // Load server-stored identities for restore dropdown
           await loadServerIdentities();
+
+          // Load admin data (members with quota, all invitations)
+          loadMembersWithQuota().catch(e => console.warn('[App] Failed to load members:', e.message));
+          loadAllInvitations().catch(e => console.warn('[App] Failed to load invitations:', e.message));
         }
+
+        // Check if current user has invitation quota (show member invite section)
+        loadMyInvitationStatus().catch(e => console.warn('[App] Failed to load invitation status:', e.message));
       }
     } catch (settingsError) {
       console.warn('[App] Could not load admin settings:', settingsError.message);
     }
+
+    // Even if admin settings fail, check if user has quota (non-admin path)
+    loadMyInvitationStatus().catch(e => console.warn('[App] Failed to load invitation status:', e.message));
   } catch (error) {
     console.error('[App] Failed to load owner info:', error.message);
     $('owner-instance-name').textContent = 'Error loading';
@@ -560,6 +575,18 @@ window.cloutApp = {
   // Owner Admin
   backupBrowserIdentity,
   restoreFromServer,
+
+  // Admin - Invitation Management
+  grantQuota,
+  loadMembersWithQuota,
+  createAdminInvitations,
+  copySingleCode,
+  copyAllCodes,
+  loadAllInvitations,
+  loadMyInvitationStatus,
+  loadMyInvitations,
+  createMemberInvitation,
+  copyMemberCode,
 
   // Notifications
   loadNewPosts
