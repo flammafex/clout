@@ -110,6 +110,17 @@ async function initializeClout() {
     // Check BROWSER identity's Day Pass (not server's)
     await updateBrowserDayPassTimer();
 
+    // Fetch instance info for witness domain (needed for feed display)
+    try {
+      const instanceResult = await apiCall('/instance');
+      if (instanceResult.witnessDomain) {
+        state.setWitnessDomain(instanceResult.witnessDomain);
+        console.log('[App] Witness domain loaded:', instanceResult.witnessDomain);
+      }
+    } catch (e) {
+      console.warn('[App] Failed to load instance info:', e.message);
+    }
+
     await loadFeed();
     await loadIdentity();
     await loadProfile();
@@ -500,6 +511,17 @@ async function autoInitialize() {
     updateStatus('Visitor Mode', false);
     showVisitorBanner();
     updateTabVisibility(true);
+
+    // Fetch instance info for witness domain (needed for feed display)
+    try {
+      const instanceResult = await apiCall('/instance');
+      if (instanceResult.witnessDomain) {
+        state.setWitnessDomain(instanceResult.witnessDomain);
+        console.log('[App] Witness domain loaded (visitor):', instanceResult.witnessDomain);
+      }
+    } catch (e) {
+      console.warn('[App] Failed to load instance info:', e.message);
+    }
 
     await loadVisitorFeed();
   } catch (error) {
