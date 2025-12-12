@@ -48,7 +48,7 @@ import {
 import {
   grantQuota, loadMembersWithQuota, createAdminInvitations, copySingleCode,
   copyAllCodes, loadAllInvitations, loadMyInvitationStatus, loadMyInvitations,
-  createMemberInvitation, copyMemberCode
+  createMemberInvitation, copyMemberCode, loadAllUsers, banUser, quickBan
 } from './admin.js';
 
 // =========================================================================
@@ -587,6 +587,11 @@ window.cloutApp = {
   loadMyInvitations,
   createMemberInvitation,
   copyMemberCode,
+
+  // Admin - User Management
+  loadAllUsers,
+  banUser,
+  quickBan,
 
   // Notifications
   loadNewPosts
