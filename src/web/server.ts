@@ -325,6 +325,12 @@ export class CloutWebServer {
         // Get the inviter for this code (for response)
         const inviterKey = this.invitationCodeToInviter.get(code);
 
+        // Mark the invitation as redeemed if we have the public key and store
+        if (publicKey && this.store) {
+          this.store.markInvitationRedeemed(code, publicKey);
+          console.log(`[Server] Invitation ${code.slice(0, 8)}... redeemed by ${publicKey.slice(0, 16)}...`);
+        }
+
         res.json({
           success: true,
           data: {
