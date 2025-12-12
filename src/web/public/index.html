@@ -124,7 +124,7 @@
           <div class="section-header">
             <h2>📰 Your Feed</h2>
             <div class="header-actions">
-              <div class="feed-filters">
+              <div id="feed-filters-container" class="feed-filters">
                 <button class="filter-btn active" data-filter="all" title="All Posts">All</button>
                 <button class="filter-btn" data-filter="bookmarks" title="Bookmarked Posts">🔖</button>
                 <button class="filter-btn" data-filter="replies" title="Replies to Your Posts">💬</button>
@@ -142,8 +142,8 @@
             </div>
           </div>
 
-          <!-- Search Bar -->
-          <div class="search-bar">
+          <!-- Search Bar (hidden for visitors) -->
+          <div id="search-bar-container" class="search-bar">
             <input type="text" id="feed-search" class="input" placeholder="Search posts, authors...">
             <button id="search-btn" class="btn btn-small">Search</button>
             <button id="clear-search-btn" class="btn btn-small" style="display: none;">Clear</button>

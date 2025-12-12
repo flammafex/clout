@@ -409,8 +409,8 @@ function hideVisitorBanner() {
 }
 
 /**
- * Show/hide tabs based on visitor status
- * Visitors can see Feed and Owner tabs only
+ * Show/hide tabs and UI elements based on visitor status
+ * Visitors can see Feed and Owner tabs only, without filters/search
  */
 function updateTabVisibility(isVisitor) {
   const memberOnlyTabs = ['post', 'trust', 'slides', 'profile', 'settings'];
@@ -426,6 +426,17 @@ function updateTabVisibility(isVisitor) {
   const ownerBtn = document.querySelector('.tab-btn[data-tab="owner"]');
   if (ownerBtn) {
     ownerBtn.style.display = '';
+  }
+
+  // Hide feed filters and search bar for visitors
+  const feedFilters = $('feed-filters-container');
+  const searchBar = $('search-bar-container');
+
+  if (feedFilters) {
+    feedFilters.style.display = isVisitor ? 'none' : '';
+  }
+  if (searchBar) {
+    searchBar.style.display = isVisitor ? 'none' : '';
   }
 }
 
