@@ -142,22 +142,35 @@ export class CloutWebServer {
       // Extract witness domain from gateway URL (removing subdomain)
       let witnessDomain = null;
       const witnessUrl = process.env.WITNESS_GATEWAY_URL;
+
+      console.log('[Instance] WITNESS_GATEWAY_URL env var:', witnessUrl || '(not set)');
+
       if (witnessUrl) {
         try {
           const url = new URL(witnessUrl);
           const hostname = url.hostname;
+          console.log('[Instance] Parsed hostname:', hostname);
+
           // Extract root domain (e.g., "witness1.metacan.org" -> "metacan.org")
           const parts = hostname.split('.');
+          console.log('[Instance] Hostname parts:', parts, 'length:', parts.length);
+
           if (parts.length >= 2 && hostname !== 'localhost') {
             // Take last two parts for domain (handles .com, .org, etc.)
             witnessDomain = parts.slice(-2).join('.');
+            console.log('[Instance] Extracted domain (from parts):', witnessDomain);
           } else {
             witnessDomain = hostname; // localhost or single-part hostname
+            console.log('[Instance] Using hostname as domain:', witnessDomain);
           }
-        } catch {
-          // Invalid URL, leave as null
+        } catch (err) {
+          console.error('[Instance] Failed to parse WITNESS_GATEWAY_URL:', err);
         }
+      } else {
+        console.log('[Instance] No WITNESS_GATEWAY_URL configured');
       }
+
+      console.log('[Instance] Final witnessDomain:', witnessDomain);
 
       res.json({
         success: true,

@@ -180,6 +180,9 @@ async function loadOwnerInfo() {
   try {
     // Get instance info
     const instanceResult = await apiCall('/instance');
+    console.log('[App] Instance info received:', instanceResult);
+    console.log('[App] witnessDomain from server:', instanceResult.witnessDomain);
+
     $('owner-instance-name').textContent = instanceResult.name || 'Clout Instance';
     $('owner-operator-name').textContent = instanceResult.operator || 'Not specified';
     $('owner-description').textContent = instanceResult.description || 'An uncensorable social network instance';
@@ -187,6 +190,9 @@ async function loadOwnerInfo() {
     // Store witness domain for display in feed
     if (instanceResult.witnessDomain) {
       state.setWitnessDomain(instanceResult.witnessDomain);
+      console.log('[App] Set witnessDomain in state:', instanceResult.witnessDomain);
+    } else {
+      console.log('[App] No witnessDomain in response, state.witnessDomain will remain:', state.witnessDomain);
     }
 
     // Get server's public key (this is the instance identity)
