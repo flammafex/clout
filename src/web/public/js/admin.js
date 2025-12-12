@@ -300,3 +300,111 @@ export function copyMemberCode() {
   const code = $('member-invite-code').textContent;
   navigator.clipboard.writeText(code);
 }
+
+// =========================================================================
+// User Management Functions
+// =========================================================================
+
+/**
+ * Load all users from Freebird
+ */
+export async function loadAllUsers() {
+  const listEl = $('all-users-list');
+
+  try {
+    listEl.innerHTML = '<p class="empty-state">Loading users...</p>';
+
+    const result = await apiCall('/admin/users');
+
+    if (!result.data || result.data.count === 0) {
+      listEl.innerHTML = '<p class="empty-state">No users found.</p>';
+      return;
+    }
+
+    const usersHtml = result.data.users.map(user => {
+      const statusClass = user.is_banned ? 'banned' : 'active';
+      const statusText = user.is_banned ? 'Banned' : 'Active';
+
+      return `
+        <div class="user-item ${statusClass}">
+          <div class="user-info">
+            <span class="user-name">${escapeHtml(user.displayName || 'Anonymous')}</span>
+            <code class="user-key">${user.publicKeyShort}...</code>
+            <span class="user-status ${statusClass}">${statusText}</span>
+          </div>
+          <div class="user-meta">
+            <span class="user-quota">Quota: ${user.invites_used}/${user.invite_quota}</span>
+            ${user.invited_by ? `<span class="user-inviter">Invited by: ${user.invited_by.slice(0, 8)}...</span>` : '<span class="user-inviter">Root user</span>'}
+          </div>
+          ${!user.is_banned ? `
+            <div class="user-actions">
+              <button class="btn btn-tiny btn-danger" onclick="window.cloutApp.quickBan('${user.user_id}')">Ban</button>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+    listEl.innerHTML = usersHtml;
+  } catch (error) {
+    listEl.innerHTML = `<p class="empty-state error">Failed to load: ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+/**
+ * Ban a user
+ */
+export async function banUser() {
+  const publicKey = $('ban-user-pubkey').value.trim();
+  const banTree = $('ban-tree-checkbox').checked;
+  const resultEl = $('ban-user-result');
+
+  if (!publicKey) {
+    resultEl.textContent = 'Please enter a public key';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (publicKey.length !== 64 || !/^[a-fA-F0-9]+$/.test(publicKey)) {
+    resultEl.textContent = 'Invalid public key format (must be 64 hex characters)';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  const treeWarning = banTree ? ' AND everyone they invited' : '';
+  if (!confirm(`Are you sure you want to ban this user${treeWarning}? This action cannot be easily undone.`)) {
+    return;
+  }
+
+  try {
+    const result = await apiCall('/admin/users/ban', 'POST', { publicKey, banTree });
+
+    resultEl.innerHTML = `Banned <code>${result.data.publicKeyShort}...</code>` +
+      (result.data.bannedCount > 1 ? ` (${result.data.bannedCount} users total including invite tree)` : '');
+    resultEl.className = 'result-message success';
+
+    // Clear the input and refresh user list
+    $('ban-user-pubkey').value = '';
+    $('ban-tree-checkbox').checked = false;
+    await loadAllUsers();
+  } catch (error) {
+    resultEl.textContent = `Failed: ${error.message}`;
+    resultEl.className = 'result-message error';
+  }
+}
+
+/**
+ * Quick ban from user list
+ */
+export async function quickBan(publicKey) {
+  if (!confirm(`Ban user ${publicKey.slice(0, 16)}...?`)) {
+    return;
+  }
+
+  try {
+    await apiCall('/admin/users/ban', 'POST', { publicKey, banTree: false });
+    await loadAllUsers();
+  } catch (error) {
+    alert(`Failed to ban: ${error.message}`);
+  }
+}

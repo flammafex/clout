@@ -30,6 +30,16 @@ export interface FreebirdStats {
   banned_users: number;
 }
 
+export interface FreebirdUser {
+  user_id: string;
+  invited_by?: string;
+  invite_quota: number;
+  invites_used: number;
+  is_banned: boolean;
+  created_at: string;
+  invitees?: string[];
+}
+
 export class FreebirdAdmin {
   private readonly issuerUrl: string;
   private readonly adminKey: string;
@@ -162,6 +172,55 @@ export class FreebirdAdmin {
    */
   getAdminUiUrl(): string {
     return `${this.issuerUrl}/admin`;
+  }
+
+  /**
+   * Ban a user from the network
+   *
+   * @param userId User's public key to ban
+   * @param banTree If true, also ban all users invited by this user (default: false)
+   * @returns Success status and number of users banned
+   */
+  async banUser(userId: string, banTree: boolean = false): Promise<{ success: boolean; banned_count: number }> {
+    console.log(`[FreebirdAdmin] 🚫 Banning user: ${userId.substring(0, 16)}... (tree: ${banTree})`);
+
+    const response = await this.request<{ success: boolean; banned_count: number }>(
+      '/admin/users/ban',
+      'POST',
+      { user_id: userId, ban_tree: banTree }
+    );
+
+    console.log(`[FreebirdAdmin] ✅ Banned ${response.banned_count} user(s)`);
+    return response;
+  }
+
+  /**
+   * List all users (paginated)
+   *
+   * @param limit Max users to return (default: 100)
+   * @param offset Offset for pagination (default: 0)
+   */
+  async listUsers(limit: number = 100, offset: number = 0): Promise<FreebirdUser[]> {
+    const response = await this.request<{ users: FreebirdUser[] }>(
+      `/admin/users?limit=${limit}&offset=${offset}`
+    );
+    return response.users || [];
+  }
+
+  /**
+   * Get details for a specific user
+   *
+   * @param userId User's public key
+   */
+  async getUser(userId: string): Promise<FreebirdUser | null> {
+    try {
+      return await this.request<FreebirdUser>(`/admin/users/${userId}`);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('404')) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**

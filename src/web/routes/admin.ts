@@ -325,6 +325,111 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
     }
   });
 
+  /**
+   * List all users from Freebird (owner only)
+   * GET /admin/users
+   */
+  router.get('/admin/users', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+
+      const clout = getClout()!;
+      const myKey = clout.getProfile().publicKey;
+      const ownerKey = getOwnerPublicKey();
+
+      if (!isOwner(myKey, ownerKey)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only the instance owner can list users'
+        });
+      }
+
+      const freebirdAdmin = getFreebirdAdmin();
+      if (!freebirdAdmin) {
+        return res.status(500).json({
+          success: false,
+          error: 'Freebird admin not configured'
+        });
+      }
+
+      const limit = parseInt(req.query.limit as string, 10) || 100;
+      const offset = parseInt(req.query.offset as string, 10) || 0;
+
+      const users = await freebirdAdmin.listUsers(limit, offset);
+
+      // Enrich with display names from Clout
+      const enriched = users.map(user => ({
+        ...user,
+        displayName: clout.getDisplayName(user.user_id),
+        publicKeyShort: user.user_id.slice(0, 16)
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          count: enriched.length,
+          users: enriched
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * Ban a user (owner only)
+   * POST /admin/users/ban
+   */
+  router.post('/admin/users/ban', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+
+      const clout = getClout()!;
+      const myKey = clout.getProfile().publicKey;
+      const ownerKey = getOwnerPublicKey();
+
+      if (!isOwner(myKey, ownerKey)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only the instance owner can ban users'
+        });
+      }
+
+      const userPublicKey = validatePublicKey(req.body.publicKey);
+      const banTree = req.body.banTree === true;
+
+      // Prevent banning yourself
+      if (userPublicKey === myKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot ban yourself'
+        });
+      }
+
+      const freebirdAdmin = getFreebirdAdmin();
+      if (!freebirdAdmin) {
+        return res.status(500).json({
+          success: false,
+          error: 'Freebird admin not configured'
+        });
+      }
+
+      const result = await freebirdAdmin.banUser(userPublicKey, banTree);
+
+      res.json({
+        success: true,
+        data: {
+          publicKey: userPublicKey,
+          publicKeyShort: userPublicKey.slice(0, 16),
+          bannedCount: result.banned_count,
+          banTree
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // =========================================================================
   // MEMBER ROUTES - For users with quota
   // =========================================================================

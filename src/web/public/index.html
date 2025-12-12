@@ -796,6 +796,33 @@
                 <p class="empty-state">Loading...</p>
               </div>
             </div>
+
+            <!-- User Management -->
+            <div class="admin-subsection">
+              <h4>🚫 User Management</h4>
+              <p class="help-text-small">View and manage network users. Banned users cannot obtain day passes.</p>
+              <button class="btn btn-small" onclick="window.cloutApp.loadAllUsers()">Refresh Users</button>
+              <div id="all-users-list" class="users-list">
+                <p class="empty-state">Click refresh to load users</p>
+              </div>
+            </div>
+
+            <!-- Ban User Form -->
+            <div class="admin-subsection">
+              <h4>Ban User</h4>
+              <p class="help-text-small">Ban a user by their public key. Optionally ban their entire invite tree.</p>
+              <div class="ban-user-form">
+                <input type="text" id="ban-user-pubkey" class="input" placeholder="User's public key (64 hex chars)">
+                <div class="ban-options">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="ban-tree-checkbox">
+                    <span class="checkbox-text">Also ban everyone they invited</span>
+                  </label>
+                </div>
+                <button id="ban-user-btn" class="btn btn-danger" onclick="window.cloutApp.banUser()">Ban User</button>
+              </div>
+              <div id="ban-user-result" class="result-message"></div>
+            </div>
           </div>
 
           <!-- Member Invitation Section (visible to members with quota) -->
