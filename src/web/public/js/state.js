@@ -34,6 +34,9 @@ export let newPostsCount = 0;
 // QR code
 export let qrCodeGenerated = false;
 
+// Instance info
+export let witnessDomain = null;
+
 // State setters (for controlled mutations)
 export function setInitialized(value) {
   initialized = value;
@@ -108,4 +111,8 @@ export function incrementNewPostsCount() {
 
 export function setQrCodeGenerated(value) {
   qrCodeGenerated = value;
+}
+
+export function setWitnessDomain(value) {
+  witnessDomain = value;
 }

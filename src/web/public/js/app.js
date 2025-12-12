@@ -184,6 +184,11 @@ async function loadOwnerInfo() {
     $('owner-operator-name').textContent = instanceResult.operator || 'Not specified';
     $('owner-description').textContent = instanceResult.description || 'An uncensorable social network instance';
 
+    // Store witness domain for display in feed
+    if (instanceResult.witnessDomain) {
+      state.setWitnessDomain(instanceResult.witnessDomain);
+    }
+
     // Get server's public key (this is the instance identity)
     const identityResult = await apiCall('/identity');
     $('owner-public-key').textContent = identityResult.publicKey || 'Not available';
