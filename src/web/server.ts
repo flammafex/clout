@@ -139,6 +139,26 @@ export class CloutWebServer {
 
     // Instance info (public) - displayed to visitors
     this.app.get('/api/instance', (req, res) => {
+      // Extract witness domain from gateway URL (removing subdomain)
+      let witnessDomain = null;
+      const witnessUrl = process.env.WITNESS_GATEWAY_URL;
+      if (witnessUrl) {
+        try {
+          const url = new URL(witnessUrl);
+          const hostname = url.hostname;
+          // Extract root domain (e.g., "witness1.metacan.org" -> "metacan.org")
+          const parts = hostname.split('.');
+          if (parts.length >= 2 && hostname !== 'localhost') {
+            // Take last two parts for domain (handles .com, .org, etc.)
+            witnessDomain = parts.slice(-2).join('.');
+          } else {
+            witnessDomain = hostname; // localhost or single-part hostname
+          }
+        } catch {
+          // Invalid URL, leave as null
+        }
+      }
+
       res.json({
         success: true,
         data: {
@@ -146,7 +166,8 @@ export class CloutWebServer {
           operator: process.env.INSTANCE_OPERATOR || null,
           description: process.env.INSTANCE_DESCRIPTION || 'An uncensorable social network instance',
           pgpKey: process.env.INSTANCE_PGP_KEY || null,
-          contact: process.env.INSTANCE_CONTACT || null
+          contact: process.env.INSTANCE_CONTACT || null,
+          witnessDomain
         }
       });
     });

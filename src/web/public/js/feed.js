@@ -596,7 +596,7 @@ export function renderFeedItem(post, fullFeatures = true) {
             <div class="feed-content">${renderPostContent(post)}</div>
           `}
           <div class="feed-footer">
-            <div class="feed-timestamp">&#x1F64C; Witnessed ${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
+            <div class="feed-timestamp">&#x1F64C; Witnessed${state.witnessDomain ? ` by ${escapeHtml(state.witnessDomain)}` : ''} ${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
             <div class="feed-actions">
               ${reactionsHtml}
               ${saveBtn}
