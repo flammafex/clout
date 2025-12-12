@@ -37,6 +37,30 @@ interface SerializedTicket {
   delegatedFrom?: string;
 }
 
+/**
+ * Member invitation quota entry
+ */
+interface MemberQuotaEntry {
+  publicKey: string;
+  quota: number;           // Total quota granted
+  used: number;            // Number of invitations created
+  grantedAt: number;       // Timestamp when quota was first granted
+  lastGrantedAt: number;   // Timestamp of most recent quota grant
+}
+
+/**
+ * Created invitation tracking
+ */
+interface CreatedInvitation {
+  code: string;
+  creatorPublicKey: string;
+  createdAt: number;
+  expiresAt: number;
+  redeemed: boolean;
+  redeemedBy?: string;
+  redeemedAt?: number;
+}
+
 interface LocalData {
   version: string;
   posts: { [id: string]: PostPackage };
@@ -55,6 +79,9 @@ interface LocalData {
     lastSeenReplies: number;
     lastSeenMentions: number;
   };
+  // Invitation quota system
+  memberQuotas?: { [publicKey: string]: MemberQuotaEntry };
+  createdInvitations?: { [code: string]: CreatedInvitation };
 }
 
 export class FileSystemStore implements CloutStore {
@@ -758,4 +785,163 @@ export class FileSystemStore implements CloutStore {
 
     return { imported: stats };
   }
+
+  // =================================================================
+  //  INVITATION QUOTA SYSTEM
+  // =================================================================
+
+  /**
+   * Grant invitation quota to a member
+   * Adds to existing quota if member already has some
+   */
+  grantQuota(publicKey: string, amount: number): MemberQuotaEntry {
+    if (!this.data.memberQuotas) {
+      this.data.memberQuotas = {};
+    }
+
+    const existing = this.data.memberQuotas[publicKey];
+    const now = Date.now();
+
+    if (existing) {
+      existing.quota += amount;
+      existing.lastGrantedAt = now;
+    } else {
+      this.data.memberQuotas[publicKey] = {
+        publicKey,
+        quota: amount,
+        used: 0,
+        grantedAt: now,
+        lastGrantedAt: now
+      };
+    }
+
+    this.save();
+    console.log(`[FileStore] 🎫 Granted ${amount} invitation quota to ${publicKey.slice(0, 16)}... (total: ${this.data.memberQuotas[publicKey].quota})`);
+    return this.data.memberQuotas[publicKey];
+  }
+
+  /**
+   * Get a member's quota entry
+   */
+  getQuota(publicKey: string): MemberQuotaEntry | null {
+    return this.data.memberQuotas?.[publicKey] || null;
+  }
+
+  /**
+   * Get remaining quota for a member
+   */
+  getRemainingQuota(publicKey: string): number {
+    const entry = this.data.memberQuotas?.[publicKey];
+    if (!entry) return 0;
+    return Math.max(0, entry.quota - entry.used);
+  }
+
+  /**
+   * Get all members with quota
+   */
+  getAllMemberQuotas(): MemberQuotaEntry[] {
+    if (!this.data.memberQuotas) return [];
+    return Object.values(this.data.memberQuotas);
+  }
+
+  /**
+   * Use quota to create an invitation
+   * Returns false if not enough quota
+   */
+  useQuota(publicKey: string, count: number = 1): boolean {
+    const entry = this.data.memberQuotas?.[publicKey];
+    if (!entry) return false;
+
+    const remaining = entry.quota - entry.used;
+    if (remaining < count) return false;
+
+    entry.used += count;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Record a created invitation
+   */
+  recordInvitation(invitation: CreatedInvitation): void {
+    if (!this.data.createdInvitations) {
+      this.data.createdInvitations = {};
+    }
+
+    this.data.createdInvitations[invitation.code] = invitation;
+    this.save();
+    console.log(`[FileStore] 📝 Recorded invitation ${invitation.code.slice(0, 8)}... by ${invitation.creatorPublicKey.slice(0, 16)}...`);
+  }
+
+  /**
+   * Get invitations created by a member
+   */
+  getInvitationsByCreator(publicKey: string): CreatedInvitation[] {
+    if (!this.data.createdInvitations) return [];
+    return Object.values(this.data.createdInvitations)
+      .filter(inv => inv.creatorPublicKey === publicKey)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /**
+   * Get all created invitations
+   */
+  getAllInvitations(): CreatedInvitation[] {
+    if (!this.data.createdInvitations) return [];
+    return Object.values(this.data.createdInvitations)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  /**
+   * Get invitation by code
+   */
+  getInvitation(code: string): CreatedInvitation | null {
+    return this.data.createdInvitations?.[code] || null;
+  }
+
+  /**
+   * Mark invitation as redeemed
+   */
+  markInvitationRedeemed(code: string, redeemerPublicKey: string): boolean {
+    const invitation = this.data.createdInvitations?.[code];
+    if (!invitation) return false;
+
+    invitation.redeemed = true;
+    invitation.redeemedBy = redeemerPublicKey;
+    invitation.redeemedAt = Date.now();
+    this.save();
+    console.log(`[FileStore] ✅ Marked invitation ${code.slice(0, 8)}... as redeemed by ${redeemerPublicKey.slice(0, 16)}...`);
+    return true;
+  }
+
+  /**
+   * Get invitation statistics for a member
+   */
+  getInvitationStats(publicKey: string): {
+    quotaTotal: number;
+    quotaUsed: number;
+    quotaRemaining: number;
+    invitationsCreated: number;
+    invitationsRedeemed: number;
+    inviteePublicKeys: string[];
+  } {
+    const quota = this.data.memberQuotas?.[publicKey];
+    const invitations = this.getInvitationsByCreator(publicKey);
+
+    const redeemed = invitations.filter(inv => inv.redeemed);
+
+    return {
+      quotaTotal: quota?.quota || 0,
+      quotaUsed: quota?.used || 0,
+      quotaRemaining: quota ? Math.max(0, quota.quota - quota.used) : 0,
+      invitationsCreated: invitations.length,
+      invitationsRedeemed: redeemed.length,
+      inviteePublicKeys: redeemed
+        .filter(inv => inv.redeemedBy)
+        .map(inv => inv.redeemedBy!)
+    };
+  }
 }
+
+// Re-export types for use in routes
+export type { MemberQuotaEntry, CreatedInvitation };
