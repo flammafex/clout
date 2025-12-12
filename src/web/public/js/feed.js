@@ -623,6 +623,11 @@ export function renderPostContent(post) {
   let content = escapeHtml(post.content);
   const visitor = isVisitorMode();
 
+  // Debug: Log media state for troubleshooting
+  if (post.media) {
+    console.log(`[Feed] Post ${post.id} media:`, { cid: post.media.cid, mimeType: post.media.mimeType, visitor });
+  }
+
   // Hide media for visitors - only show text content
   if (post.media && post.media.cid) {
     content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
@@ -633,7 +638,7 @@ export function renderPostContent(post) {
     }
 
     const mediaUrl = `${API_BASE}/media/post/${post.id}`;
-    const mimeType = post.media.mimeType;
+    const mimeType = post.media.mimeType || '';
 
     let mediaHtml = '';
     const hopDistance = post.reputation?.distance ?? 999;
@@ -647,6 +652,10 @@ export function renderPostContent(post) {
       mediaHtml = `<div class="post-media" data-post-id="${post.id}"><audio src="${mediaUrl}" controls ${mediaErrorHandler}></audio></div>`;
     } else if (mimeType === 'application/pdf') {
       mediaHtml = `<div class="post-media post-media-file" data-post-id="${post.id}"><a href="${mediaUrl}" target="_blank" class="media-link">&#x1F4C4; View PDF</a></div>`;
+    } else {
+      // Fallback for unknown types - try as image
+      console.warn(`[Feed] Unknown media type: ${mimeType} for post ${post.id}, trying as image`);
+      mediaHtml = `<div class="post-media" data-post-id="${post.id}"><img src="${mediaUrl}" alt="Post media" loading="lazy" ${mediaErrorHandler}></div>`;
     }
 
     return content.trim() + mediaHtml;
