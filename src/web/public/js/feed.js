@@ -623,6 +623,11 @@ export function renderPostContent(post) {
   let content = escapeHtml(post.content);
   const visitor = isVisitorMode();
 
+  // Debug: Log media state for troubleshooting
+  if (post.media) {
+    console.log(`[Feed] Post ${post.id} media:`, { cid: post.media.cid, mimeType: post.media.mimeType, visitor });
+  }
+
   // Hide media for visitors - only show text content
   if (post.media && post.media.cid) {
     content = content.replace(/\[clout-media:\s*[^\]]+\]/g, '');
