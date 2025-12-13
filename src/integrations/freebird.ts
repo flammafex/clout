@@ -133,6 +133,15 @@ export class FreebirdAdapter implements FreebirdClient {
   setInvitationCode(code: string, signature?: string): void {
     this.invitationCode = code;
     this.invitationSignature = signature;
+
+    // Log for debugging
+    console.log(`[Freebird] setInvitationCode called: code=${code.slice(0, 8)}..., signature=${signature ? 'present' : 'MISSING'}`);
+
+    // Warn if sybilMode is not 'invitation' - the code won't be used!
+    if (this.sybilMode !== 'invitation') {
+      console.warn(`[Freebird] ⚠️ WARNING: Invitation code set but sybilMode is '${this.sybilMode}' (not 'invitation')`);
+      console.warn(`[Freebird] ⚠️ The invitation code will be IGNORED. Set FREEBIRD_SYBIL_MODE=invitation`);
+    }
   }
 
   /**
@@ -192,7 +201,22 @@ export class FreebirdAdapter implements FreebirdClient {
       }
 
       case 'invitation': {
-        // Owner can obtain tokens without an invitation code
+        // If invitation code is explicitly set (browser proxy mode), use it
+        // This takes precedence over owner mode because browsers need their own invitation
+        if (this.invitationCode && this.invitationSignature) {
+          console.log(`[Freebird] Using invitation code: ${this.invitationCode.slice(0, 8)}... with signature`);
+          const result = {
+            type: 'invitation',
+            code: this.invitationCode,
+            signature: this.invitationSignature
+          };
+          // Clear the invitation code after use (one-time use)
+          this.invitationCode = undefined;
+          this.invitationSignature = undefined;
+          return result;
+        }
+
+        // Owner can obtain tokens without an invitation code (for server's own identity)
         if (this.isOwner && this.userPublicKey) {
           console.log('[Freebird] Owner mode - obtaining token as registered user');
           return {
@@ -200,18 +224,12 @@ export class FreebirdAdapter implements FreebirdClient {
             user_id: this.userPublicKey
           };
         }
+
+        // Neither invitation nor owner - fail
         if (!this.invitationCode) {
           throw new Error('[Freebird] Invitation mode requires an invitation code. Call setInvitationCode() first.');
         }
-        if (!this.invitationSignature) {
-          throw new Error('[Freebird] Invitation mode requires a signature. Call setInvitationCode(code, signature) with both parameters.');
-        }
-        console.log(`[Freebird] Using invitation code: ${this.invitationCode.slice(0, 8)}... with signature`);
-        return {
-          type: 'invitation',
-          code: this.invitationCode,
-          signature: this.invitationSignature
-        };
+        throw new Error('[Freebird] Invitation mode requires a signature. Call setInvitationCode(code, signature) with both parameters.');
       }
 
       default:
