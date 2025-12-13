@@ -29,10 +29,40 @@ export interface AdminRoutesConfig {
 }
 
 /**
- * Check if the requesting user is the instance owner
+ * Check if the requesting browser user is the instance owner
+ * This checks the browser user's public key (from request header/body), NOT the server identity
  */
-function isOwner(requestPublicKey: string, ownerPublicKey: string | undefined): boolean {
-  return ownerPublicKey !== undefined && requestPublicKey === ownerPublicKey;
+function isOwner(browserUserPublicKey: string | undefined, ownerPublicKey: string | undefined): boolean {
+  if (!browserUserPublicKey || !ownerPublicKey) {
+    return false;
+  }
+  return browserUserPublicKey === ownerPublicKey;
+}
+
+/**
+ * Extract the browser user's public key from request
+ * Accepts from: X-User-PublicKey header or publicKey/userPublicKey body/query param
+ */
+function getBrowserUserPublicKey(req: any): string | undefined {
+  // Try header first (preferred for GET requests)
+  const headerKey = req.headers['x-user-publickey'];
+  if (headerKey && typeof headerKey === 'string' && headerKey.length === 64) {
+    return headerKey;
+  }
+
+  // Try query param
+  const queryKey = req.query?.userPublicKey;
+  if (queryKey && typeof queryKey === 'string' && queryKey.length === 64) {
+    return queryKey;
+  }
+
+  // Try body (for POST requests)
+  const bodyKey = req.body?.userPublicKey;
+  if (bodyKey && typeof bodyKey === 'string' && bodyKey.length === 64) {
+    return bodyKey;
+  }
+
+  return undefined;
 }
 
 /**
@@ -73,14 +103,14 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
       // Only owner can list all members
-      if (!isOwner(myKey, ownerKey)) {
+      if (!isOwner(browserUserKey, ownerKey)) {
         return res.status(403).json({
           success: false,
-          error: 'Only the instance owner can list members'
+          error: 'Only the instance owner can list members. Send your public key via X-User-PublicKey header.'
         });
       }
 
@@ -118,14 +148,14 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
       // Only owner can grant quota
-      if (!isOwner(myKey, ownerKey)) {
+      if (!isOwner(browserUserKey, ownerKey)) {
         return res.status(403).json({
           success: false,
-          error: 'Only the instance owner can grant quota'
+          error: 'Only the instance owner can grant quota. Send your public key via X-User-PublicKey header or userPublicKey body param.'
         });
       }
 
@@ -180,10 +210,10 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(myKey, ownerKey)) {
+      if (!isOwner(browserUserKey, ownerKey)) {
         return res.status(403).json({
           success: false,
           error: 'Only the instance owner can list all invitations'
@@ -226,10 +256,10 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(myKey, ownerKey)) {
+      if (!isOwner(browserUserKey, ownerKey)) {
         return res.status(403).json({
           success: false,
           error: 'Only the instance owner can create admin invitations'
@@ -254,8 +284,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
         });
       }
 
-      // Create invitations via Freebird
-      const invitations = await freebirdAdmin.createInvitations(myKey, count, expiresInDays);
+      // Create invitations via Freebird (use browser user's key as creator)
+      const invitations = await freebirdAdmin.createInvitations(browserUserKey!, count, expiresInDays);
 
       // Record locally
       const now = Date.now();
@@ -264,7 +294,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       for (const inv of invitations) {
         store.recordInvitation({
           code: inv.code,
-          creatorPublicKey: myKey,
+          creatorPublicKey: browserUserKey!,
           createdAt: now,
           expiresAt,
           redeemed: false
@@ -292,11 +322,10 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
-      const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(myKey, ownerKey)) {
+      if (!isOwner(browserUserKey, ownerKey)) {
         return res.status(403).json({
           success: false,
           error: 'Only the instance owner can view admin stats'
@@ -335,10 +364,10 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!isInitialized()) throw new Error('Not initialized');
 
       const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(myKey, ownerKey)) {
+      if (!isOwner(browserUserKey, ownerKey)) {
         return res.status(403).json({
           success: false,
           error: 'Only the instance owner can list users'
@@ -385,11 +414,10 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
-      const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(myKey, ownerKey)) {
+      if (!isOwner(browserUserKey, ownerKey)) {
         return res.status(403).json({
           success: false,
           error: 'Only the instance owner can ban users'
@@ -400,7 +428,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       const banTree = req.body.banTree === true;
 
       // Prevent banning yourself
-      if (userPublicKey === myKey) {
+      if (userPublicKey === browserUserKey) {
         return res.status(400).json({
           success: false,
           error: 'Cannot ban yourself'
@@ -443,10 +471,10 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(myKey, ownerKey)) {
+      if (!isOwner(browserUserKey, ownerKey)) {
         return res.status(403).json({
           success: false,
           error: 'Only the instance owner can lookup users'
@@ -520,6 +548,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
 
   // =========================================================================
   // MEMBER ROUTES - For users with quota
+  // These routes require a browser user's public key to identify who is making the request
   // =========================================================================
 
   /**
@@ -533,15 +562,20 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       const store = getStore();
       if (!store) throw new Error('Store not available');
 
-      const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
+      if (!browserUserKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing browser user public key. Send via X-User-PublicKey header.'
+        });
+      }
 
-      const stats = store.getInvitationStats(myKey);
+      const stats = store.getInvitationStats(browserUserKey);
 
       res.json({
         success: true,
         data: {
-          publicKey: myKey,
+          publicKey: browserUserKey,
           ...stats
         }
       });
@@ -562,9 +596,15 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
+      if (!browserUserKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing browser user public key. Send via X-User-PublicKey header.'
+        });
+      }
 
-      const invitations = store.getInvitationsByCreator(myKey);
+      const invitations = store.getInvitationsByCreator(browserUserKey);
 
       const enriched = invitations.map(inv => ({
         ...inv,
@@ -596,15 +636,20 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       const store = getStore();
       if (!store) throw new Error('Store not available');
 
-      const clout = getClout()!;
-      const myKey = clout.getProfile().publicKey;
+      const browserUserKey = getBrowserUserPublicKey(req);
+      if (!browserUserKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'Missing browser user public key. Send via X-User-PublicKey header or userPublicKey body param.'
+        });
+      }
       const ownerKey = getOwnerPublicKey();
 
       // Check if user has quota
-      const remaining = store.getRemainingQuota(myKey);
+      const remaining = store.getRemainingQuota(browserUserKey);
 
       // Owner can always create invitations (bypass quota)
-      const bypassQuota = isOwner(myKey, ownerKey);
+      const bypassQuota = isOwner(browserUserKey, ownerKey);
 
       if (!bypassQuota && remaining < 1) {
         return res.status(403).json({
@@ -624,7 +669,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       }
 
       // Create invitation via Freebird (1 at a time for members)
-      const invitations = await freebirdAdmin.createInvitations(myKey, 1, expiresInDays);
+      const invitations = await freebirdAdmin.createInvitations(browserUserKey, 1, expiresInDays);
 
       if (invitations.length === 0) {
         return res.status(500).json({
@@ -637,7 +682,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
 
       // Use quota (unless owner bypassing)
       if (!bypassQuota) {
-        store.useQuota(myKey, 1);
+        store.useQuota(browserUserKey, 1);
       }
 
       // Record invitation
@@ -646,7 +691,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
 
       store.recordInvitation({
         code: invitation.code,
-        creatorPublicKey: myKey,
+        creatorPublicKey: browserUserKey,
         createdAt: now,
         expiresAt,
         redeemed: false
@@ -656,10 +701,10 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
         success: true,
         data: {
           code: invitation.code,
-          creatorPublicKey: myKey,
+          creatorPublicKey: browserUserKey,
           createdAt: now,
           expiresAt,
-          quotaRemaining: bypassQuota ? 'unlimited' : store.getRemainingQuota(myKey)
+          quotaRemaining: bypassQuota ? 'unlimited' : store.getRemainingQuota(browserUserKey)
         }
       });
     } catch (error: any) {
