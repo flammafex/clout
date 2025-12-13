@@ -105,7 +105,9 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         nsfw,
         contentWarning,
         ephemeralPublicKey,
-        ephemeralKeyProof
+        ephemeralKeyProof,
+        authorDisplayName,
+        authorAvatar
       } = req.body;
 
       // Validate required fields
@@ -173,6 +175,9 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         nsfw,
         contentWarning,
         media: mediaCid ? { cid: mediaCid } : undefined,
+        // Include author's chosen display name and avatar (from browser profile)
+        authorDisplayName: authorDisplayName || undefined,
+        authorAvatar: authorAvatar || undefined,
         // Include Day Pass as authorship proof
         authorshipProof: ticket.proof
       };
