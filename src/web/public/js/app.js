@@ -522,6 +522,54 @@ async function autoInitialize() {
           window.userPublicKey = identity.publicKeyHex;
           hasBrowserIdentity = true;
 
+          // Check if this identity has a valid Day Pass on the server
+          // After an instance reset, old identities won't have valid Day Passes
+          try {
+            const dayPassStatus = await apiCall(`/daypass/status/${identity.publicKeyHex}`);
+            const hasValidDayPass = dayPassStatus.hasTicket && !dayPassStatus.isExpired;
+
+            if (!hasValidDayPass) {
+              console.log('[Clout] Browser identity found but no valid Day Pass - entering visitor mode');
+              console.log('[Clout] Day Pass status:', dayPassStatus);
+              // Identity exists but no Day Pass - show visitor mode with invitation prompt
+              // Keep the identity loaded so they can redeem an invitation code
+              state.setIsVisitor(true);
+              state.setInitialized(false);
+              $('init-section').style.display = 'none';
+              $('main-app').style.display = 'block';
+              updateStatus('No Day Pass - Please redeem an invitation code', false);
+              showVisitorBanner();
+              updateTabVisibility(true);
+
+              // Load visitor feed
+              try {
+                const instanceResult = await apiCall('/instance');
+                if (instanceResult.witnessDomain) {
+                  state.setWitnessDomain(instanceResult.witnessDomain);
+                }
+              } catch (e) {
+                console.warn('[App] Failed to load instance info:', e.message);
+              }
+              await loadVisitorFeed();
+              return;
+            }
+
+            // Day Pass is valid - proceed with full initialization
+            console.log('[Clout] Valid Day Pass found, expires:', new Date(dayPassStatus.expiry).toISOString());
+          } catch (dayPassError) {
+            console.warn('[Clout] Failed to check Day Pass status:', dayPassError.message);
+            // If we can't check, assume invalid and enter visitor mode
+            state.setIsVisitor(true);
+            state.setInitialized(false);
+            $('init-section').style.display = 'none';
+            $('main-app').style.display = 'block';
+            updateStatus('Could not verify Day Pass', false);
+            showVisitorBanner();
+            updateTabVisibility(true);
+            await loadVisitorFeed();
+            return;
+          }
+
           try {
             await initializeClout();
             state.setIsVisitor(false);
