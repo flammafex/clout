@@ -416,7 +416,7 @@ export class CloutWebServer {
 
         // Mark the invitation as used BEFORE sending to Freebird (prevent race conditions)
         this.usedInvitationCodes.add(code);
-        this.saveUsedInvitationCode(code);
+        this.saveUsedInvitationCode(code, publicKey);
         console.log(`[Server] Invitation ${code.slice(0, 8)}... claimed by ${publicKey?.slice(0, 16) || 'unknown'}...`);
 
         // Store the invitation code and signature in the Freebird adapter
@@ -532,7 +532,8 @@ export class CloutWebServer {
       getClout: this.getClout,
       isInitialized: this.isInitialized,
       getStore: this.getStore,
-      getOwnerPublicKey: this.getOwnerPublicKey
+      getOwnerPublicKey: this.getOwnerPublicKey,
+      findBootstrapInvitationByRedeemer: this.findBootstrapInvitationByRedeemer.bind(this)
     }));
 
     // Legacy slide endpoints (for backwards compatibility)
@@ -758,27 +759,83 @@ export class CloutWebServer {
 
   /**
    * Save a used invitation code to invitations.json for persistence
+   * Also tracks which public key redeemed the code for admin lookup
    */
-  private saveUsedInvitationCode(code: string): void {
+  private saveUsedInvitationCode(code: string, redeemerPublicKey?: string): void {
     try {
       const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
       const invitesFile = join(dataDir, 'invitations.json');
 
       if (existsSync(invitesFile)) {
         const data = JSON.parse(readFileSync(invitesFile, 'utf-8'));
-        const usedCodes = data.usedCodes || [];
 
-        // Add the code if not already present
+        // Legacy array format for backwards compatibility
+        const usedCodes = data.usedCodes || [];
         if (!usedCodes.includes(code)) {
           usedCodes.push(code);
           data.usedCodes = usedCodes;
-          writeFileSync(invitesFile, JSON.stringify(data, null, 2));
-          console.log(`[Server] Persisted used invitation code ${code.slice(0, 8)}... to invitations.json`);
         }
+
+        // New object format mapping code -> redeemer info
+        const redemptions = data.redemptions || {};
+        if (!redemptions[code] && redeemerPublicKey) {
+          redemptions[code] = {
+            redeemedBy: redeemerPublicKey,
+            redeemedAt: Date.now()
+          };
+          data.redemptions = redemptions;
+        }
+
+        writeFileSync(invitesFile, JSON.stringify(data, null, 2));
+        console.log(`[Server] Persisted used invitation code ${code.slice(0, 8)}... to invitations.json`);
       }
     } catch (error: any) {
       console.error(`[Server] Error saving used invitation code: ${error.message}`);
     }
+  }
+
+  /**
+   * Get the redeemer public key for a bootstrap invitation code
+   */
+  getBootstrapInvitationRedeemer(code: string): { redeemedBy: string; redeemedAt: number } | null {
+    try {
+      const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+      const invitesFile = join(dataDir, 'invitations.json');
+
+      if (existsSync(invitesFile)) {
+        const data = JSON.parse(readFileSync(invitesFile, 'utf-8'));
+        const redemptions = data.redemptions || {};
+        return redemptions[code] || null;
+      }
+    } catch (error: any) {
+      console.error(`[Server] Error reading invitation redemptions: ${error.message}`);
+    }
+    return null;
+  }
+
+  /**
+   * Find which bootstrap invitation code a public key used
+   */
+  findBootstrapInvitationByRedeemer(redeemerPublicKey: string): { code: string; redeemedAt: number } | null {
+    try {
+      const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+      const invitesFile = join(dataDir, 'invitations.json');
+
+      if (existsSync(invitesFile)) {
+        const data = JSON.parse(readFileSync(invitesFile, 'utf-8'));
+        const redemptions = data.redemptions || {};
+
+        for (const [code, info] of Object.entries(redemptions)) {
+          const redemption = info as { redeemedBy: string; redeemedAt: number };
+          if (redemption.redeemedBy === redeemerPublicKey) {
+            return { code, redeemedAt: redemption.redeemedAt };
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error(`[Server] Error searching invitation redemptions: ${error.message}`);
+    }
+    return null;
   }
 
   /**

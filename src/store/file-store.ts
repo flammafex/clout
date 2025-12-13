@@ -915,6 +915,21 @@ export class FileSystemStore implements CloutStore {
   }
 
   /**
+   * Get invitation by redeemer's public key
+   * Returns the invitation that was redeemed by this user, if any
+   */
+  getInvitationByRedeemer(redeemerPublicKey: string): CreatedInvitation | null {
+    if (!this.data.createdInvitations) return null;
+
+    for (const inv of Object.values(this.data.createdInvitations)) {
+      if (inv.redeemedBy === redeemerPublicKey) {
+        return inv;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Get invitation statistics for a member
    */
   getInvitationStats(publicKey: string): {
