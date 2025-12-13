@@ -770,14 +770,25 @@ export async function importBrowserIdentity() {
     const identity = await window.CloutIdentity.importFromFile(file, password);
     await window.CloutIdentity.store(identity);
 
-    // Save profile data if included in backup (v2 format)
-    if (identity.profile && window.CloutUserData) {
-      await window.CloutUserData.saveProfile({
-        publicKey: identity.publicKeyHex,
-        displayName: identity.profile.displayName,
-        avatar: identity.profile.avatar,
-        bio: identity.profile.bio
-      });
+    // Restore all user data if included in backup (v3 format)
+    if (identity.userData && window.CloutUserData) {
+      await window.CloutUserData.importAll(identity.userData);
+    } else {
+      // Fallback for v2 backups
+      if (identity.profile && window.CloutUserData) {
+        await window.CloutUserData.saveProfile({
+          publicKey: identity.publicKeyHex,
+          displayName: identity.profile.displayName,
+          avatar: identity.profile.avatar,
+          bio: identity.profile.bio
+        });
+      }
+
+      if (identity.trustGraph && Array.isArray(identity.trustGraph) && window.CloutUserData) {
+        for (const entry of identity.trustGraph) {
+          await window.CloutUserData.trust(entry.trustedKey, entry.weight);
+        }
+      }
     }
 
     showResult('browser-identity-result', 'Identity restored! Reloading...', true);

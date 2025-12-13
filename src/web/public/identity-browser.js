@@ -166,13 +166,13 @@ export class BrowserIdentity {
    * @returns {string} Encrypted JSON string (base64)
    */
   static async export(identity, password) {
-    // Try to get profile data from BrowserUserData
-    let profile = null;
+    // Get all user data from BrowserUserData
+    let userData = null;
     if (window.CloutUserData) {
       try {
-        profile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+        userData = await window.CloutUserData.exportAll();
       } catch (e) {
-        console.warn('[BrowserIdentity] Could not fetch profile for backup:', e.message);
+        console.warn('[BrowserIdentity] Could not fetch user data for backup:', e.message);
       }
     }
 
@@ -199,18 +199,14 @@ export class BrowserIdentity {
       ['encrypt']
     );
 
-    // Encrypt the private key and profile data
+    // Encrypt the private key and all user data
     const iv = Crypto.randomBytes(12);
     const backupData = {
       privateKey: Array.from(identity.privateKey),
       publicKeyHex: identity.publicKeyHex,
       created: identity.created,
-      // Include profile data (v2 feature)
-      profile: profile ? {
-        displayName: profile.displayName || null,
-        avatar: profile.avatar || null,
-        bio: profile.bio || null
-      } : null
+      // Include all user data (v3 feature)
+      userData: userData || null
     };
     const plaintext = new TextEncoder().encode(JSON.stringify(backupData));
 
@@ -220,9 +216,9 @@ export class BrowserIdentity {
       plaintext
     );
 
-    // Package everything together (version 2 includes profile)
+    // Package everything together (version 3 includes all user data)
     const exportData = {
-      version: 2,
+      version: 3,
       salt: Array.from(salt),
       iv: Array.from(iv),
       ciphertext: Array.from(new Uint8Array(ciphertext))
@@ -234,17 +230,17 @@ export class BrowserIdentity {
   /**
    * Import identity from password-protected backup
    *
-   * Supports both v1 (keys only) and v2 (keys + profile) backups
+   * Supports v1 (keys only), v2 (keys + profile), and v3 (keys + profile + trust) backups
    *
    * @param {string} encryptedData - Encrypted JSON string (base64)
    * @param {string} password - Password for decryption
-   * @returns {Object} Decrypted identity with optional profile data
+   * @returns {Object} Decrypted identity with optional profile and trust data
    */
   static async import(encryptedData, password) {
     const exportData = JSON.parse(atob(encryptedData));
 
-    // Support both v1 and v2 backups
-    if (exportData.version !== 1 && exportData.version !== 2) {
+    // Support v1, v2, and v3 backups
+    if (exportData.version !== 1 && exportData.version !== 2 && exportData.version !== 3) {
       throw new Error('Unsupported backup version');
     }
 
@@ -298,8 +294,12 @@ export class BrowserIdentity {
         publicKey,
         publicKeyHex: data.publicKeyHex,
         created: data.created,
-        // Include profile if present (v2 backup)
-        profile: data.profile || null
+        // Include profile if present (v2 backup, for backwards compatibility)
+        profile: data.profile || (data.userData?.profile) || null,
+        // Include trust graph if present (v2 legacy or v3 via userData)
+        trustGraph: data.trustGraph || (data.userData?.trustGraph) || null,
+        // Include full user data (v3 backup)
+        userData: data.userData || null
       };
 
       return identity;
