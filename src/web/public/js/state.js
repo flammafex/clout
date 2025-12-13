@@ -26,6 +26,9 @@ export let pendingInviteCode = null;
 export let currentSearchQuery = '';
 export let currentFilter = 'all';
 export let currentTagFilter = null;
+export let feedSort = 'newest'; // newest, reactions, replies, hot
+export let feedOffset = 0;
+export let feedHasMore = false;
 
 // Live updates
 export let eventSource = null;
@@ -95,6 +98,18 @@ export function setCurrentFilter(value) {
 
 export function setCurrentTagFilter(value) {
   currentTagFilter = value;
+}
+
+export function setFeedSort(value) {
+  feedSort = value;
+}
+
+export function setFeedOffset(value) {
+  feedOffset = value;
+}
+
+export function setFeedHasMore(value) {
+  feedHasMore = value;
 }
 
 export function setEventSource(value) {

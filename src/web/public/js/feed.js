@@ -91,11 +91,23 @@ export async function recalculateTrustForPosts(posts) {
 
 /**
  * Load and render the main feed
+ * @param {boolean} append - If true, append to existing feed (for Load More)
  */
-export async function loadFeed() {
-  showLoading('feed-list');
+export async function loadFeed(append = false) {
+  if (!append) {
+    showLoading('feed-list');
+    state.setFeedOffset(0);
+  }
+
   try {
-    const data = await apiCall('/feed');
+    // Build query params with sort and pagination
+    const params = new URLSearchParams({
+      sort: state.feedSort,
+      offset: append ? state.feedOffset.toString() : '0',
+      limit: '30'
+    });
+
+    const data = await apiCall(`/feed?${params}`);
     const feedList = $('feed-list');
 
     // Get browser identity for trust-based filtering
@@ -144,7 +156,11 @@ export async function loadFeed() {
     // Cache posts for edit lookups
     filteredPosts.forEach(post => state.cachePost(post));
 
-    if (filteredPosts.length === 0) {
+    // Update pagination state
+    state.setFeedHasMore(data.hasMore || false);
+    state.setFeedOffset((data.offset || 0) + filteredPosts.length);
+
+    if (filteredPosts.length === 0 && !append) {
       feedList.innerHTML = `
         <div class="empty-state-helpful">
           <div class="empty-icon">🏠</div>
@@ -159,13 +175,73 @@ export async function loadFeed() {
       return;
     }
 
-    feedList.innerHTML = filteredPosts.map(post => renderFeedItem(post, true)).join('');
+    // Render posts
+    const postsHtml = filteredPosts.map(post => renderFeedItem(post, true)).join('');
 
-    // Load tag filter pills after feed loads
-    loadTagFilterPills();
+    if (append) {
+      // Remove existing Load More button before appending
+      const existingLoadMore = feedList.querySelector('.load-more-container');
+      if (existingLoadMore) {
+        existingLoadMore.remove();
+      }
+      feedList.insertAdjacentHTML('beforeend', postsHtml);
+    } else {
+      feedList.innerHTML = postsHtml;
+    }
+
+    // Add Load More button if there are more posts
+    if (state.feedHasMore) {
+      feedList.insertAdjacentHTML('beforeend', `
+        <div class="load-more-container">
+          <button class="btn btn-secondary load-more-btn" onclick="window.cloutApp.loadMorePosts()">
+            Load More
+          </button>
+        </div>
+      `);
+    }
+
+    // Load tag filter pills after feed loads (only on initial load)
+    if (!append) {
+      loadTagFilterPills();
+    }
   } catch (error) {
-    $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
+    if (!append) {
+      $('feed-list').innerHTML = `<p class="empty-state">Error loading feed: ${error.message}</p>`;
+    } else {
+      console.error('Error loading more posts:', error);
+    }
   }
+}
+
+/**
+ * Load more posts (pagination)
+ */
+export async function loadMorePosts() {
+  const loadMoreBtn = document.querySelector('.load-more-btn');
+  if (loadMoreBtn) {
+    loadMoreBtn.disabled = true;
+    loadMoreBtn.textContent = 'Loading...';
+  }
+
+  await loadFeed(true);
+}
+
+/**
+ * Change feed sort order
+ */
+export function setFeedSort(sortOption) {
+  if (state.feedSort === sortOption) return;
+
+  state.setFeedSort(sortOption);
+  state.setFeedOffset(0);
+
+  // Update active state on sort buttons
+  document.querySelectorAll('.feed-sort-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.sort === sortOption);
+  });
+
+  // Reload feed with new sort
+  loadFeed();
 }
 
 /**

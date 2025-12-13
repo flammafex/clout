@@ -149,6 +149,17 @@
             <button id="clear-search-btn" class="btn btn-small" style="display: none;">Clear</button>
           </div>
 
+          <!-- Sort Options -->
+          <div id="feed-sort-container" class="feed-sort">
+            <span class="sort-label">Sort:</span>
+            <div class="feed-sort-buttons">
+              <button class="feed-sort-btn active" data-sort="newest" onclick="window.cloutApp.setFeedSort('newest')">Newest</button>
+              <button class="feed-sort-btn" data-sort="hot" onclick="window.cloutApp.setFeedSort('hot')">Hot</button>
+              <button class="feed-sort-btn" data-sort="reactions" onclick="window.cloutApp.setFeedSort('reactions')">Top</button>
+              <button class="feed-sort-btn" data-sort="replies" onclick="window.cloutApp.setFeedSort('replies')">Discussed</button>
+            </div>
+          </div>
+
           <!-- New Posts Banner (for live updates) -->
           <div id="new-posts-banner" class="new-posts-banner" style="display: none;">
             <button onclick="window.cloutApp.loadNewPosts()">⬆️ <span id="new-posts-count">0</span> new posts - Click to load</button>

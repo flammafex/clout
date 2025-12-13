@@ -15,7 +15,8 @@ import {
 } from './ui.js';
 import {
   loadFeed, loadVisitorFeed, loadFeedWithCurrentFilter, setFeedFilter,
-  filterByTag, searchPosts, clearSearch, renderFeedItem, handleMediaError
+  filterByTag, searchPosts, clearSearch, renderFeedItem, handleMediaError,
+  loadMorePosts, setFeedSort
 } from './feed.js';
 import {
   createPost, startReply, cancelReply, startEditPost, cancelEdit,
@@ -563,6 +564,8 @@ window.cloutApp = {
   searchPosts,
   clearSearch,
   handleMediaError,
+  loadMorePosts,
+  setFeedSort,
 
   // Posts
   createPost: () => createPost(requireMembership, showInvitePopover),

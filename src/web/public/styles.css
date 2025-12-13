@@ -2340,6 +2340,67 @@ h2 {
   color: white;
 }
 
+/* Feed Sort */
+.feed-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0;
+}
+
+.sort-label {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.feed-sort-buttons {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--bg-card);
+  padding: 0.25rem;
+  border-radius: 0.5rem;
+}
+
+.feed-sort-btn {
+  padding: 0.35rem 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.8rem;
+  border-radius: 0.35rem;
+  transition: all 0.2s;
+}
+
+.feed-sort-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.feed-sort-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* Load More Button */
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem 0;
+  margin-top: 0.5rem;
+}
+
+.load-more-btn {
+  min-width: 150px;
+}
+
+.load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Tag Filters */
 .tag-filters {
   display: flex;
