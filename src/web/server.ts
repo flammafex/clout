@@ -59,6 +59,8 @@ export class CloutWebServer {
   // Mapping from invitation codes to inviter public keys
   private invitationCodeToInviter: Map<string, string> = new Map();
   private invitationCodeToSignature: Map<string, string> = new Map();
+  // Track invitation codes that have been used (prevent double-spending)
+  private usedInvitationCodes: Set<string> = new Set();
   // Freebird adapter for browser VOPRF proxy
   private freebirdAdapter?: FreebirdAdapter;
   // File system store for quota tracking
@@ -388,6 +390,15 @@ export class CloutWebServer {
           });
         }
 
+        // Check if this invitation code has already been used
+        if (this.usedInvitationCodes.has(code)) {
+          console.warn(`[Server] Invitation ${code.slice(0, 8)}... already used, rejecting`);
+          return res.status(400).json({
+            success: false,
+            error: 'This invitation code has already been used'
+          });
+        }
+
         // Get the Freebird adapter and set the invitation code
         const infra = this.infraManager.getInfrastructure();
         if (!infra) {
@@ -403,16 +414,20 @@ export class CloutWebServer {
           console.warn(`[Server] No signature found for invitation code ${code.slice(0, 8)}...`);
         }
 
+        // Mark the invitation as used BEFORE sending to Freebird (prevent race conditions)
+        this.usedInvitationCodes.add(code);
+        this.saveUsedInvitationCode(code);
+        console.log(`[Server] Invitation ${code.slice(0, 8)}... claimed by ${publicKey?.slice(0, 16) || 'unknown'}...`);
+
         // Store the invitation code and signature in the Freebird adapter
         infra.freebird.setInvitationCode(code, signature);
 
         // Get the inviter for this code (for response)
         const inviterKey = this.invitationCodeToInviter.get(code);
 
-        // Mark the invitation as redeemed if we have the public key and store
+        // Mark the invitation as redeemed in persistent store if we have the public key
         if (publicKey && this.store) {
           this.store.markInvitationRedeemed(code, publicKey);
-          console.log(`[Server] Invitation ${code.slice(0, 8)}... redeemed by ${publicKey.slice(0, 16)}...`);
         }
 
         res.json({
@@ -695,8 +710,17 @@ export class CloutWebServer {
         const inviter = data.inviter;
         const invitations = data.invitations || [];
         const codes = data.codes || [];
+        const usedCodes = data.usedCodes || [];
 
-        console.log(`[Bootstrap] Found invitations.json: inviter=${inviter ? 'present' : 'MISSING'}, invitations=${invitations.length}, codes=${codes.length}`);
+        console.log(`[Bootstrap] Found invitations.json: inviter=${inviter ? 'present' : 'MISSING'}, invitations=${invitations.length}, codes=${codes.length}, usedCodes=${usedCodes.length}`);
+
+        // Load used codes
+        for (const code of usedCodes) {
+          this.usedInvitationCodes.add(code);
+        }
+        if (usedCodes.length > 0) {
+          console.log(`[Bootstrap] Loaded ${usedCodes.length} previously used invitation codes`);
+        }
 
         // Load from new format (with signatures)
         if (invitations.length > 0) {
@@ -729,6 +753,31 @@ export class CloutWebServer {
       }
     } catch (error: any) {
       console.error(`[Bootstrap] Error loading invitations.json: ${error.message}`);
+    }
+  }
+
+  /**
+   * Save a used invitation code to invitations.json for persistence
+   */
+  private saveUsedInvitationCode(code: string): void {
+    try {
+      const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+      const invitesFile = join(dataDir, 'invitations.json');
+
+      if (existsSync(invitesFile)) {
+        const data = JSON.parse(readFileSync(invitesFile, 'utf-8'));
+        const usedCodes = data.usedCodes || [];
+
+        // Add the code if not already present
+        if (!usedCodes.includes(code)) {
+          usedCodes.push(code);
+          data.usedCodes = usedCodes;
+          writeFileSync(invitesFile, JSON.stringify(data, null, 2));
+          console.log(`[Server] Persisted used invitation code ${code.slice(0, 8)}... to invitations.json`);
+        }
+      }
+    } catch (error: any) {
+      console.error(`[Server] Error saving used invitation code: ${error.message}`);
     }
   }
 
