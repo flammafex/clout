@@ -61,6 +61,8 @@ export class CloutRelay {
     contentWarning?: string;
     media?: { cid: string };
     authorshipProof?: Uint8Array;
+    authorDisplayName?: string;
+    authorAvatar?: string;
   }): Promise<Attestation> {
     // Get witness proof for the post
     const postHash = Crypto.hashObject({
@@ -91,7 +93,10 @@ export class CloutRelay {
         storedAt: Date.now()
       } : undefined,
       authorshipProof: postPackage.authorshipProof,
-      mentions: this.extractMentions(postPackage.content)
+      mentions: this.extractMentions(postPackage.content),
+      // Include author's chosen display name and avatar
+      authorDisplayName: postPackage.authorDisplayName,
+      authorAvatar: postPackage.authorAvatar
     };
 
     // Store locally
