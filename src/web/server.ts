@@ -58,6 +58,7 @@ export class CloutWebServer {
   private userDataStore: UserDataStore;
   // Mapping from invitation codes to inviter public keys
   private invitationCodeToInviter: Map<string, string> = new Map();
+  private invitationCodeToSignature: Map<string, string> = new Map();
   // Freebird adapter for browser VOPRF proxy
   private freebirdAdapter?: FreebirdAdapter;
   // File system store for quota tracking
@@ -396,8 +397,14 @@ export class CloutWebServer {
           });
         }
 
-        // Store the invitation code in the Freebird adapter
-        infra.freebird.setInvitationCode(code);
+        // Get the signature for this code
+        const signature = this.invitationCodeToSignature.get(code);
+        if (!signature) {
+          console.warn(`[Server] No signature found for invitation code ${code.slice(0, 8)}...`);
+        }
+
+        // Store the invitation code and signature in the Freebird adapter
+        infra.freebird.setInvitationCode(code, signature);
 
         // Get the inviter for this code (for response)
         const inviterKey = this.invitationCodeToInviter.get(code);
@@ -643,12 +650,13 @@ export class CloutWebServer {
       // Create the Dunbar pool (50 invitations - within Freebird's 1-100 limit)
       const invitations = await freebirdAdmin.bootstrapDunbarPool(selfPublicKey, 50);
 
-      // Store invitation-to-inviter mapping for mutual trust flow
+      // Store invitation-to-inviter and invitation-to-signature mappings
       for (const inv of invitations) {
         this.invitationCodeToInviter.set(inv.code, selfPublicKey);
+        this.invitationCodeToSignature.set(inv.code, inv.signature);
       }
 
-      // Save invitation codes to a file for admin reference
+      // Save invitation codes AND signatures to a file for admin reference
       const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
       const invitesFile = join(dataDir, 'invitations.json');
 
@@ -656,7 +664,9 @@ export class CloutWebServer {
         created: new Date().toISOString(),
         count: invitations.length,
         codes: invitations.map(i => i.code),
-        inviter: selfPublicKey,  // Include inviter for reference
+        // Store full invitation data including signatures for redemption
+        invitations: invitations.map(i => ({ code: i.code, signature: i.signature })),
+        inviter: selfPublicKey,
         adminUrl: freebirdAdmin.getAdminUiUrl()
       }, null, 2));
 
@@ -671,7 +681,7 @@ export class CloutWebServer {
   }
 
   /**
-   * Load existing invitation-to-inviter mappings from file
+   * Load existing invitation-to-inviter and invitation-to-signature mappings from file
    */
   private loadInvitationMappings(): void {
     try {
@@ -681,13 +691,28 @@ export class CloutWebServer {
       if (existsSync(invitesFile)) {
         const data = JSON.parse(require('fs').readFileSync(invitesFile, 'utf-8'));
         const inviter = data.inviter;
+        const invitations = data.invitations || [];
         const codes = data.codes || [];
 
-        if (inviter && codes.length > 0) {
+        // Load from new format (with signatures)
+        if (invitations.length > 0) {
+          for (const inv of invitations) {
+            if (inv.code && inviter) {
+              this.invitationCodeToInviter.set(inv.code, inviter);
+            }
+            if (inv.code && inv.signature) {
+              this.invitationCodeToSignature.set(inv.code, inv.signature);
+            }
+          }
+          console.log(`[Bootstrap] Loaded ${invitations.length} invitation code mappings (with signatures)`);
+        } else if (inviter && codes.length > 0) {
+          // Fallback to old format (without signatures) - signatures won't work
           for (const code of codes) {
             this.invitationCodeToInviter.set(code, inviter);
           }
-          console.log(`[Bootstrap] Loaded ${codes.length} invitation code mappings`);
+          console.log(`[Bootstrap] Loaded ${codes.length} invitation code mappings (legacy format, no signatures)`);
+          console.warn(`[Bootstrap] ⚠️ Invitations were stored without signatures. They may not work with Freebird.`);
+          console.warn(`[Bootstrap] ⚠️ Delete invitations.json and restart to regenerate with signatures.`);
         }
       }
     } catch (error) {
