@@ -114,6 +114,9 @@ export class FreebirdAdapter implements FreebirdClient {
       }
     }
 
+    // Log issuer endpoints
+    console.log(`[Freebird] Issuer endpoint(s): ${this.issuerEndpoints.join(', ')}`);
+
     // Log MPC mode
     if (this.issuerEndpoints.length > 1) {
       console.log(`[Freebird] MPC threshold mode: ${this.issuerEndpoints.length} issuers`);
@@ -198,6 +201,7 @@ export class FreebirdAdapter implements FreebirdClient {
         if (!this.invitationCode) {
           throw new Error('[Freebird] Invitation mode requires an invitation code. Call setInvitationCode() first.');
         }
+        console.log(`[Freebird] Using invitation code: ${this.invitationCode.slice(0, 8)}...`);
         return {
           type: 'invitation',
           code: this.invitationCode
@@ -343,6 +347,8 @@ export class FreebirdAdapter implements FreebirdClient {
             });
 
             if (!response.ok) {
+              const errorText = await response.text();
+              console.warn(`[Freebird] Token issuance failed from ${url}: ${response.status} - ${errorText}`);
               return { success: false, url, index };
             }
 
