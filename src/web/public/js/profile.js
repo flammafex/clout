@@ -687,6 +687,51 @@ export async function exportBrowserIdentity() {
 }
 
 /**
+ * Create a fresh browser identity - OVERWRITES existing identity
+ */
+export async function createBrowserIdentity() {
+  if (!confirm('WARNING: This will create a NEW identity and DELETE your current one!\n\nYour current identity will be permanently lost unless you have backed it up.\n\nAre you sure you want to create a new identity?')) {
+    return;
+  }
+
+  // Double confirmation for safety
+  if (!confirm('FINAL WARNING: This action CANNOT be undone!\n\nYou will lose access to all posts made with your current identity.\n\nProceed with creating a new identity?')) {
+    return;
+  }
+
+  try {
+    $('create-browser-identity-btn').disabled = true;
+    $('create-browser-identity-btn').textContent = 'Creating...';
+
+    if (!window.CloutIdentity) {
+      throw new Error('Browser identity module not available');
+    }
+
+    // Generate new identity
+    const newIdentity = window.CloutIdentity.generate();
+
+    // Store it (overwrites existing)
+    await window.CloutIdentity.store(newIdentity);
+
+    showResult('browser-identity-result', 'New identity created! Reloading...', true);
+
+    // Reload identity display
+    await loadIdentity();
+    await loadProfile();
+
+    // Reload the page to ensure all state is fresh
+    setTimeout(() => {
+      window.location.reload();
+    }, 1500);
+  } catch (error) {
+    showResult('browser-identity-result', `Error: ${error.message}`, false);
+  } finally {
+    $('create-browser-identity-btn').disabled = false;
+    $('create-browser-identity-btn').textContent = 'Create New Identity';
+  }
+}
+
+/**
  * Import browser identity - OVERWRITES existing identity
  */
 export async function importBrowserIdentity() {
@@ -766,5 +811,10 @@ export function setupSettings(requireMembership) {
   const importBrowserBtn = $('import-browser-identity-btn');
   if (importBrowserBtn) {
     importBrowserBtn.addEventListener('click', importBrowserIdentity);
+  }
+
+  const createBrowserBtn = $('create-browser-identity-btn');
+  if (createBrowserBtn) {
+    createBrowserBtn.addEventListener('click', createBrowserIdentity);
   }
 }

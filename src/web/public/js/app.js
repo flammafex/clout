@@ -37,7 +37,7 @@ import {
   saveProfile, toggleQRCode, loadStats, loadSettings, saveSettings,
   saveMediaFilters, loadTags, viewTagUsers, addTag, exportBackup,
   importBackup, loadIdentities, switchIdentity, createIdentity,
-  exportIdentityKey, importIdentityKey, setupSettings
+  exportIdentityKey, importIdentityKey, setupSettings, createBrowserIdentity
 } from './profile.js';
 import {
   connectLiveUpdates, loadNewPosts, updateNotificationCounts
