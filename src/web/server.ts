@@ -31,7 +31,7 @@ import {
 import { createFreebirdProxyRoutes } from './routes/freebird-proxy.js';
 import { createFreebirdAdminFromEnv } from '../integrations/freebird-admin.js';
 import type { FreebirdAdapter } from '../integrations/freebird.js';
-import { existsSync, writeFileSync } from 'fs';
+import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -691,7 +691,7 @@ export class CloutWebServer {
       console.log(`[Bootstrap] Looking for invitations at: ${invitesFile}`);
 
       if (existsSync(invitesFile)) {
-        const data = JSON.parse(require('fs').readFileSync(invitesFile, 'utf-8'));
+        const data = JSON.parse(readFileSync(invitesFile, 'utf-8'));
         const inviter = data.inviter;
         const invitations = data.invitations || [];
         const codes = data.codes || [];
