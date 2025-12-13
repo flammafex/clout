@@ -81,6 +81,8 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly sybilMode: SybilMode;
   private invitationCode: string | undefined;
   private invitationSignature: string | undefined;
+  // Track if an invitation was attempted (prevents fallback to owner mode)
+  private invitationWasAttempted = false;
   private readonly userPublicKey: string | undefined;
   private readonly isOwner: boolean;
   private metadata: Map<string, any> = new Map();
@@ -133,6 +135,7 @@ export class FreebirdAdapter implements FreebirdClient {
   setInvitationCode(code: string, signature?: string): void {
     this.invitationCode = code;
     this.invitationSignature = signature;
+    this.invitationWasAttempted = true;  // Track that an invitation is being used
 
     // Log for debugging
     console.log(`[Freebird] setInvitationCode called: code=${code.slice(0, 8)}..., signature=${signature ? 'present' : 'MISSING'}`);
@@ -201,8 +204,8 @@ export class FreebirdAdapter implements FreebirdClient {
       }
 
       case 'invitation': {
-        // If invitation code is explicitly set (browser proxy mode), use it
-        // This takes precedence over owner mode because browsers need their own invitation
+        // Invitation mode requires a valid invitation code - no exceptions
+        // Even the instance owner must use an invitation code (one of the bootstrap codes)
         if (this.invitationCode && this.invitationSignature) {
           console.log(`[Freebird] Using invitation code: ${this.invitationCode.slice(0, 8)}... with signature`);
           const result = {
@@ -213,19 +216,18 @@ export class FreebirdAdapter implements FreebirdClient {
           // Clear the invitation code after use (one-time use)
           this.invitationCode = undefined;
           this.invitationSignature = undefined;
+          this.invitationWasAttempted = false;
           return result;
         }
 
-        // Owner can obtain tokens without an invitation code (for server's own identity)
-        if (this.isOwner && this.userPublicKey) {
-          console.log('[Freebird] Owner mode - obtaining token as registered user');
-          return {
-            type: 'registered_user',
-            user_id: this.userPublicKey
-          };
+        // If an invitation was attempted but code is now missing, provide clear error
+        if (this.invitationWasAttempted) {
+          console.error('[Freebird] Invitation was attempted but code is missing');
+          this.invitationWasAttempted = false;
+          throw new Error('[Freebird] Invitation code was already used in this session. Please use a new invitation code.');
         }
 
-        // Neither invitation nor owner - fail
+        // No invitation code provided
         if (!this.invitationCode) {
           throw new Error('[Freebird] Invitation mode requires an invitation code. Call setInvitationCode() first.');
         }
