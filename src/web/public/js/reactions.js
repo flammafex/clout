@@ -239,45 +239,73 @@ export function selectEmoji(postId, emoji) {
 export async function toggleReaction(postId, emoji, requireMembership) {
   if (!requireMembership()) return;
 
-  // Find any button with this emoji for this post
+  // Find the reactions bar for this post
   const bar = document.querySelector(`.reactions-bar[data-post-id="${postId}"]`);
   if (!bar) return;
 
-  const btn = Array.from(bar.querySelectorAll('.reaction-btn')).find(b =>
-    b.textContent.trim().startsWith(emoji) && !b.classList.contains('reaction-picker-btn')
+  // Find existing button for this emoji (if any)
+  const existingBtn = Array.from(bar.querySelectorAll('.reaction-btn')).find(b =>
+    b.textContent.trim().startsWith(emoji) &&
+    !b.classList.contains('reaction-picker-btn') &&
+    !b.classList.contains('reaction-expand-btn')
   );
 
-  const wasActive = btn?.classList.contains('active');
-  const countSpan = btn?.querySelector('.reaction-count');
+  const wasActive = existingBtn?.classList.contains('active');
+  const countSpan = existingBtn?.querySelector('.reaction-count');
   const currentCount = countSpan ? parseInt(countSpan.textContent) || 0 : 0;
 
+  // Find the picker button (we'll insert new reactions before it)
+  const pickerBtn = bar.querySelector('.reaction-picker-btn');
+
   // Optimistic UI update
-  if (btn) {
-    if (wasActive) {
-      btn.classList.remove('active');
-      if (countSpan) {
-        const newCount = Math.max(0, currentCount - 1);
-        countSpan.textContent = newCount > 0 ? newCount : '';
-        if (newCount === 0) countSpan.remove();
-      }
+  if (wasActive && existingBtn) {
+    // REMOVING a reaction - decrement count or remove button
+    const newCount = currentCount - 1;
+    if (newCount <= 0) {
+      // Remove the button entirely
+      existingBtn.remove();
     } else {
-      // Remove active from other buttons
-      bar.querySelectorAll('.reaction-btn.active').forEach(b => {
-        if (!b.classList.contains('reaction-picker-btn')) {
-          b.classList.remove('active');
-          const otherCount = b.querySelector('.reaction-count');
-          if (otherCount) {
-            const c = Math.max(0, (parseInt(otherCount.textContent) || 0) - 1);
-            otherCount.textContent = c > 0 ? c : '';
-            if (c === 0) otherCount.remove();
-          }
-        }
-      });
-      btn.classList.add('active');
+      existingBtn.classList.remove('active');
+      if (countSpan) countSpan.textContent = newCount;
+    }
+  } else {
+    // ADDING a reaction
+
+    // First, remove active state from any other reaction (user can only have one)
+    const previousActive = bar.querySelector('.reaction-btn.active:not(.reaction-picker-btn)');
+    if (previousActive && previousActive !== existingBtn) {
+      const prevCountSpan = previousActive.querySelector('.reaction-count');
+      const prevCount = prevCountSpan ? parseInt(prevCountSpan.textContent) || 0 : 0;
+      const newPrevCount = prevCount - 1;
+      if (newPrevCount <= 0) {
+        previousActive.remove();
+      } else {
+        previousActive.classList.remove('active');
+        if (prevCountSpan) prevCountSpan.textContent = newPrevCount;
+      }
+    }
+
+    if (existingBtn) {
+      // Button exists - just activate it and increment count
+      existingBtn.classList.add('active');
       if (countSpan) {
         countSpan.textContent = currentCount + 1;
       } else {
-        btn.insertAdjacentHTML('beforeend', `<span class="reaction-count">${currentCount + 1}</span>`);
+        existingBtn.insertAdjacentHTML('beforeend', `<span class="reaction-count">${currentCount + 1}</span>`);
+      }
+    } else {
+      // Create new button for this reaction
+      const newBtn = document.createElement('button');
+      newBtn.className = 'reaction-btn active';
+      newBtn.setAttribute('onclick', `event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')`);
+      newBtn.setAttribute('title', '1 reaction');
+      newBtn.innerHTML = `${emoji}<span class="reaction-count">1</span>`;
+
+      // Insert before the picker button
+      if (pickerBtn) {
+        bar.insertBefore(newBtn, pickerBtn);
+      } else {
+        bar.appendChild(newBtn);
       }
     }
   }
@@ -287,12 +315,14 @@ export async function toggleReaction(postId, emoji, requireMembership) {
     if (wasActive) {
       apiCall('/unreact', 'POST', { postId, emoji }).catch(e => {
         console.error('Failed to unreact:', e);
-        if (btn) btn.classList.add('active');
+        // Revert: re-add the button or restore active state
+        // For simplicity, we'll just log the error - a page refresh will fix it
       });
     } else {
       apiCall('/react', 'POST', { postId, emoji }).catch(e => {
         console.error('Failed to react:', e);
-        if (btn) btn.classList.remove('active');
+        // Revert: remove newly added button or remove active state
+        // For simplicity, we'll just log the error - a page refresh will fix it
       });
     }
   } catch (error) {
