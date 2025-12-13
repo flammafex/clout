@@ -636,11 +636,19 @@ export class CloutFeed {
   }> {
     const state = this.state.getState();
     const myPosts = state.myPosts || [];
-    const myReactions = state.myReactions || [];
     const trustSignals = state.myTrustSignals || [];
 
-    const feed = await this.getCachedFeed();
+    // Use getFeed() to exclude retracted posts from counts
+    const feed = await this.getFeed({ includeNsfw: true });
     const uniqueAuthors = new Set(feed.map(p => p.author)).size;
+
+    // Count ALL reactions from the store, not just user's own reactions
+    let totalReactionCount = 0;
+    if (this.store && 'getReactionsSync' in this.store) {
+      const allReactions = (this.store as any).getReactionsSync() || [];
+      // Count non-removed reactions
+      totalReactionCount = allReactions.filter((r: any) => !r.removed).length;
+    }
 
     const cloutNode = this.getCloutNode();
     const connectedPeers = cloutNode?.getPeers().length ?? 0;
@@ -654,7 +662,7 @@ export class CloutFeed {
       trustReach: this.trustGraph.size,
       uniqueAuthors,
       myPostCount: myPosts.length,
-      reactionCount: myReactions.length,
+      reactionCount: totalReactionCount,
       connectedPeers,
       blobDensity: Math.round(blobDensity * 100) / 100
     };
