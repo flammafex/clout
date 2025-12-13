@@ -930,7 +930,17 @@ export class CloutWebServer {
     // Initialize per-user data store (persistent storage)
     await this.userDataStore.init();
 
-    // Load existing invitation mappings
+    // Auto-initialize Clout on startup (creates bootstrap invitations if needed)
+    // This ensures invitations exist before any user visits
+    try {
+      await this.initializeClout();
+      console.log('[Startup] ✅ Clout auto-initialized successfully');
+    } catch (error: any) {
+      console.error('[Startup] ❌ Auto-initialization failed:', error.message);
+      console.log('[Startup] Manual initialization via /api/init may be required');
+    }
+
+    // Load existing invitation mappings (after bootstrap may have created them)
     this.loadInvitationMappings();
 
     return new Promise((resolve) => {
