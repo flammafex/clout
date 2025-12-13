@@ -80,6 +80,7 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly allowInsecureFallback: boolean;
   private readonly sybilMode: SybilMode;
   private invitationCode: string | undefined;
+  private invitationSignature: string | undefined;
   private readonly userPublicKey: string | undefined;
   private readonly isOwner: boolean;
   private metadata: Map<string, any> = new Map();
@@ -127,10 +128,11 @@ export class FreebirdAdapter implements FreebirdClient {
   }
 
   /**
-   * Set the invitation code for 'invitation' sybil mode
+   * Set the invitation code and signature for 'invitation' sybil mode
    */
-  setInvitationCode(code: string): void {
+  setInvitationCode(code: string, signature?: string): void {
     this.invitationCode = code;
+    this.invitationSignature = signature;
   }
 
   /**
@@ -201,10 +203,14 @@ export class FreebirdAdapter implements FreebirdClient {
         if (!this.invitationCode) {
           throw new Error('[Freebird] Invitation mode requires an invitation code. Call setInvitationCode() first.');
         }
-        console.log(`[Freebird] Using invitation code: ${this.invitationCode.slice(0, 8)}...`);
+        if (!this.invitationSignature) {
+          throw new Error('[Freebird] Invitation mode requires a signature. Call setInvitationCode(code, signature) with both parameters.');
+        }
+        console.log(`[Freebird] Using invitation code: ${this.invitationCode.slice(0, 8)}... with signature`);
         return {
           type: 'invitation',
-          code: this.invitationCode
+          code: this.invitationCode,
+          signature: this.invitationSignature
         };
       }
 

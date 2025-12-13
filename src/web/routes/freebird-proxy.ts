@@ -123,9 +123,13 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
         });
       }
 
-      // Set invitation code if provided
+      // Note: invitation code and signature should already be set by /api/invitation/redeem
+      // We don't set it here because we don't have the signature.
+      // If invitation_code is provided but not already set, warn about it.
       if (invitation_code && typeof invitation_code === 'string') {
-        adapter.setInvitationCode(invitation_code);
+        // The adapter should already have the code+signature from /api/invitation/redeem
+        // Just log for debugging
+        console.log(`[FreebirdProxy] Invitation code provided: ${invitation_code.slice(0, 8)}...`);
       }
 
       // Convert base64url to bytes
