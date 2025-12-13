@@ -25,6 +25,7 @@ export interface AdminRoutesConfig {
   isInitialized: () => boolean;
   getStore: () => FileSystemStore | undefined;
   getOwnerPublicKey: () => string | undefined;
+  findBootstrapInvitationByRedeemer?: (publicKey: string) => { code: string; redeemedAt: number } | null;
 }
 
 /**
@@ -48,7 +49,7 @@ function validatePublicKey(publicKey: unknown, fieldName = 'publicKey'): string 
 }
 
 export function createAdminRoutes(config: AdminRoutesConfig): Router {
-  const { getClout, isInitialized, getStore, getOwnerPublicKey } = config;
+  const { getClout, isInitialized, getStore, getOwnerPublicKey, findBootstrapInvitationByRedeemer } = config;
   const router = Router();
 
   // Get or create Freebird admin client
@@ -423,6 +424,93 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           publicKeyShort: userPublicKey.slice(0, 16),
           bannedCount: result.banned_count,
           banTree
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * Lookup user by public key - find which invitation they used
+   * GET /admin/user-lookup?publicKey=abc123
+   */
+  router.get('/admin/user-lookup', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+
+      const store = getStore();
+      if (!store) throw new Error('Store not available');
+
+      const clout = getClout()!;
+      const myKey = clout.getProfile().publicKey;
+      const ownerKey = getOwnerPublicKey();
+
+      if (!isOwner(myKey, ownerKey)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only the instance owner can lookup users'
+        });
+      }
+
+      const publicKey = req.query.publicKey as string;
+      if (!publicKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'publicKey query parameter is required'
+        });
+      }
+
+      // Look up in FileStore (createdInvitations)
+      const invitation = store.getInvitationByRedeemer(publicKey);
+
+      if (invitation) {
+        return res.json({
+          success: true,
+          data: {
+            publicKey,
+            publicKeyShort: publicKey.slice(0, 16),
+            displayName: clout.getDisplayName(publicKey),
+            invitationCode: invitation.code,
+            invitedBy: invitation.creatorPublicKey,
+            invitedByShort: invitation.creatorPublicKey.slice(0, 16),
+            invitedByName: clout.getDisplayName(invitation.creatorPublicKey),
+            redeemedAt: invitation.redeemedAt,
+            source: 'member_invitation'
+          }
+        });
+      }
+
+      // Check if this is a bootstrap invitation user (stored in invitations.json)
+      if (findBootstrapInvitationByRedeemer) {
+        const bootstrapInv = findBootstrapInvitationByRedeemer(publicKey);
+        if (bootstrapInv) {
+          return res.json({
+            success: true,
+            data: {
+              publicKey,
+              publicKeyShort: publicKey.slice(0, 16),
+              displayName: clout.getDisplayName(publicKey),
+              invitationCode: bootstrapInv.code,
+              invitedBy: ownerKey || 'instance_owner',
+              invitedByShort: ownerKey?.slice(0, 16) || 'owner',
+              invitedByName: 'Instance Owner (bootstrap)',
+              redeemedAt: bootstrapInv.redeemedAt,
+              source: 'bootstrap_invitation'
+            }
+          });
+        }
+      }
+
+      // Not found
+      return res.json({
+        success: true,
+        data: {
+          publicKey,
+          publicKeyShort: publicKey.slice(0, 16),
+          displayName: clout.getDisplayName(publicKey),
+          invitationCode: null,
+          message: 'User not found - may have joined before tracking was enabled, or is not a member'
         }
       });
     } catch (error: any) {
