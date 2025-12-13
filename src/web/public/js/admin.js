@@ -408,3 +408,68 @@ export async function quickBan(publicKey) {
     alert(`Failed to ban: ${error.message}`);
   }
 }
+
+/**
+ * Lookup user by public key - find which invitation they used
+ */
+export async function lookupUser() {
+  const publicKey = $('lookup-user-pubkey').value.trim();
+  const resultEl = $('lookup-user-result');
+
+  if (!publicKey) {
+    resultEl.textContent = 'Please enter a public key';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (publicKey.length !== 64 || !/^[a-fA-F0-9]+$/.test(publicKey)) {
+    resultEl.textContent = 'Invalid public key format (must be 64 hex characters)';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  try {
+    resultEl.textContent = 'Looking up user...';
+    resultEl.className = 'result-message';
+
+    const result = await apiCall(`/admin/user-lookup?publicKey=${publicKey}`);
+
+    if (!result.data) {
+      resultEl.textContent = 'Lookup failed';
+      resultEl.className = 'result-message error';
+      return;
+    }
+
+    const data = result.data;
+
+    if (!data.invitationCode) {
+      resultEl.innerHTML = `
+        <div class="lookup-result">
+          <div class="lookup-field"><strong>Public Key:</strong> <code>${data.publicKeyShort}...</code></div>
+          <div class="lookup-field"><strong>Display Name:</strong> ${escapeHtml(data.displayName || 'Anonymous')}</div>
+          <div class="lookup-field warning">${escapeHtml(data.message || 'No invitation found')}</div>
+        </div>
+      `;
+      resultEl.className = 'result-message warning';
+      return;
+    }
+
+    const redeemedDate = data.redeemedAt ? new Date(data.redeemedAt).toLocaleString() : 'Unknown';
+
+    resultEl.innerHTML = `
+      <div class="lookup-result">
+        <div class="lookup-field"><strong>Public Key:</strong> <code>${data.publicKeyShort}...</code></div>
+        <div class="lookup-field"><strong>Display Name:</strong> ${escapeHtml(data.displayName || 'Anonymous')}</div>
+        <div class="lookup-field"><strong>Invitation Code:</strong> <code>${escapeHtml(data.invitationCode)}</code></div>
+        <div class="lookup-field"><strong>Invited By:</strong> ${escapeHtml(data.invitedByName || data.invitedByShort + '...')}</div>
+        <div class="lookup-field"><strong>Joined:</strong> ${redeemedDate}</div>
+        <div class="lookup-field"><strong>Source:</strong> ${data.source === 'bootstrap_invitation' ? 'Bootstrap Invitation' : 'Member Invitation'}</div>
+      </div>
+      <p class="lookup-hint">Use this invitation code in Freebird Admin UI to revoke access.</p>
+    `;
+    resultEl.className = 'result-message success';
+  } catch (error) {
+    resultEl.textContent = `Failed: ${error.message}`;
+    resultEl.className = 'result-message error';
+  }
+}

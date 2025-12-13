@@ -780,6 +780,17 @@
               <a id="freebird-admin-link" href="#" target="_blank" rel="noopener" class="btn btn-secondary">Open Freebird Admin</a>
             </div>
 
+            <!-- User Lookup -->
+            <div class="admin-subsection">
+              <h4>🔍 User Lookup</h4>
+              <p class="help-text-small">Find which invitation code a user redeemed. Use this to revoke access in Freebird Admin.</p>
+              <div class="lookup-user-form">
+                <input type="text" id="lookup-user-pubkey" class="input" placeholder="User's public key (64 hex chars)">
+                <button id="lookup-user-btn" class="btn btn-primary" onclick="window.cloutApp.lookupUser()">Lookup</button>
+              </div>
+              <div id="lookup-user-result" class="result-message"></div>
+            </div>
+
             <!-- Member Management -->
             <div class="admin-subsection">
               <h4>🎫 Grant Invitation Quota</h4>
