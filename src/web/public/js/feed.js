@@ -46,6 +46,9 @@ export async function recalculateTrustForPosts(posts) {
   const bookmarkIds = await window.CloutUserData.getBookmarks();
   const bookmarkSet = new Set(bookmarkIds);
 
+  // Get browser user's own profile for avatar and display name
+  const myProfile = await window.CloutUserData.getProfile(browserPublicKey);
+
   posts.forEach(post => {
     // Recalculate isAuthor based on browser identity
     post.isAuthor = post.author === browserPublicKey;
@@ -56,6 +59,13 @@ export async function recalculateTrustForPosts(posts) {
     // Recalculate trust distance (reputation.distance)
     if (post.author === browserPublicKey) {
       post.reputation = { ...post.reputation, distance: 0, score: 1.0 };
+      // Override avatar and display name with browser user's profile
+      if (myProfile?.avatar) {
+        post.authorAvatar = myProfile.avatar;
+      }
+      if (myProfile?.displayName) {
+        post.authorDisplayName = myProfile.displayName;
+      }
     } else if (trustedKeys.has(post.author)) {
       post.reputation = { ...post.reputation, distance: 1, score: 0.8 };
     } else {
@@ -65,7 +75,7 @@ export async function recalculateTrustForPosts(posts) {
     // Overlay bookmark state from IndexedDB
     post.isBookmarked = bookmarkSet.has(post.id);
 
-    // Override display name with browser's nickname if set
+    // Override display name with browser's nickname if set (for other users)
     const browserNickname = nicknames.get(post.author);
     if (browserNickname) {
       post.authorDisplayName = browserNickname;
@@ -602,7 +612,7 @@ export function renderFeedItem(post, fullFeatures = true) {
             <div class="feed-content">${renderPostContent(post)}</div>
           `}
           <div class="feed-footer">
-            <div class="feed-timestamp">&#x1F64C; Witnessed${state.witnessDomain ? ` by ${escapeHtml(state.witnessDomain)}` : ''} ${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
+            <div class="feed-timestamp"><span class="witness-emoji">&#x1F64C;</span> Witnessed${state.witnessDomain ? ` by ${escapeHtml(state.witnessDomain)}` : ''} ${formatRelativeTime(post.proof?.timestamp || post.timestamp)} ${editedIndicator}</div>
             <div class="feed-actions">
               ${reactionsHtml}
               ${saveBtn}
