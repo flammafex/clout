@@ -59,6 +59,8 @@ export class CloutWebServer {
   // Mapping from invitation codes to inviter public keys
   private invitationCodeToInviter: Map<string, string> = new Map();
   private invitationCodeToSignature: Map<string, string> = new Map();
+  // Track invitation codes that have been used (prevent double-spending)
+  private usedInvitationCodes: Set<string> = new Set();
   // Freebird adapter for browser VOPRF proxy
   private freebirdAdapter?: FreebirdAdapter;
   // File system store for quota tracking
@@ -388,6 +390,15 @@ export class CloutWebServer {
           });
         }
 
+        // Check if this invitation code has already been used
+        if (this.usedInvitationCodes.has(code)) {
+          console.warn(`[Server] Invitation ${code.slice(0, 8)}... already used, rejecting`);
+          return res.status(400).json({
+            success: false,
+            error: 'This invitation code has already been used'
+          });
+        }
+
         // Get the Freebird adapter and set the invitation code
         const infra = this.infraManager.getInfrastructure();
         if (!infra) {
@@ -403,16 +414,19 @@ export class CloutWebServer {
           console.warn(`[Server] No signature found for invitation code ${code.slice(0, 8)}...`);
         }
 
+        // Mark the invitation as used BEFORE sending to Freebird (prevent race conditions)
+        this.usedInvitationCodes.add(code);
+        console.log(`[Server] Invitation ${code.slice(0, 8)}... claimed by ${publicKey?.slice(0, 16) || 'unknown'}...`);
+
         // Store the invitation code and signature in the Freebird adapter
         infra.freebird.setInvitationCode(code, signature);
 
         // Get the inviter for this code (for response)
         const inviterKey = this.invitationCodeToInviter.get(code);
 
-        // Mark the invitation as redeemed if we have the public key and store
+        // Mark the invitation as redeemed in persistent store if we have the public key
         if (publicKey && this.store) {
           this.store.markInvitationRedeemed(code, publicKey);
-          console.log(`[Server] Invitation ${code.slice(0, 8)}... redeemed by ${publicKey.slice(0, 16)}...`);
         }
 
         res.json({
