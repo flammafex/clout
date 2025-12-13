@@ -237,7 +237,14 @@ export class Clout {
       clearTicket: () => this.economics.clearTicket(),
       obtainToken: () => this.economics.obtainToken(),
       buyDayPass: (token) => this.economics.buyDayPass(token),
-      hasActiveTicket: () => this.economics.hasActiveTicket()
+      hasActiveTicket: () => this.economics.hasActiveTicket(),
+      getProfile: () => {
+        const profile = this.getProfile();
+        return {
+          displayName: profile.metadata?.displayName,
+          avatar: profile.metadata?.avatar
+        };
+      }
     });
 
     this.media = new CloutMedia({

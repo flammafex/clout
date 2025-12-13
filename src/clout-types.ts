@@ -209,6 +209,18 @@ export interface PostPackage {
   readonly editHistory?: string[];
 
   /**
+   * Author's display name at time of posting
+   * Embedded so other users can see the author's chosen name
+   */
+  readonly authorDisplayName?: string;
+
+  /**
+   * Author's avatar emoji at time of posting
+   * Embedded so other users can see the author's avatar
+   */
+  readonly authorAvatar?: string;
+
+  /**
    * Content decay timestamp - when the content was decayed (nulled)
    * The envelope (id, author, signature, proof) persists but content is gone.
    * This enables "the right to be forgotten" while preventing resurrection.

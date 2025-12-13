@@ -31,6 +31,7 @@ export interface ContentConfig {
   obtainToken: () => Promise<Uint8Array>;
   buyDayPass: (token: Uint8Array) => Promise<void>;
   hasActiveTicket: () => boolean;
+  getProfile: () => { displayName?: string; avatar?: string };
 }
 
 export class CloutContent {
@@ -48,6 +49,7 @@ export class CloutContent {
   private readonly getTicket: () => CloutTicket | undefined;
   private readonly clearTicket: () => void;
   private readonly obtainToken: () => Promise<Uint8Array>;
+  private readonly getProfile: () => { displayName?: string; avatar?: string };
   private readonly buyDayPass: (token: Uint8Array) => Promise<void>;
   private readonly hasActiveTicket: () => boolean;
 
@@ -66,6 +68,7 @@ export class CloutContent {
     this.obtainToken = config.obtainToken;
     this.buyDayPass = config.buyDayPass;
     this.hasActiveTicket = config.hasActiveTicket;
+    this.getProfile = config.getProfile;
   }
 
   /**
@@ -163,6 +166,9 @@ export class CloutContent {
     // 4. Sign Content (Placeholder using Hash + Key for MVP)
     const signature = Crypto.hash(finalContent, signingKey);
 
+    // Get author's profile for embedding in post
+    const profile = this.getProfile();
+
     const config: PostConfig = {
       author: this.publicKeyHex,
       content: finalContent,
@@ -176,7 +182,9 @@ export class CloutContent {
       media: mediaMetadata,
       nsfw,
       contentWarning,
-      mentions: mentions.length > 0 ? mentions : undefined
+      mentions: mentions.length > 0 ? mentions : undefined,
+      authorDisplayName: profile.displayName,
+      authorAvatar: profile.avatar
     };
 
     // 5. Create & Gossip Post

@@ -93,13 +93,14 @@ export function createFeedRoutes(
           posts: posts.map((post: any) => {
             const trustPath = clout.getTrustPath(post.author);
             const reactionData = getReactionsSummary(clout, post.id);
-            // Use user's avatar for their own posts, default emoji for others
-            const authorAvatar = post.author === userPublicKey ? userAvatar : '👤';
             const isAuthor = post.author === userPublicKey;
+            // Use embedded author data from post, fall back to server lookups, then defaults
+            const authorAvatar = post.authorAvatar || (isAuthor ? userAvatar : '👤');
+            const authorDisplayName = post.authorDisplayName || clout.getDisplayName(post.author);
             return {
               ...post,
               authorShort: post.author.slice(0, 8),
-              authorDisplayName: clout.getDisplayName(post.author),
+              authorDisplayName,
               authorNickname: clout.getNickname(post.author),
               authorAvatar,
               reputation: clout.getReputation(post.author),
@@ -321,12 +322,15 @@ export function createFeedRoutes(
         const isAuthor = post.author === userPublicKey;
         // Resolve replyTo to the latest version in the edit chain
         const resolvedReplyTo = post.replyTo ? resolvedReplyToMap.get(post.replyTo) || post.replyTo : undefined;
+        // Use embedded author data from post, fall back to server lookups, then defaults
+        const authorAvatar = post.authorAvatar || (isAuthor ? userAvatar : '👤');
+        const authorDisplayName = post.authorDisplayName || clout.getDisplayName(post.author);
         return {
           ...post,
           authorShort: post.author.slice(0, 8),
-          authorDisplayName: clout.getDisplayName(post.author),
+          authorDisplayName,
           authorNickname: clout.getNickname(post.author),
-          authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
+          authorAvatar,
           reactions: reactionData.reactions,
           myReaction: reactionData.myReaction,
           isBookmarked: clout.isBookmarked(post.id),
@@ -374,12 +378,16 @@ export function createFeedRoutes(
         success: true,
         data: {
           tag,
-          posts: posts.map((post: any) => ({
-            ...post,
-            authorShort: post.author.slice(0, 8),
-            reputation: clout.getReputation(post.author),
-            authorAvatar: post.author === userPublicKey ? userAvatar : '👤'
-          })),
+          posts: posts.map((post: any) => {
+            const isAuthor = post.author === userPublicKey;
+            return {
+              ...post,
+              authorShort: post.author.slice(0, 8),
+              reputation: clout.getReputation(post.author),
+              authorAvatar: post.authorAvatar || (isAuthor ? userAvatar : '👤'),
+              authorDisplayName: post.authorDisplayName || clout.getDisplayName(post.author)
+            };
+          }),
           totalPosts: posts.length
         }
       });
@@ -497,13 +505,16 @@ export function createFeedRoutes(
       res.json({
         success: true,
         data: {
-          posts: posts.map((post: any) => ({
-            ...post,
-            authorShort: post.author.slice(0, 8),
-            authorDisplayName: clout.getDisplayName(post.author),
-            authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
-            reactions: getReactionsSummary(clout, post.id).reactions
-          })),
+          posts: posts.map((post: any) => {
+            const isAuthor = post.author === userPublicKey;
+            return {
+              ...post,
+              authorShort: post.author.slice(0, 8),
+              authorDisplayName: post.authorDisplayName || clout.getDisplayName(post.author),
+              authorAvatar: post.authorAvatar || (isAuthor ? userAvatar : '👤'),
+              reactions: getReactionsSummary(clout, post.id).reactions
+            };
+          }),
           count: posts.length
         }
       });
@@ -532,14 +543,17 @@ export function createFeedRoutes(
       res.json({
         success: true,
         data: {
-          posts: posts.map((post: any) => ({
-            ...post,
-            authorShort: post.author.slice(0, 8),
-            authorDisplayName: clout.getDisplayName(post.author),
-            authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
-            reactions: getReactionsSummary(clout, post.id).reactions,
-            isBookmarked: true
-          })),
+          posts: posts.map((post: any) => {
+            const isAuthor = post.author === userPublicKey;
+            return {
+              ...post,
+              authorShort: post.author.slice(0, 8),
+              authorDisplayName: post.authorDisplayName || clout.getDisplayName(post.author),
+              authorAvatar: post.authorAvatar || (isAuthor ? userAvatar : '👤'),
+              reactions: getReactionsSummary(clout, post.id).reactions,
+              isBookmarked: true
+            };
+          }),
           count: posts.length
         }
       });
@@ -624,14 +638,17 @@ export function createFeedRoutes(
       res.json({
         success: true,
         data: {
-          posts: results.map((post: any) => ({
-            ...post,
-            authorShort: post.author.slice(0, 8),
-            authorDisplayName: clout.getDisplayName(post.author),
-            authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
-            reactions: getReactionsSummary(clout, post.id).reactions,
-            isBookmarked: clout.isBookmarked(post.id)
-          })),
+          posts: results.map((post: any) => {
+            const isAuthor = post.author === userPublicKey;
+            return {
+              ...post,
+              authorShort: post.author.slice(0, 8),
+              authorDisplayName: post.authorDisplayName || clout.getDisplayName(post.author),
+              authorAvatar: post.authorAvatar || (isAuthor ? userAvatar : '👤'),
+              reactions: getReactionsSummary(clout, post.id).reactions,
+              isBookmarked: clout.isBookmarked(post.id)
+            };
+          }),
           count: results.length,
           query
         }
@@ -677,13 +694,16 @@ export function createFeedRoutes(
       res.json({
         success: true,
         data: {
-          posts: replies.map((post: any) => ({
-            ...post,
-            authorShort: post.author.slice(0, 8),
-            authorDisplayName: clout.getDisplayName(post.author),
-            authorAvatar: post.author === userPublicKey ? userAvatar : '👤',
-            reactions: getReactionsSummary(clout, post.id).reactions
-          })),
+          posts: replies.map((post: any) => {
+            const isAuthor = post.author === userPublicKey;
+            return {
+              ...post,
+              authorShort: post.author.slice(0, 8),
+              authorDisplayName: post.authorDisplayName || clout.getDisplayName(post.author),
+              authorAvatar: post.authorAvatar || (isAuthor ? userAvatar : '👤'),
+              reactions: getReactionsSummary(clout, post.id).reactions
+            };
+          }),
           count: replies.length
         }
       });
