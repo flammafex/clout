@@ -45,7 +45,7 @@ import {
 } from './notifications.js';
 import {
   showInvitePopover, closeInvitePopover, redeemInvite, promptIdentityBackup,
-  showRestorePopover, closeRestorePopover, restoreFromFile, restoreFromSecretKey
+  showRestorePopover, closeRestorePopover, restoreFromFile
 } from './invite.js';
 import {
   grantQuota, loadMembersWithQuota, createAdminInvitations, copySingleCode,
@@ -709,7 +709,6 @@ window.cloutApp = {
   showRestorePopover,
   closeRestorePopover,
   restoreFromFile,
-  restoreFromSecretKey,
 
   // Owner Admin
   backupBrowserIdentity,

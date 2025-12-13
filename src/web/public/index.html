@@ -124,24 +124,14 @@
       <div class="popover-content">
         <button class="popover-close" onclick="window.cloutApp.closeRestorePopover()">×</button>
         <h3>🔑 Restore Identity</h3>
-        <p>Restore your Clout identity from a backup file or secret key.</p>
+        <p>Restore your Clout identity from a backup file.</p>
 
         <div class="invite-section">
-          <h4>From Backup File</h4>
           <p class="help-text">Upload your encrypted identity backup file (.backup)</p>
           <div class="restore-input-group">
             <input type="file" id="restore-file-input" class="input" accept=".backup">
             <input type="password" id="restore-password-input" class="input" placeholder="Backup password">
-            <button id="restore-file-btn" class="btn btn-primary" onclick="window.cloutApp.restoreFromFile()">Restore from File</button>
-          </div>
-        </div>
-
-        <div class="invite-section">
-          <h4>From Secret Key</h4>
-          <p class="help-text">Paste your 64-character hex secret key</p>
-          <div class="restore-input-group">
-            <input type="password" id="restore-secret-key-input" class="input" placeholder="Secret key (64 hex characters)">
-            <button id="restore-key-btn" class="btn btn-primary" onclick="window.cloutApp.restoreFromSecretKey()">Restore from Key</button>
+            <button id="restore-file-btn" class="btn btn-primary" onclick="window.cloutApp.restoreFromFile()">Restore</button>
           </div>
         </div>
 
