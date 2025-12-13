@@ -119,11 +119,30 @@ export async function submitSignedPost(content, options = {}) {
     contentWarning: options.contentWarning
   });
 
-  // Submit to the signature-verified endpoint
+  // Get browser user's profile for displayName and avatar
+  let authorDisplayName = null;
+  let authorAvatar = null;
+  if (window.CloutUserData) {
+    try {
+      const myProfile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+      if (myProfile) {
+        authorDisplayName = myProfile.displayName || null;
+        authorAvatar = myProfile.avatar || null;
+      }
+    } catch (e) {
+      console.warn('[API] Failed to load profile for post:', e.message);
+    }
+  }
+
+  // Submit to the signature-verified endpoint with profile info
   const response = await fetch(`${API_BASE}/post/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(signedPost)
+    body: JSON.stringify({
+      ...signedPost,
+      authorDisplayName,
+      authorAvatar
+    })
   });
 
   const data = await response.json();

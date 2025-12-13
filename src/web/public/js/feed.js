@@ -75,12 +75,18 @@ export async function recalculateTrustForPosts(posts) {
     // Overlay bookmark state from IndexedDB
     post.isBookmarked = bookmarkSet.has(post.id);
 
-    // Override display name with browser's nickname if set (for other users)
+    // Handle nickname override for display name (but preserve avatar)
+    // Nicknames are local overrides that take precedence over the author's chosen name
     const browserNickname = nicknames.get(post.author);
     if (browserNickname) {
+      // Store the original author-chosen display name before overriding
+      if (post.authorDisplayName && !post.authorOriginalDisplayName) {
+        post.authorOriginalDisplayName = post.authorDisplayName;
+      }
       post.authorDisplayName = browserNickname;
       post.authorNickname = browserNickname;
     }
+    // Note: authorAvatar is NOT overridden by nickname - it's always the author's chosen avatar
 
     // Clear server's trust path - we don't have multi-hop info in browser yet
     post.trustPath = [];
