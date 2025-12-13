@@ -208,7 +208,7 @@ export async function promptIdentityBackup() {
 
   const confirmPassword = prompt('Confirm your password:');
   if (password !== confirmPassword) {
-    alert('Passwords do not match. Please try again from Profile > Export Identity.');
+    alert('Passwords do not match. Please try again from Profile > Backup Identity.');
     return;
   }
 
