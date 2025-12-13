@@ -185,6 +185,49 @@ export class CloutWebServer {
       });
     });
 
+    // Instance stats (public) - "Clout" metrics visible to everyone
+    this.app.get('/api/instance/stats', async (req, res) => {
+      try {
+        if (!this.clout) {
+          // Not initialized - return zeros
+          return res.json({
+            success: true,
+            data: {
+              posts: 0,
+              authors: 0,
+              reactions: 0,
+              initialized: false
+            }
+          });
+        }
+
+        // Get clout stats from the feed module
+        const cloutStats = await this.clout.getCloutStats();
+
+        res.json({
+          success: true,
+          data: {
+            posts: cloutStats.chronicleSize,
+            authors: cloutStats.uniqueAuthors,
+            reactions: cloutStats.reactionCount,
+            peers: cloutStats.connectedPeers,
+            initialized: true
+          }
+        });
+      } catch (error: any) {
+        console.error('[Instance Stats] Error:', error.message);
+        res.json({
+          success: true,
+          data: {
+            posts: 0,
+            authors: 0,
+            reactions: 0,
+            initialized: false
+          }
+        });
+      }
+    });
+
     // Auth status (public) - check if auth is required
     this.app.get('/api/auth/status', (req, res) => {
       res.json({

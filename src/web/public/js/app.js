@@ -186,6 +186,39 @@ async function loadInstanceInfo() {
 }
 
 /**
+ * Load and display instance clout stats (public - works for visitors too)
+ */
+async function loadInstanceStats() {
+  try {
+    const result = await apiCall('/instance/stats');
+    const cloutPosts = $('clout-posts');
+    const cloutAuthors = $('clout-authors');
+    const cloutReactions = $('clout-reactions');
+    const cloutPeers = $('clout-peers');
+
+    if (cloutPosts) cloutPosts.textContent = formatNumber(result.posts || 0);
+    if (cloutAuthors) cloutAuthors.textContent = formatNumber(result.authors || 0);
+    if (cloutReactions) cloutReactions.textContent = formatNumber(result.reactions || 0);
+    if (cloutPeers) cloutPeers.textContent = formatNumber(result.peers || 0);
+  } catch (error) {
+    console.warn('[App] Could not load instance stats:', error.message);
+  }
+}
+
+/**
+ * Format large numbers with K/M suffixes
+ */
+function formatNumber(num) {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  return num.toString();
+}
+
+/**
  * Load Owner tab info
  */
 async function loadOwnerInfo() {
@@ -473,6 +506,9 @@ async function autoInitialize() {
 
     // Load instance info (always show, even for visitors)
     await loadInstanceInfo();
+
+    // Load instance clout stats (visible to everyone)
+    await loadInstanceStats();
 
     // Check for existing browser identity
     let hasBrowserIdentity = false;

@@ -47,10 +47,30 @@
         <span id="instance-operator-text"></span>
       </div>
 
-      <div class="status">
-        <span id="status-indicator" class="status-dot"></span>
-        <span id="status-text">Not initialized</span>
-        <span id="offline-indicator" class="offline-indicator" style="display: none;">Offline</span>
+      <div class="status-row">
+        <div class="status">
+          <span id="status-indicator" class="status-dot"></span>
+          <span id="status-text">Not initialized</span>
+          <span id="offline-indicator" class="offline-indicator" style="display: none;">Offline</span>
+        </div>
+        <div id="instance-clout" class="instance-clout">
+          <div class="clout-stat" title="Total posts in Chronicle">
+            <span class="clout-value" id="clout-posts">-</span>
+            <span class="clout-label">posts</span>
+          </div>
+          <div class="clout-stat" title="Unique authors">
+            <span class="clout-value" id="clout-authors">-</span>
+            <span class="clout-label">authors</span>
+          </div>
+          <div class="clout-stat" title="Total reactions">
+            <span class="clout-value" id="clout-reactions">-</span>
+            <span class="clout-label">reactions</span>
+          </div>
+          <div class="clout-stat clout-peers" title="Connected peers (gossip network)">
+            <span class="clout-value" id="clout-peers">-</span>
+            <span class="clout-label">peers</span>
+          </div>
+        </div>
       </div>
       <div id="day-pass-timer" class="day-pass-timer" style="display: none;">
         🕊️ Freebird Day Pass: <span id="day-pass-countdown">--:--:--</span> remaining
