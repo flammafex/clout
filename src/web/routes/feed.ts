@@ -28,10 +28,43 @@ export function notifyNotifications(counts: any) {
 function getReactionsSummary(clout: Clout, postId: string) {
   const { reactions, myReaction } = clout.getReactionsForPost(postId);
   const summary: Record<string, number> = {};
+  let totalCount = 0;
   reactions.forEach((data, emoji) => {
     summary[emoji] = data.count;
+    totalCount += data.count;
   });
-  return { reactions: summary, myReaction };
+  return { reactions: summary, myReaction, totalCount };
+}
+
+// Valid sort options
+type SortOption = 'newest' | 'reactions' | 'replies' | 'hot';
+
+// Helper to compute reply counts for all posts
+function computeReplyCounts(posts: any[]): Map<string, number> {
+  const replyCounts = new Map<string, number>();
+  for (const post of posts) {
+    if (post.replyTo) {
+      const current = replyCounts.get(post.replyTo) || 0;
+      replyCounts.set(post.replyTo, current + 1);
+    }
+  }
+  return replyCounts;
+}
+
+// Hot ranking algorithm: combines recency with engagement
+// Score = (reactions + replies * 2) / (age_in_hours + 2)^1.5
+function computeHotScore(post: any, reactionCount: number, replyCount: number): number {
+  const timestamp = post.proof?.timestamp || post.timestamp || Date.now();
+  const ageMs = Date.now() - timestamp;
+  const ageHours = Math.max(0, ageMs / (1000 * 60 * 60));
+
+  // Replies weighted more than reactions (indicate discussion)
+  const engagement = reactionCount + (replyCount * 2);
+
+  // Gravity factor - older posts decay faster
+  const gravity = Math.pow(ageHours + 2, 1.5);
+
+  return engagement / gravity;
 }
 
 export function createFeedRoutes(
@@ -43,10 +76,23 @@ export function createFeedRoutes(
 
   // Get Feed
   // Public route - visitors can view the feed without an identity (if allowed)
+  // Supports sorting: newest (default), reactions, replies, hot
+  // Supports pagination: limit + offset
   router.get('/feed', async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const sort = (req.query.sort as SortOption) || 'newest';
       const includeNsfw = req.query.nsfw === 'true' ? true : undefined;
+
+      // Validate sort option
+      const validSorts: SortOption[] = ['newest', 'reactions', 'replies', 'hot'];
+      if (!validSorts.includes(sort)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid sort option. Valid options: ${validSorts.join(', ')}`
+        });
+      }
 
       // Check if we have an initialized member or just a visitor
       const isMember = isInitialized();
@@ -73,6 +119,7 @@ export function createFeedRoutes(
             nsfwEnabled: false,
             isVisitor: true,
             visitorsAllowed: true,
+            sort,
             message: 'Welcome! Join with an invitation code to see the full feed.'
           }
         });
@@ -80,19 +127,54 @@ export function createFeedRoutes(
 
       // Member mode - full personalized feed
       const allPosts = await clout.getFeed({ includeNsfw });
-      const posts = allPosts.slice(0, limit);
+
+      // Compute reply counts for sorting
+      const replyCounts = computeReplyCounts(allPosts);
 
       // Get current user's profile for avatar lookup
       const userProfile = clout.getProfile();
       const userPublicKey = userProfile.publicKey;
       const userAvatar = userProfile.metadata?.avatar || '👤';
 
+      // Enrich posts with reaction/reply counts for sorting
+      const enrichedPosts = allPosts.map((post: any) => {
+        const reactionData = getReactionsSummary(clout, post.id);
+        const replyCount = replyCounts.get(post.id) || 0;
+        return {
+          post,
+          reactionCount: reactionData.totalCount,
+          replyCount,
+          reactionData,
+          hotScore: computeHotScore(post, reactionData.totalCount, replyCount)
+        };
+      });
+
+      // Sort based on selected option
+      switch (sort) {
+        case 'reactions':
+          enrichedPosts.sort((a, b) => b.reactionCount - a.reactionCount);
+          break;
+        case 'replies':
+          enrichedPosts.sort((a, b) => b.replyCount - a.replyCount);
+          break;
+        case 'hot':
+          enrichedPosts.sort((a, b) => b.hotScore - a.hotScore);
+          break;
+        case 'newest':
+        default:
+          // Already sorted by newest from getFeed()
+          break;
+      }
+
+      // Apply pagination
+      const paginatedPosts = enrichedPosts.slice(offset, offset + limit);
+      const hasMore = offset + limit < enrichedPosts.length;
+
       res.json({
         success: true,
         data: {
-          posts: posts.map((post: any) => {
+          posts: paginatedPosts.map(({ post, reactionData, replyCount }) => {
             const trustPath = clout.getTrustPath(post.author);
-            const reactionData = getReactionsSummary(clout, post.id);
             const isAuthor = post.author === userPublicKey;
             // Use embedded author data from post, fall back to server lookups, then defaults
             const authorAvatar = post.authorAvatar || (isAuthor ? userAvatar : '👤');
@@ -110,6 +192,7 @@ export function createFeedRoutes(
               isDirectlyTrusted: clout.isDirectlyTrusted(post.author),
               reactions: reactionData.reactions,
               myReaction: reactionData.myReaction,
+              replyCount,
               isBookmarked: clout.isBookmarked(post.id),
               isAuthor,
               isEdited: !!post.editOf,
@@ -117,6 +200,10 @@ export function createFeedRoutes(
             };
           }),
           totalPosts: allPosts.length,
+          offset,
+          limit,
+          hasMore,
+          sort,
           nsfwEnabled: clout.isNsfwEnabled(),
           isVisitor: false
         }
