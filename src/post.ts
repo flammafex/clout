@@ -21,6 +21,10 @@ export interface PostConfig {
   readonly contentWarning?: string;
   /** Public keys of users mentioned in this post */
   readonly mentions?: string[];
+  /** Author's display name at time of posting */
+  readonly authorDisplayName?: string;
+  /** Author's avatar emoji at time of posting */
+  readonly authorAvatar?: string;
 }
 
 export interface ContentGossip {
@@ -82,7 +86,9 @@ export class CloutPost {
       media: config.media,
       nsfw: config.nsfw,
       contentWarning: config.contentWarning,
-      mentions: config.mentions
+      mentions: config.mentions,
+      authorDisplayName: config.authorDisplayName,
+      authorAvatar: config.authorAvatar
     };
 
     // 7. Hash package for timestamping (deterministic)
