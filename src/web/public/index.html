@@ -652,15 +652,16 @@
             <div class="identity-management">
               <div class="identity-import-export">
                 <div class="data-section">
-                  <h4>Export Identity</h4>
-                  <p class="help-text-small warning">Warning: Anyone with this key can control your identity! Store it securely.</p>
-                  <button id="export-browser-identity-btn" class="btn btn-danger">Export Secret Key</button>
+                  <h4>Backup Identity</h4>
+                  <p class="help-text-small">Download an encrypted backup of your identity. You'll be prompted for a password.</p>
+                  <button id="export-browser-identity-btn" class="btn btn-primary">Download Backup</button>
                 </div>
                 <div class="data-section">
-                  <h4>Import Identity (Swap)</h4>
-                  <p class="help-text-small">Import a secret key to switch to a different identity. This will replace your current browser identity.</p>
-                  <input type="password" id="import-browser-identity-key" class="input" placeholder="64-character hex secret key">
-                  <button id="import-browser-identity-btn" class="btn">Import & Switch Identity</button>
+                  <h4>Restore Identity</h4>
+                  <p class="help-text-small">Restore from a backup file. This will replace your current browser identity.</p>
+                  <input type="file" id="import-browser-identity-file" class="input" accept=".backup">
+                  <input type="password" id="import-browser-identity-password" class="input" placeholder="Backup password">
+                  <button id="import-browser-identity-btn" class="btn">Restore from Backup</button>
                 </div>
                 <div class="data-section">
                   <h4>Create New Identity</h4>

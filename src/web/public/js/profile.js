@@ -662,25 +662,30 @@ export async function importIdentityKey() {
 // =========================================================================
 
 /**
- * Export browser identity secret key
+ * Export browser identity as encrypted backup
  */
 export async function exportBrowserIdentity() {
-  if (!confirm('WARNING: Your secret key gives FULL CONTROL of your identity!\n\nAnyone with this key can post as you, trust/distrust others as you, and impersonate you completely.\n\nOnly export for backup or to transfer to another device.\n\nContinue?')) {
-    return;
-  }
-
   try {
     if (!window.CloutIdentity) {
       throw new Error('Browser identity module not available');
     }
 
     const identity = await window.CloutIdentity.load();
-    if (!identity || !identity.secretKeyHex) {
-      throw new Error('No browser identity found or secret key not available');
+    if (!identity) {
+      throw new Error('No browser identity found');
     }
 
-    // Show the secret key in a prompt for copying
-    prompt('Your secret key (copy and store securely!):', identity.secretKeyHex);
+    const password = prompt('Enter a password to encrypt your identity backup:');
+    if (!password) return;
+
+    const confirmPassword = prompt('Confirm your password:');
+    if (password !== confirmPassword) {
+      alert('Passwords do not match.');
+      return;
+    }
+
+    await window.CloutIdentity.downloadBackup(identity, password);
+    alert('Identity backup downloaded! Keep this file safe.');
   } catch (error) {
     alert(`Failed to export identity: ${error.message}`);
   }
@@ -732,39 +737,52 @@ export async function createBrowserIdentity() {
 }
 
 /**
- * Import browser identity - OVERWRITES existing identity
+ * Import browser identity from backup file - OVERWRITES existing identity
  */
 export async function importBrowserIdentity() {
-  const secretKey = $('import-browser-identity-key').value.trim();
+  const fileInput = $('import-browser-identity-file');
+  const password = $('import-browser-identity-password').value;
 
-  if (!secretKey) {
-    showResult('browser-identity-result', 'Please enter a secret key', false);
+  if (!fileInput.files || fileInput.files.length === 0) {
+    showResult('browser-identity-result', 'Please select a backup file', false);
     return;
   }
 
-  // Validate format: 64 hex characters (32 bytes)
-  if (secretKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(secretKey)) {
-    showResult('browser-identity-result', 'Invalid key format: must be 64 hex characters', false);
+  if (!password) {
+    showResult('browser-identity-result', 'Please enter the backup password', false);
     return;
   }
 
-  if (!confirm('WARNING: This will REPLACE your current browser identity!\n\nYour current identity will be deleted and replaced with the imported one.\n\nMake sure you have backed up your current identity if you need it.\n\nContinue with identity swap?')) {
+  if (!confirm('WARNING: This will REPLACE your current browser identity!\n\nYour current identity will be deleted and replaced with the imported one.\n\nMake sure you have backed up your current identity if you need it.\n\nContinue?')) {
     return;
   }
 
   try {
     $('import-browser-identity-btn').disabled = true;
-    $('import-browser-identity-btn').textContent = 'Importing...';
+    $('import-browser-identity-btn').textContent = 'Restoring...';
 
     if (!window.CloutIdentity) {
       throw new Error('Browser identity module not available');
     }
 
-    // Import the identity (this overwrites the existing one)
-    await window.CloutIdentity.importFromSecretKey(secretKey);
+    // Import the identity from backup file
+    const file = fileInput.files[0];
+    const identity = await window.CloutIdentity.importFromFile(file, password);
+    await window.CloutIdentity.store(identity);
 
-    showResult('browser-identity-result', 'Identity imported! Reloading...', true);
-    $('import-browser-identity-key').value = '';
+    // Save profile data if included in backup (v2 format)
+    if (identity.profile && window.CloutUserData) {
+      await window.CloutUserData.saveProfile({
+        publicKey: identity.publicKeyHex,
+        displayName: identity.profile.displayName,
+        avatar: identity.profile.avatar,
+        bio: identity.profile.bio
+      });
+    }
+
+    showResult('browser-identity-result', 'Identity restored! Reloading...', true);
+    fileInput.value = '';
+    $('import-browser-identity-password').value = '';
 
     // Reload identity display
     await loadIdentity();
@@ -778,7 +796,7 @@ export async function importBrowserIdentity() {
     showResult('browser-identity-result', `Error: ${error.message}`, false);
   } finally {
     $('import-browser-identity-btn').disabled = false;
-    $('import-browser-identity-btn').textContent = 'Import & Switch Identity';
+    $('import-browser-identity-btn').textContent = 'Restore from Backup';
   }
 }
 
