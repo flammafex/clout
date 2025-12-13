@@ -25,9 +25,24 @@ export interface ReactionsConfig {
 }
 
 /**
- * Available reaction emojis
+ * Available reaction emojis (common quick-react options)
+ * Note: Any valid emoji is allowed, this is just for UI suggestions
  */
 export const REACTION_EMOJIS = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
+
+/**
+ * Validate that a string is a valid emoji reaction
+ * Allows any emoji character (including multi-codepoint emojis)
+ */
+function isValidEmoji(str: string): boolean {
+  // Must be a short string (emojis are typically 1-8 chars due to combining characters)
+  if (!str || str.length > 8) return false;
+
+  // Check for emoji patterns - this regex matches most emoji
+  // Including: basic emojis, skin tones, ZWJ sequences, flags, etc.
+  const emojiRegex = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}][\u{FE0F}\u{200D}\p{Emoji_Modifier}\p{Emoji_Component}]*$/u;
+  return emojiRegex.test(str);
+}
 
 export class CloutReactions {
   private readonly publicKeyHex: string;
@@ -55,9 +70,9 @@ export class CloutReactions {
    * @param emoji - The reaction emoji (default: 👍)
    */
   async react(postId: string, emoji: string = '👍'): Promise<ReactionPackage> {
-    // Validate emoji
-    if (!REACTION_EMOJIS.includes(emoji)) {
-      throw new Error(`Invalid reaction. Allowed: ${REACTION_EMOJIS.join(' ')}`);
+    // Validate emoji - allow any valid emoji character
+    if (!isValidEmoji(emoji)) {
+      throw new Error('Invalid reaction. Please use a valid emoji.');
     }
 
     // Remove any existing reaction on this post first (one reaction per post)
