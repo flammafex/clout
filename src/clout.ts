@@ -1032,6 +1032,8 @@ export class Clout {
     contentWarning?: string;
     media?: { cid: string };
     authorshipProof?: Uint8Array;
+    authorDisplayName?: string;
+    authorAvatar?: string;
   }): Promise<Attestation> {
     return this.relay.relayPost(postPackage);
   }
