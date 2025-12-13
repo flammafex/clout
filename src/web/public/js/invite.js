@@ -280,31 +280,10 @@ export async function restoreFromFile() {
     const identity = await window.CloutIdentity.importFromFile(file, password);
     await window.CloutIdentity.store(identity);
 
-    // Restore all user data if included in backup (v3 format)
+    // Restore all user data
     if (identity.userData && window.CloutUserData) {
       resultEl.textContent = 'Restoring user data...';
       await window.CloutUserData.importAll(identity.userData);
-      console.log('[Restore] User data restored from v3 backup');
-    } else {
-      // Fallback for v2 backups: restore profile and trust graph separately
-      if (identity.profile && window.CloutUserData) {
-        resultEl.textContent = 'Restoring profile...';
-        await window.CloutUserData.saveProfile({
-          publicKey: identity.publicKeyHex,
-          displayName: identity.profile.displayName,
-          avatar: identity.profile.avatar,
-          bio: identity.profile.bio
-        });
-        console.log('[Restore] Profile restored from backup:', identity.profile.displayName);
-      }
-
-      if (identity.trustGraph && Array.isArray(identity.trustGraph) && window.CloutUserData) {
-        resultEl.textContent = 'Restoring trust graph...';
-        for (const entry of identity.trustGraph) {
-          await window.CloutUserData.trust(entry.trustedKey, entry.weight);
-        }
-        console.log('[Restore] Trust graph restored:', identity.trustGraph.length, 'entries');
-      }
     }
 
     await completeIdentityRestore(identity, resultEl);

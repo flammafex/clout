@@ -230,18 +230,15 @@ export class BrowserIdentity {
   /**
    * Import identity from password-protected backup
    *
-   * Supports v1 (keys only), v2 (keys + profile), and v3 (keys + profile + trust) backups
-   *
    * @param {string} encryptedData - Encrypted JSON string (base64)
    * @param {string} password - Password for decryption
-   * @returns {Object} Decrypted identity with optional profile and trust data
+   * @returns {Object} Decrypted identity with user data
    */
   static async import(encryptedData, password) {
     const exportData = JSON.parse(atob(encryptedData));
 
-    // Support v1, v2, and v3 backups
-    if (exportData.version !== 1 && exportData.version !== 2 && exportData.version !== 3) {
-      throw new Error('Unsupported backup version');
+    if (exportData.version !== 3) {
+      throw new Error('Unsupported backup version. Please create a new backup.');
     }
 
     const salt = new Uint8Array(exportData.salt);
@@ -294,12 +291,7 @@ export class BrowserIdentity {
         publicKey,
         publicKeyHex: data.publicKeyHex,
         created: data.created,
-        // Include profile if present (v2 backup, for backwards compatibility)
-        profile: data.profile || (data.userData?.profile) || null,
-        // Include trust graph if present (v2 legacy or v3 via userData)
-        trustGraph: data.trustGraph || (data.userData?.trustGraph) || null,
-        // Include full user data (v3 backup)
-        userData: data.userData || null
+        userData: data.userData
       };
 
       return identity;
