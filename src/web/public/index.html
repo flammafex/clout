@@ -85,6 +85,7 @@
             <span>You can view the feed, but you'll need an invitation to post and interact.</span>
           </div>
           <button id="visitor-join-btn" class="btn btn-primary">Have an invite code?</button>
+          <button id="visitor-restore-btn" class="btn btn-secondary">Restore Identity</button>
         </div>
       </div>
     </header>
@@ -115,6 +116,36 @@
           <p class="help-text">Run your own Clout instance and be the one sending invites.</p>
           <a href="https://github.com/flammafex/clout" target="_blank" rel="noopener" class="btn btn-secondary">View on GitHub</a>
         </div>
+      </div>
+    </div>
+
+    <!-- Restore Identity Popover -->
+    <div id="restore-popover" class="popover" style="display: none;">
+      <div class="popover-content">
+        <button class="popover-close" onclick="window.cloutApp.closeRestorePopover()">×</button>
+        <h3>🔑 Restore Identity</h3>
+        <p>Restore your Clout identity from a backup file or secret key.</p>
+
+        <div class="invite-section">
+          <h4>From Backup File</h4>
+          <p class="help-text">Upload your encrypted identity backup file (.backup)</p>
+          <div class="restore-input-group">
+            <input type="file" id="restore-file-input" class="input" accept=".backup">
+            <input type="password" id="restore-password-input" class="input" placeholder="Backup password">
+            <button id="restore-file-btn" class="btn btn-primary" onclick="window.cloutApp.restoreFromFile()">Restore from File</button>
+          </div>
+        </div>
+
+        <div class="invite-section">
+          <h4>From Secret Key</h4>
+          <p class="help-text">Paste your 64-character hex secret key</p>
+          <div class="restore-input-group">
+            <input type="password" id="restore-secret-key-input" class="input" placeholder="Secret key (64 hex characters)">
+            <button id="restore-key-btn" class="btn btn-primary" onclick="window.cloutApp.restoreFromSecretKey()">Restore from Key</button>
+          </div>
+        </div>
+
+        <div id="restore-result" class="result-message"></div>
       </div>
     </div>
 

@@ -44,7 +44,8 @@ import {
   connectLiveUpdates, loadNewPosts, updateNotificationCounts
 } from './notifications.js';
 import {
-  showInvitePopover, closeInvitePopover, redeemInvite, promptIdentityBackup
+  showInvitePopover, closeInvitePopover, redeemInvite, promptIdentityBackup,
+  showRestorePopover, closeRestorePopover, restoreFromFile, restoreFromSecretKey
 } from './invite.js';
 import {
   grantQuota, loadMembersWithQuota, createAdminInvitations, copySingleCode,
@@ -704,6 +705,12 @@ window.cloutApp = {
   closeInvitePopover,
   redeemInvite,
 
+  // Restore Identity
+  showRestorePopover,
+  closeRestorePopover,
+  restoreFromFile,
+  restoreFromSecretKey,
+
   // Owner Admin
   backupBrowserIdentity,
   restoreFromServer,
@@ -761,6 +768,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Visitor banner - show invite popover
   $('visitor-join-btn').addEventListener('click', showInvitePopover);
+  $('visitor-restore-btn').addEventListener('click', showRestorePopover);
 
   $('back-to-feed-btn').addEventListener('click', () => {
     $$('.tab-btn').forEach(b => b.classList.remove('active'));
