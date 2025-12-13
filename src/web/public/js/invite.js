@@ -222,3 +222,191 @@ export async function promptIdentityBackup() {
     alert('Failed to create backup: ' + error.message);
   }
 }
+
+/**
+ * Show restore identity popover
+ */
+export function showRestorePopover() {
+  $('restore-popover').style.display = 'flex';
+  $('restore-file-input').value = '';
+  $('restore-password-input').value = '';
+  $('restore-secret-key-input').value = '';
+  $('restore-result').textContent = '';
+  $('restore-result').className = 'result-message';
+}
+
+/**
+ * Close restore identity popover
+ */
+export function closeRestorePopover() {
+  $('restore-popover').style.display = 'none';
+}
+
+/**
+ * Restore identity from backup file
+ */
+export async function restoreFromFile() {
+  const fileInput = $('restore-file-input');
+  const passwordInput = $('restore-password-input');
+  const resultEl = $('restore-result');
+  const restoreBtn = $('restore-file-btn');
+
+  if (!fileInput.files || fileInput.files.length === 0) {
+    resultEl.textContent = 'Please select a backup file';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  const file = fileInput.files[0];
+  const password = passwordInput.value;
+
+  if (!password) {
+    resultEl.textContent = 'Please enter your backup password';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (!window.CloutIdentity) {
+    resultEl.textContent = 'Identity module not loaded. Please refresh the page.';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  try {
+    restoreBtn.disabled = true;
+    restoreBtn.textContent = 'Restoring...';
+    resultEl.textContent = 'Decrypting backup...';
+    resultEl.className = 'result-message';
+
+    const identity = await window.CloutIdentity.importFromFile(file, password);
+    await window.CloutIdentity.store(identity);
+
+    await completeIdentityRestore(identity, resultEl);
+  } catch (error) {
+    resultEl.textContent = error.message;
+    resultEl.className = 'result-message error';
+  } finally {
+    restoreBtn.disabled = false;
+    restoreBtn.textContent = 'Restore from File';
+  }
+}
+
+/**
+ * Restore identity from secret key
+ */
+export async function restoreFromSecretKey() {
+  const keyInput = $('restore-secret-key-input');
+  const resultEl = $('restore-result');
+  const restoreBtn = $('restore-key-btn');
+
+  const secretKey = keyInput.value.trim();
+
+  if (!secretKey) {
+    resultEl.textContent = 'Please enter your secret key';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (secretKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(secretKey)) {
+    resultEl.textContent = 'Invalid secret key format: must be 64 hex characters';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (!window.CloutIdentity) {
+    resultEl.textContent = 'Identity module not loaded. Please refresh the page.';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  try {
+    restoreBtn.disabled = true;
+    restoreBtn.textContent = 'Restoring...';
+    resultEl.textContent = 'Importing identity...';
+    resultEl.className = 'result-message';
+
+    const identity = await window.CloutIdentity.importFromSecretKey(secretKey);
+
+    await completeIdentityRestore(identity, resultEl);
+  } catch (error) {
+    resultEl.textContent = error.message;
+    resultEl.className = 'result-message error';
+  } finally {
+    restoreBtn.disabled = false;
+    restoreBtn.textContent = 'Restore from Key';
+  }
+}
+
+/**
+ * Complete the identity restore process
+ * Check Day Pass status and transition to member or prompt for invite
+ */
+async function completeIdentityRestore(identity, resultEl) {
+  window.browserIdentity = identity;
+  window.userPublicKey = identity.publicKeyHex;
+
+  resultEl.textContent = 'Checking Day Pass status...';
+
+  // Check if this identity has a valid Day Pass
+  let hasValidDayPass = false;
+  let ticketExpiry = null;
+
+  try {
+    const dayPassStatus = await apiCall(`/daypass/status/${identity.publicKeyHex}`);
+    hasValidDayPass = dayPassStatus.hasTicket && !dayPassStatus.isExpired;
+    if (hasValidDayPass) {
+      ticketExpiry = dayPassStatus.expiry;
+    }
+  } catch (e) {
+    console.warn('[Restore] Failed to check Day Pass status:', e.message);
+  }
+
+  if (hasValidDayPass) {
+    // Identity restored with valid Day Pass - fully activate
+    resultEl.textContent = 'Identity restored! Activating session...';
+
+    state.setInitialized(true);
+    state.setIsVisitor(false);
+
+    $('init-section').style.display = 'none';
+    $('main-app').style.display = 'block';
+    $('visitor-banner').style.display = 'none';
+
+    // Show all member tabs
+    ['post', 'trust', 'slides', 'profile', 'settings'].forEach(tabName => {
+      const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+      if (tabBtn) tabBtn.style.display = '';
+    });
+
+    updateStatus('Connected', true);
+
+    if (ticketExpiry) {
+      startDayPassTimer(ticketExpiry);
+    }
+
+    resultEl.textContent = 'Identity restored successfully!';
+    resultEl.className = 'result-message success';
+
+    // Load member data
+    setTimeout(async () => {
+      closeRestorePopover();
+      await loadFeed();
+      await loadIdentity();
+      await loadProfile();
+      loadSlides().catch(() => {});
+      connectLiveUpdates();
+      updateNotificationCounts();
+      setInterval(updateNotificationCounts, 30000);
+    }, 1500);
+  } else {
+    // Identity restored but no valid Day Pass - need invitation code
+    resultEl.textContent = 'Identity restored! You need an invitation code to activate your Day Pass.';
+    resultEl.className = 'result-message success';
+
+    // Close restore popover and show invite popover after a delay
+    setTimeout(() => {
+      closeRestorePopover();
+      showInvitePopover();
+    }, 2000);
+  }
+}
