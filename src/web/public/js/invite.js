@@ -230,7 +230,6 @@ export function showRestorePopover() {
   $('restore-popover').style.display = 'flex';
   $('restore-file-input').value = '';
   $('restore-password-input').value = '';
-  $('restore-secret-key-input').value = '';
   $('restore-result').textContent = '';
   $('restore-result').className = 'result-message';
 }
@@ -300,52 +299,6 @@ export async function restoreFromFile() {
   } finally {
     restoreBtn.disabled = false;
     restoreBtn.textContent = 'Restore from File';
-  }
-}
-
-/**
- * Restore identity from secret key
- */
-export async function restoreFromSecretKey() {
-  const keyInput = $('restore-secret-key-input');
-  const resultEl = $('restore-result');
-  const restoreBtn = $('restore-key-btn');
-
-  const secretKey = keyInput.value.trim();
-
-  if (!secretKey) {
-    resultEl.textContent = 'Please enter your secret key';
-    resultEl.className = 'result-message error';
-    return;
-  }
-
-  if (secretKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(secretKey)) {
-    resultEl.textContent = 'Invalid secret key format: must be 64 hex characters';
-    resultEl.className = 'result-message error';
-    return;
-  }
-
-  if (!window.CloutIdentity) {
-    resultEl.textContent = 'Identity module not loaded. Please refresh the page.';
-    resultEl.className = 'result-message error';
-    return;
-  }
-
-  try {
-    restoreBtn.disabled = true;
-    restoreBtn.textContent = 'Restoring...';
-    resultEl.textContent = 'Importing identity...';
-    resultEl.className = 'result-message';
-
-    const identity = await window.CloutIdentity.importFromSecretKey(secretKey);
-
-    await completeIdentityRestore(identity, resultEl);
-  } catch (error) {
-    resultEl.textContent = error.message;
-    resultEl.className = 'result-message error';
-  } finally {
-    restoreBtn.disabled = false;
-    restoreBtn.textContent = 'Restore from Key';
   }
 }
 
