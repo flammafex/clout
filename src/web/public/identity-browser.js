@@ -159,12 +159,23 @@ export class BrowserIdentity {
    * Export identity with password protection
    *
    * Uses PBKDF2 for key derivation and AES-GCM for encryption
+   * Includes profile data (displayName, avatar, bio) from BrowserUserData
    *
    * @param {Object} identity - Identity to export
    * @param {string} password - Password for encryption
    * @returns {string} Encrypted JSON string (base64)
    */
   static async export(identity, password) {
+    // Try to get profile data from BrowserUserData
+    let profile = null;
+    if (window.CloutUserData) {
+      try {
+        profile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+      } catch (e) {
+        console.warn('[BrowserIdentity] Could not fetch profile for backup:', e.message);
+      }
+    }
+
     // Derive encryption key from password using PBKDF2
     const salt = Crypto.randomBytes(16);
     const passwordKey = await crypto.subtle.importKey(
@@ -188,13 +199,20 @@ export class BrowserIdentity {
       ['encrypt']
     );
 
-    // Encrypt the private key
+    // Encrypt the private key and profile data
     const iv = Crypto.randomBytes(12);
-    const plaintext = new TextEncoder().encode(JSON.stringify({
+    const backupData = {
       privateKey: Array.from(identity.privateKey),
       publicKeyHex: identity.publicKeyHex,
-      created: identity.created
-    }));
+      created: identity.created,
+      // Include profile data (v2 feature)
+      profile: profile ? {
+        displayName: profile.displayName || null,
+        avatar: profile.avatar || null,
+        bio: profile.bio || null
+      } : null
+    };
+    const plaintext = new TextEncoder().encode(JSON.stringify(backupData));
 
     const ciphertext = await crypto.subtle.encrypt(
       { name: 'AES-GCM', iv },
@@ -202,9 +220,9 @@ export class BrowserIdentity {
       plaintext
     );
 
-    // Package everything together
+    // Package everything together (version 2 includes profile)
     const exportData = {
-      version: 1,
+      version: 2,
       salt: Array.from(salt),
       iv: Array.from(iv),
       ciphertext: Array.from(new Uint8Array(ciphertext))
@@ -216,14 +234,17 @@ export class BrowserIdentity {
   /**
    * Import identity from password-protected backup
    *
+   * Supports both v1 (keys only) and v2 (keys + profile) backups
+   *
    * @param {string} encryptedData - Encrypted JSON string (base64)
    * @param {string} password - Password for decryption
-   * @returns {Object} Decrypted identity
+   * @returns {Object} Decrypted identity with optional profile data
    */
   static async import(encryptedData, password) {
     const exportData = JSON.parse(atob(encryptedData));
 
-    if (exportData.version !== 1) {
+    // Support both v1 and v2 backups
+    if (exportData.version !== 1 && exportData.version !== 2) {
       throw new Error('Unsupported backup version');
     }
 
@@ -272,12 +293,16 @@ export class BrowserIdentity {
         throw new Error('Key verification failed');
       }
 
-      return {
+      const identity = {
         privateKey,
         publicKey,
         publicKeyHex: data.publicKeyHex,
-        created: data.created
+        created: data.created,
+        // Include profile if present (v2 backup)
+        profile: data.profile || null
       };
+
+      return identity;
     } catch (error) {
       if (error.name === 'OperationError') {
         throw new Error('Incorrect password');

@@ -281,6 +281,18 @@ export async function restoreFromFile() {
     const identity = await window.CloutIdentity.importFromFile(file, password);
     await window.CloutIdentity.store(identity);
 
+    // Save profile data if included in backup (v2 format)
+    if (identity.profile && window.CloutUserData) {
+      resultEl.textContent = 'Restoring profile...';
+      await window.CloutUserData.saveProfile({
+        publicKey: identity.publicKeyHex,
+        displayName: identity.profile.displayName,
+        avatar: identity.profile.avatar,
+        bio: identity.profile.bio
+      });
+      console.log('[Restore] Profile restored from backup:', identity.profile.displayName);
+    }
+
     await completeIdentityRestore(identity, resultEl);
   } catch (error) {
     resultEl.textContent = error.message;
