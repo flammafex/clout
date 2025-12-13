@@ -81,6 +81,8 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly sybilMode: SybilMode;
   private invitationCode: string | undefined;
   private invitationSignature: string | undefined;
+  // Track if an invitation was attempted (prevents fallback to owner mode)
+  private invitationWasAttempted = false;
   private readonly userPublicKey: string | undefined;
   private readonly isOwner: boolean;
   private metadata: Map<string, any> = new Map();
@@ -133,6 +135,7 @@ export class FreebirdAdapter implements FreebirdClient {
   setInvitationCode(code: string, signature?: string): void {
     this.invitationCode = code;
     this.invitationSignature = signature;
+    this.invitationWasAttempted = true;  // Track that an invitation is being used
 
     // Log for debugging
     console.log(`[Freebird] setInvitationCode called: code=${code.slice(0, 8)}..., signature=${signature ? 'present' : 'MISSING'}`);
@@ -213,7 +216,16 @@ export class FreebirdAdapter implements FreebirdClient {
           // Clear the invitation code after use (one-time use)
           this.invitationCode = undefined;
           this.invitationSignature = undefined;
+          this.invitationWasAttempted = false;  // Reset the flag
           return result;
+        }
+
+        // If an invitation was attempted but code is now missing, don't fall back to owner mode
+        // This prevents abuse where someone uses an invitation, it gets rejected, and they retry
+        if (this.invitationWasAttempted) {
+          console.error('[Freebird] Invitation was attempted but code is missing - not falling back to owner mode');
+          this.invitationWasAttempted = false;  // Reset for next attempt
+          throw new Error('[Freebird] Invitation code was already used in this session. Please use a new invitation code.');
         }
 
         // Owner can obtain tokens without an invitation code (for server's own identity)
