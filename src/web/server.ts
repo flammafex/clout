@@ -688,23 +688,32 @@ export class CloutWebServer {
       const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
       const invitesFile = join(dataDir, 'invitations.json');
 
+      console.log(`[Bootstrap] Looking for invitations at: ${invitesFile}`);
+
       if (existsSync(invitesFile)) {
         const data = JSON.parse(require('fs').readFileSync(invitesFile, 'utf-8'));
         const inviter = data.inviter;
         const invitations = data.invitations || [];
         const codes = data.codes || [];
 
+        console.log(`[Bootstrap] Found invitations.json: inviter=${inviter ? 'present' : 'MISSING'}, invitations=${invitations.length}, codes=${codes.length}`);
+
         // Load from new format (with signatures)
         if (invitations.length > 0) {
+          let withSig = 0;
+          let withoutSig = 0;
           for (const inv of invitations) {
             if (inv.code && inviter) {
               this.invitationCodeToInviter.set(inv.code, inviter);
             }
             if (inv.code && inv.signature) {
               this.invitationCodeToSignature.set(inv.code, inv.signature);
+              withSig++;
+            } else {
+              withoutSig++;
             }
           }
-          console.log(`[Bootstrap] Loaded ${invitations.length} invitation code mappings (with signatures)`);
+          console.log(`[Bootstrap] Loaded ${invitations.length} invitation code mappings (${withSig} with signatures, ${withoutSig} without)`);
         } else if (inviter && codes.length > 0) {
           // Fallback to old format (without signatures) - signatures won't work
           for (const code of codes) {
@@ -714,9 +723,12 @@ export class CloutWebServer {
           console.warn(`[Bootstrap] ⚠️ Invitations were stored without signatures. They may not work with Freebird.`);
           console.warn(`[Bootstrap] ⚠️ Delete invitations.json and restart to regenerate with signatures.`);
         }
+      } else {
+        console.warn(`[Bootstrap] ⚠️ invitations.json not found at ${invitesFile}`);
+        console.warn(`[Bootstrap] ⚠️ Set CLOUT_DATA_DIR to the correct directory or regenerate invitations`);
       }
-    } catch (error) {
-      // File doesn't exist or is invalid - not an error, just no mappings yet
+    } catch (error: any) {
+      console.error(`[Bootstrap] Error loading invitations.json: ${error.message}`);
     }
   }
 
