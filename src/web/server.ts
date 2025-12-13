@@ -66,6 +66,7 @@ export class CloutWebServer {
   // File system store for quota tracking
   private store?: FileSystemStore;
   // Instance owner public key (has admin privileges)
+  // This is the BROWSER USER's public key who has admin rights, NOT the server identity
   private ownerPublicKey?: string;
 
   constructor(config: WebServerConfig = {}) {
@@ -175,6 +176,10 @@ export class CloutWebServer {
 
       console.log('[Instance] Final witnessDomain:', witnessDomain);
 
+      // Check if the requesting browser user is the instance owner
+      const browserUserKey = req.headers['x-user-publickey'] as string | undefined;
+      const isOwner = browserUserKey && this.ownerPublicKey && browserUserKey === this.ownerPublicKey;
+
       res.json({
         success: true,
         data: {
@@ -183,7 +188,9 @@ export class CloutWebServer {
           description: process.env.INSTANCE_DESCRIPTION || 'An uncensorable social network instance',
           pgpKey: process.env.INSTANCE_PGP_KEY || null,
           contact: process.env.INSTANCE_CONTACT || null,
-          witnessDomain
+          witnessDomain,
+          isOwner,
+          ownerPublicKey: this.ownerPublicKey ? this.ownerPublicKey.slice(0, 16) + '...' : null
         }
       });
     });
@@ -430,6 +437,13 @@ export class CloutWebServer {
           this.store.markInvitationRedeemed(code, publicKey);
         }
 
+        // If no owner is set yet and this is a bootstrap invitation, set the redeemer as owner
+        // Bootstrap invitations are the ones stored in invitationCodeToInviter (from invitations.json)
+        const isBootstrapInvitation = this.invitationCodeToInviter.has(code);
+        if (isBootstrapInvitation && publicKey && !this.ownerPublicKey) {
+          this.setOwnerPublicKey(publicKey);
+        }
+
         res.json({
           success: true,
           data: {
@@ -574,19 +588,18 @@ export class CloutWebServer {
     // Register Self as Freebird owner and bootstrap invitations if needed
     await this.bootstrapFreebirdOwner(identity.publicKey);
 
-    // Check if we're the instance owner (have admin key)
-    const isOwnerInstance = !!process.env.FREEBIRD_ADMIN_KEY;
+    // Check if we have admin capabilities (have admin key)
+    const hasAdminKey = !!process.env.FREEBIRD_ADMIN_KEY;
 
-    // Save owner public key if this is the owner instance
-    if (isOwnerInstance) {
-      this.ownerPublicKey = identity.publicKey;
-    }
+    // Load owner public key from environment or file
+    // The owner is a BROWSER USER's public key, not the server identity
+    this.loadOwnerPublicKey();
 
     // Initialize infrastructure (Freebird, Witness, Gossip)
     console.log('Initializing Clout infrastructure...');
     const infra = await this.infraManager.initialize({
       userPublicKey: identity.publicKey,
-      isOwner: isOwnerInstance
+      isOwner: hasAdminKey
     });
 
     // Store Freebird adapter for browser VOPRF proxy
@@ -610,8 +623,13 @@ export class CloutWebServer {
 
     this.initialized = true;
     console.log(`Clout initialized with identity: ${identity.publicKey.slice(0, 16)}...`);
-    if (isOwnerInstance) {
-      console.log(`Instance owner: ${identity.publicKey.slice(0, 16)}... (admin features enabled)`);
+    if (hasAdminKey) {
+      console.log(`Admin key configured (admin API enabled)`);
+      if (this.ownerPublicKey) {
+        console.log(`Instance owner: ${this.ownerPublicKey.slice(0, 16)}...`);
+      } else {
+        console.log(`No instance owner set - first bootstrap invitation redeemer will become owner`);
+      }
     }
   }
 
@@ -836,6 +854,70 @@ export class CloutWebServer {
       console.error(`[Server] Error searching invitation redemptions: ${error.message}`);
     }
     return null;
+  }
+
+  /**
+   * Load the instance owner public key from environment or file
+   * The owner is a BROWSER USER's public key, not the server identity
+   */
+  private loadOwnerPublicKey(): void {
+    // First check environment variable
+    const envOwner = process.env.INSTANCE_OWNER_PUBLIC_KEY;
+    if (envOwner && envOwner.length === 64 && /^[a-fA-F0-9]+$/.test(envOwner)) {
+      this.ownerPublicKey = envOwner;
+      console.log(`[Owner] Loaded from INSTANCE_OWNER_PUBLIC_KEY: ${envOwner.slice(0, 16)}...`);
+      return;
+    }
+
+    // Then check persisted file
+    try {
+      const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+      const ownerFile = join(dataDir, 'owner.json');
+
+      if (existsSync(ownerFile)) {
+        const data = JSON.parse(readFileSync(ownerFile, 'utf-8'));
+        if (data.publicKey && data.publicKey.length === 64) {
+          this.ownerPublicKey = data.publicKey;
+          console.log(`[Owner] Loaded from owner.json: ${data.publicKey.slice(0, 16)}...`);
+          console.log(`[Owner] Set at: ${new Date(data.setAt).toISOString()}`);
+          return;
+        }
+      }
+    } catch (error: any) {
+      console.warn(`[Owner] Error loading owner.json: ${error.message}`);
+    }
+
+    // No owner set yet
+    this.ownerPublicKey = undefined;
+  }
+
+  /**
+   * Set the instance owner public key (persists to file)
+   * Called when the first bootstrap invitation is redeemed
+   */
+  setOwnerPublicKey(publicKey: string): void {
+    if (this.ownerPublicKey) {
+      console.log(`[Owner] Owner already set to ${this.ownerPublicKey.slice(0, 16)}..., ignoring new owner ${publicKey.slice(0, 16)}...`);
+      return;
+    }
+
+    this.ownerPublicKey = publicKey;
+
+    try {
+      const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+      const ownerFile = join(dataDir, 'owner.json');
+
+      writeFileSync(ownerFile, JSON.stringify({
+        publicKey,
+        setAt: Date.now(),
+        source: 'first_bootstrap_redeemer'
+      }, null, 2));
+
+      console.log(`[Owner] ✅ Set instance owner: ${publicKey.slice(0, 16)}...`);
+      console.log(`[Owner] Saved to: ${ownerFile}`);
+    } catch (error: any) {
+      console.error(`[Owner] Error saving owner.json: ${error.message}`);
+    }
   }
 
   /**

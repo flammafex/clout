@@ -20,6 +20,13 @@ export async function apiCall(endpoint, method = 'GET', body = null) {
       method,
       headers: { 'Content-Type': 'application/json' }
     };
+
+    // Include browser user's public key for authenticated requests (admin routes)
+    // This allows the server to identify which browser user is making the request
+    if (window.userPublicKey) {
+      options.headers['X-User-PublicKey'] = window.userPublicKey;
+    }
+
     if (body) {
       options.body = JSON.stringify(body);
     }
