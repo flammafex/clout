@@ -553,10 +553,10 @@ export function renderFeedItem(post, fullFeatures = true) {
   const hasCW = !!post.contentWarning;
   const cwId = `cw-${post.id}`;
 
-  // Reactions - hide for visitors
+  // Reactions - show for everyone, but read-only for visitors
   const reactions = post.reactions || {};
   const myReaction = post.myReaction;
-  const reactionsHtml = visitor ? '' : renderReactionsBar(post.id, reactions, myReaction);
+  const reactionsHtml = renderReactionsBar(post.id, reactions, myReaction, visitor);
 
   // Save button - hide for visitors
   const saveBtn = visitor ? '' : `

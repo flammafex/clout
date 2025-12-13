@@ -24,16 +24,25 @@ const EMOJI_CATEGORIES = {
 
 /**
  * Render reactions bar for a post (Discord-style)
- * Shows only reactions that exist on the post, plus a React button
+ * Shows only reactions that exist on the post, plus a React button (for members)
+ * @param {string} postId - The post ID
+ * @param {Object} reactions - Map of emoji to count
+ * @param {string|null} myReaction - The current user's reaction (if any)
+ * @param {boolean} readOnly - If true, don't show add button or make buttons clickable (for visitors)
  */
-export function renderReactionsBar(postId, reactions, myReaction) {
+export function renderReactionsBar(postId, reactions, myReaction, readOnly = false) {
   // Get reactions with counts > 0, sorted by count (highest first)
   const activeReactions = Object.entries(reactions)
     .filter(([emoji, count]) => count > 0)
     .sort((a, b) => b[1] - a[1]);
 
   if (activeReactions.length === 0) {
-    // No reactions yet - just show React button
+    // No reactions yet
+    if (readOnly) {
+      // Visitors see nothing if no reactions
+      return '';
+    }
+    // Members see React button
     return `<div class="reactions-bar" data-post-id="${postId}">
       <button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>
     </div>`;
@@ -46,6 +55,12 @@ export function renderReactionsBar(postId, reactions, myReaction) {
   // Render visible reaction buttons
   const visibleButtons = visibleReactions.map(([emoji, count]) => {
     const isMyReaction = myReaction === emoji;
+    if (readOnly) {
+      // Read-only: no click handler, just display
+      return `<span class="reaction-btn${isMyReaction ? ' active' : ''}" title="${count} reaction${count !== 1 ? 's' : ''}">
+        ${emoji}<span class="reaction-count">${count}</span>
+      </span>`;
+    }
     const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
     return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="${count} reaction${count !== 1 ? 's' : ''}">
       ${emoji}<span class="reaction-count">${count}</span>
@@ -57,20 +72,28 @@ export function renderReactionsBar(postId, reactions, myReaction) {
   if (hiddenReactions.length > 0) {
     hiddenButtons = hiddenReactions.map(([emoji, count]) => {
       const isMyReaction = myReaction === emoji;
+      if (readOnly) {
+        // Read-only: no click handler
+        return `<span class="reaction-btn reaction-overflow${isMyReaction ? ' active' : ''}" title="${count} reaction${count !== 1 ? 's' : ''}">
+          ${emoji}<span class="reaction-count">${count}</span>
+        </span>`;
+      }
       const btnClass = isMyReaction ? 'reaction-btn active reaction-overflow' : 'reaction-btn reaction-overflow';
       return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="${count} reaction${count !== 1 ? 's' : ''}">
         ${emoji}<span class="reaction-count">${count}</span>
       </button>`;
     }).join('');
 
-    // Mobile ellipsis button to expand
-    hiddenButtons += `<button class="reaction-btn reaction-expand-btn" onclick="event.stopPropagation(); window.cloutApp.expandReactions('${postId}')" title="Show ${hiddenReactions.length} more reactions">
-      <span class="reaction-ellipsis">...</span>
-    </button>`;
+    // Mobile ellipsis button to expand (only for non-readonly)
+    if (!readOnly) {
+      hiddenButtons += `<button class="reaction-btn reaction-expand-btn" onclick="event.stopPropagation(); window.cloutApp.expandReactions('${postId}')" title="Show ${hiddenReactions.length} more reactions">
+        <span class="reaction-ellipsis">...</span>
+      </button>`;
+    }
   }
 
-  // React button to add new reaction
-  const reactButton = `<button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>`;
+  // React button to add new reaction (only for non-readonly)
+  const reactButton = readOnly ? '' : `<button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>`;
 
   return `<div class="reactions-bar" data-post-id="${postId}">
     ${visibleButtons}${hiddenButtons}${reactButton}
