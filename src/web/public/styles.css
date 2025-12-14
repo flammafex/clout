@@ -1263,10 +1263,21 @@ h2 {
 
 .post-link-preview-image {
   width: 100%;
-  height: 150px;
+  max-height: 200px;
+  overflow: hidden;
   background-color: var(--bg-hover);
-  background-size: cover;
-  background-position: center;
+}
+
+.post-link-preview-image img {
+  width: 100%;
+  height: auto;
+  max-height: 200px;
+  object-fit: cover;
+  display: block;
+}
+
+.post-link-preview-image.loaded {
+  background-color: transparent;
 }
 
 .post-link-preview-content {
@@ -1341,9 +1352,9 @@ h2 {
   word-break: break-all;
 }
 
-/* Feed item with link indicator */
+/* Feed item with link - no extra indicator needed, preview card is visible */
 .feed-item.has-link {
-  border-left: 3px solid var(--secondary);
+  /* Link preview card provides visual indication */
 }
 
 /* Responsive */
