@@ -1248,6 +1248,8 @@ h2 {
 
 /* Link preview in feed posts */
 .post-link-preview {
+  display: block;
+  text-decoration: none;
   margin-top: 1rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
