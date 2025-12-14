@@ -167,6 +167,7 @@ export async function loadTrustedUsers() {
             ${tagsHtml}
           </div>
           <div class="trusted-user-actions">
+            <button class="btn-small btn-untrust" onclick="window.cloutApp.untrustUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Remove from trust circle">✕</button>
             ${muteBtn}
             <button class="btn-small btn-nickname" onclick="window.cloutApp.editNickname('${user.publicKey}', '${escapeHtml(nickname || '')}')" title="Set nickname">✏️</button>
             <button class="btn-small" onclick="window.cloutApp.copyToClipboard('${user.publicKey}')">Copy</button>
@@ -285,6 +286,31 @@ export async function unmuteUser(publicKey) {
     showResult('trust-result', `Unredacted ${publicKey.slice(0, 8)}...`, true);
   } catch (error) {
     alert(`Could not unredact user: ${error.message}`);
+  }
+}
+
+/**
+ * Revoke trust from a user (remove from trust circle)
+ */
+export async function untrustUser(publicKey, displayName) {
+  if (!confirm(`Remove ${displayName || publicKey.slice(0, 8)}... from your trust circle?\n\nTheir posts will no longer appear in your feed.`)) {
+    return;
+  }
+
+  try {
+    // Remove from local IndexedDB first
+    if (window.CloutUserData) {
+      await window.CloutUserData.untrust(publicKey);
+    }
+
+    // Send revocation signal via API (for gossip propagation)
+    await apiCall(`/trust/${publicKey}`, 'DELETE');
+
+    showResult('trust-result', `Removed ${publicKey.slice(0, 8)}... from trust circle`, true);
+    await loadTrustedUsers();
+    await loadFeed();
+  } catch (error) {
+    alert(`Could not remove user: ${error.message}`);
   }
 }
 

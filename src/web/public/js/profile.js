@@ -340,6 +340,104 @@ export async function saveMediaFilters(requireMembership) {
 }
 
 // =========================================================================
+// Day Pass Delegation
+// =========================================================================
+
+/**
+ * Load delegation status and show appropriate UI
+ */
+export async function loadDelegationStatus() {
+  try {
+    const statusDiv = $('delegation-status');
+    const delegateForm = $('delegate-form');
+    const acceptSection = $('accept-delegation-section');
+
+    if (!statusDiv) return;
+
+    const data = await apiCall('/settings/daypass/delegation');
+
+    if (data.hasPendingDelegation) {
+      // User has a pending delegation to accept
+      statusDiv.innerHTML = '';
+      delegateForm.style.display = 'none';
+      acceptSection.style.display = 'block';
+    } else if (data.canDelegate) {
+      // User can delegate passes
+      statusDiv.innerHTML = `
+        <p class="help-text-success">Your reputation (${data.reputation.toFixed(2)}) allows you to delegate Day Passes.</p>
+      `;
+      delegateForm.style.display = 'block';
+      acceptSection.style.display = 'none';
+    } else {
+      // User cannot delegate
+      statusDiv.innerHTML = `
+        <p class="help-text">Your reputation (${data.reputation.toFixed(2)}) is below the required ${data.requiredReputation.toFixed(2)}. Build trust to unlock delegation.</p>
+      `;
+      delegateForm.style.display = 'none';
+      acceptSection.style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Error loading delegation status:', error);
+  }
+}
+
+/**
+ * Delegate a Day Pass to another user
+ */
+export async function delegatePass() {
+  const recipientKey = $('delegate-recipient').value.trim();
+  const durationHours = parseInt($('delegate-duration').value);
+
+  if (!recipientKey) {
+    showResult('delegate-result', 'Please enter a recipient public key', false);
+    return;
+  }
+
+  if (recipientKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(recipientKey)) {
+    showResult('delegate-result', 'Invalid key: must be 64 hex characters', false);
+    return;
+  }
+
+  try {
+    $('delegate-btn').disabled = true;
+    $('delegate-btn').textContent = 'Delegating...';
+
+    await apiCall('/settings/daypass/delegate', 'POST', {
+      recipientKey,
+      durationHours
+    });
+
+    showResult('delegate-result', `Delegated ${durationHours}h pass to ${recipientKey.slice(0, 8)}...`, true);
+    $('delegate-recipient').value = '';
+  } catch (error) {
+    showResult('delegate-result', `Error: ${error.message}`, false);
+  } finally {
+    $('delegate-btn').disabled = false;
+    $('delegate-btn').textContent = 'Delegate Day Pass';
+  }
+}
+
+/**
+ * Accept a pending Day Pass delegation
+ */
+export async function acceptDelegation() {
+  try {
+    $('accept-delegation-btn').disabled = true;
+    $('accept-delegation-btn').textContent = 'Accepting...';
+
+    await apiCall('/settings/daypass/accept', 'POST');
+
+    showResult('accept-result', 'Day Pass accepted! You can now post.', true);
+    await loadDelegationStatus();
+  } catch (error) {
+    showResult('accept-result', `Error: ${error.message}`, false);
+  } finally {
+    $('accept-delegation-btn').disabled = false;
+    $('accept-delegation-btn').textContent = 'Accept Delegation';
+  }
+}
+
+// =========================================================================
 // Tags
 // =========================================================================
 

@@ -108,5 +108,80 @@ export function createSettingsRoutes(getClout: () => Clout | undefined, isInitia
     }
   });
 
+  // =========================================================================
+  // DAY PASS DELEGATION
+  // =========================================================================
+
+  // Get delegation status (eligibility and pending delegations)
+  router.get('/daypass/delegation', (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const reputation = clout.getReputation(clout.getProfile().publicKey);
+      const canDelegate = reputation.score >= 0.7;
+      const hasPending = clout.hasPendingDelegation();
+
+      res.json({
+        success: true,
+        data: {
+          canDelegate,
+          reputation: reputation.score,
+          requiredReputation: 0.7,
+          hasPendingDelegation: hasPending
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Delegate a Day Pass to someone
+  router.post('/daypass/delegate', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const { recipientKey, durationHours } = req.body;
+      if (!recipientKey || typeof recipientKey !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'recipientKey is required'
+        });
+      }
+
+      const duration = typeof durationHours === 'number' ? durationHours : 24;
+      await clout.delegatePass(recipientKey, duration);
+
+      res.json({
+        success: true,
+        data: {
+          recipientKey,
+          durationHours: duration,
+          message: `Delegated ${duration}h Day Pass to ${recipientKey.slice(0, 8)}...`
+        }
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Accept a pending delegation
+  router.post('/daypass/accept', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      await clout.acceptDelegatedPass();
+
+      res.json({
+        success: true,
+        data: { message: 'Accepted delegated Day Pass' }
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   return router;
 }

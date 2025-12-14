@@ -30,7 +30,7 @@ import {
 } from './reactions.js';
 import { viewThread } from './thread.js';
 import {
-  loadTrustedUsers, trustUser, quickTrust, muteUser, unmuteUser,
+  loadTrustedUsers, trustUser, quickTrust, muteUser, unmuteUser, untrustUser,
   editNickname, updateTrustWeightDisplay, loadTrustRequests, sendTrustRequest,
   acceptTrustRequest, rejectTrustRequest, withdrawTrustRequest, retryTrustRequest
 } from './trust.js';
@@ -40,7 +40,8 @@ import {
   saveProfile, toggleQRCode, loadStats, loadSettings, saveSettings,
   saveMediaFilters, loadTags, viewTagUsers, addTag, exportBackup,
   importBackup, loadIdentities, switchIdentity, createIdentity,
-  exportIdentityKey, importIdentityKey, setupSettings, createBrowserIdentity
+  exportIdentityKey, importIdentityKey, setupSettings, createBrowserIdentity,
+  loadDelegationStatus, delegatePass, acceptDelegation
 } from './profile.js';
 import {
   connectLiveUpdates, loadNewPosts, updateNotificationCounts
@@ -83,7 +84,7 @@ function setupTabs() {
 
       if (tab === 'feed') loadFeed();
       if (tab === 'slides') loadSlides();
-      if (tab === 'settings') loadSettings();
+      if (tab === 'settings') { loadSettings(); loadDelegationStatus(); }
       if (tab === 'trust') { loadTrustedUsers(); loadTrustRequests(); loadStats(); loadSettings(); }
       if (tab === 'profile') { loadProfile(); loadIdentity(); }
       if (tab === 'owner') { loadOwnerInfo(); }
@@ -679,6 +680,7 @@ window.cloutApp = {
   quickTrust: (publicKey) => quickTrust(publicKey, requireMembership),
   muteUser: (publicKey, displayName) => muteUser(publicKey, displayName, requireMembership),
   unmuteUser,
+  untrustUser,
   editNickname,
 
   // Trust Requests (consent-based trust)
@@ -704,6 +706,10 @@ window.cloutApp = {
   // Settings
   loadSettings,
   viewTagUsers,
+
+  // Day Pass Delegation
+  delegatePass,
+  acceptDelegation,
 
   // Identity
   switchIdentity,
