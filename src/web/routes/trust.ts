@@ -3,59 +3,41 @@
  */
 
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import type { Clout } from '../../clout.js';
-import { Crypto } from '../../crypto.js';
-
-/**
- * Validate a public key from request (body or params)
- * Returns the validated key or throws with a descriptive error
- */
-function validatePublicKey(publicKey: unknown, fieldName = 'publicKey'): string {
-  if (!publicKey || typeof publicKey !== 'string') {
-    throw new Error(`${fieldName} is required`);
-  }
-
-  if (!Crypto.isValidPublicKeyHex(publicKey)) {
-    throw new Error(`Invalid ${fieldName}: must be 64 hex characters (32 bytes)`);
-  }
-
-  return publicKey;
-}
+import { validatePublicKey, validateWeight, getErrorMessage } from './validation.js';
 
 export function createTrustRoutes(getClout: () => Clout | undefined, isInitialized: () => boolean): Router {
   const router = Router();
 
   // Trust User
-  router.post('/trust', async (req, res) => {
+  router.post('/trust', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const publicKey = validatePublicKey(req.body.publicKey);
-      // Weight is optional, defaults to 1.0 (full trust)
-      const weight = typeof req.body.weight === 'number'
-        ? Math.max(0.1, Math.min(1.0, req.body.weight))
-        : 1.0;
+      const weight = validateWeight(req.body.weight);
       await getClout()!.trust(publicKey, weight);
       res.json({ success: true, data: { publicKey, weight } });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Revoke trust (untrust/unfollow)
-  router.delete('/trust/:publicKey', async (req, res) => {
+  router.delete('/trust/:publicKey', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const publicKey = validatePublicKey(req.params.publicKey);
       await getClout()!.revokeTrust(publicKey);
       res.json({ success: true, data: { publicKey, revoked: true } });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Get list of directly trusted users
   // Philosophical stance: you should trust yourself above all, so self is included at the top
-  router.get('/trusted', async (req, res) => {
+  router.get('/trusted', async (_req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -70,7 +52,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         displayName: profile.metadata?.displayName || 'You',
         nickname: null,
         reputation: { score: 1.0, distance: 0, visible: true },
-        tags: [],
+        tags: [] as string[],
         isMuted: false,
         distance: 0,
         isSelf: true,
@@ -108,13 +90,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           users: allUsers
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Get reputation for a specific user
-  router.get('/reputation/:publicKey', (req, res) => {
+  router.get('/reputation/:publicKey', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -130,8 +112,8 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           ...reputation
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -140,7 +122,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
   // =========================================================================
 
   // Get all tags with member counts
-  router.get('/tags', (req, res) => {
+  router.get('/tags', (_req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -151,13 +133,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       }));
 
       res.json({ success: true, data: { tags: tagsArray } });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Get users with a specific tag
-  router.get('/tags/:tag/users', (req, res) => {
+  router.get('/tags/:tag/users', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -171,13 +153,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           users: users.map(u => ({ publicKey: u, short: u.slice(0, 8) }))
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Get tags for a specific user
-  router.get('/tags/user/:publicKey', (req, res) => {
+  router.get('/tags/user/:publicKey', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -185,50 +167,52 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       const tags = getClout()!.getTagsForUser(publicKey);
 
       res.json({ success: true, data: { publicKey, tags } });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Add tag to user
-  router.post('/tags', (req, res) => {
+  router.post('/tags', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
       const publicKey = validatePublicKey(req.body.publicKey);
       const { tag } = req.body;
       if (!tag) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: 'tag is required'
         });
+        return;
       }
 
       getClout()!.addTrustTag(publicKey, tag);
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Remove tag from user
-  router.delete('/tags', (req, res) => {
+  router.delete('/tags', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
       const publicKey = validatePublicKey(req.body.publicKey);
       const { tag } = req.body;
       if (!tag) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           error: 'tag is required'
         });
+        return;
       }
 
       getClout()!.removeTrustTag(publicKey, tag);
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -237,7 +221,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
   // =========================================================================
 
   // Get all nicknames
-  router.get('/nicknames', (req, res) => {
+  router.get('/nicknames', (_req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -249,13 +233,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       }));
 
       res.json({ success: true, data: { nicknames: nicknamesArray } });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Get nickname for a specific user
-  router.get('/nickname/:publicKey', (req, res) => {
+  router.get('/nickname/:publicKey', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -268,13 +252,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         success: true,
         data: { publicKey, nickname, displayName }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Set nickname for a user
-  router.post('/nickname', (req, res) => {
+  router.post('/nickname', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -289,13 +273,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         success: true,
         data: { publicKey, nickname: nickname || null, displayName }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Delete nickname for a user
-  router.delete('/nickname/:publicKey', (req, res) => {
+  router.delete('/nickname/:publicKey', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -303,8 +287,8 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       getClout()!.setNickname(publicKey, '');
 
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -313,7 +297,7 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
   // =========================================================================
 
   // Get all muted users
-  router.get('/muted', (req, res) => {
+  router.get('/muted', (_req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -333,13 +317,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           users: mutedUsers
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Check if a user is muted
-  router.get('/muted/:publicKey', (req, res) => {
+  router.get('/muted/:publicKey', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -351,13 +335,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         success: true,
         data: { publicKey, isMuted }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Mute a user
-  router.post('/mute', (req, res) => {
+  router.post('/mute', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -369,13 +353,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         success: true,
         data: { publicKey, isMuted: true }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Unmute a user
-  router.post('/unmute', (req, res) => {
+  router.post('/unmute', (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -387,8 +371,8 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         success: true,
         data: { publicKey, isMuted: false }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -397,15 +381,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
   // =========================================================================
 
   // Send a trust request
-  router.post('/trust-request', async (req, res) => {
+  router.post('/trust-request', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
 
       const recipient = validatePublicKey(req.body.publicKey, 'publicKey');
-      const weight = typeof req.body.weight === 'number'
-        ? Math.max(0.1, Math.min(1.0, req.body.weight))
-        : 1.0;
+      const weight = validateWeight(req.body.weight);
       const message = req.body.message || null;
 
       // Create and send trust request
@@ -415,13 +397,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         success: true,
         data: request
       });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Get incoming trust requests
-  router.get('/trust-requests/incoming', async (req, res) => {
+  router.get('/trust-requests/incoming', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -443,13 +425,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           requests: enrichedRequests
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Get outgoing trust requests
-  router.get('/trust-requests/outgoing', async (req, res) => {
+  router.get('/trust-requests/outgoing', async (_req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -470,13 +452,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
           requests: enrichedRequests
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Accept a trust request
-  router.post('/trust-request/:id/accept', async (req, res) => {
+  router.post('/trust-request/:id/accept', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -488,13 +470,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         success: true,
         data: result
       });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Reject a trust request (silently - requester sees pending/ghosted)
-  router.post('/trust-request/:id/reject', async (req, res) => {
+  router.post('/trust-request/:id/reject', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -503,13 +485,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       await clout.rejectTrustRequest(requestId);
 
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Withdraw an outgoing trust request
-  router.delete('/trust-request/:id', async (req, res) => {
+  router.delete('/trust-request/:id', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -518,13 +500,13 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
       await clout.withdrawTrustRequest(requestId);
 
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Retry a ghosted trust request
-  router.post('/trust-request/:id/retry', async (req, res) => {
+  router.post('/trust-request/:id/retry', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -536,8 +518,8 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
         success: true,
         data: result
       });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 

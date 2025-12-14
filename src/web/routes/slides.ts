@@ -3,29 +3,15 @@
  */
 
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import type { Clout } from '../../clout.js';
-import { Crypto } from '../../crypto.js';
-
-/**
- * Validate a public key from request
- */
-function validatePublicKey(publicKey: unknown, fieldName = 'publicKey'): string {
-  if (!publicKey || typeof publicKey !== 'string') {
-    throw new Error(`${fieldName} is required`);
-  }
-
-  if (!Crypto.isValidPublicKeyHex(publicKey)) {
-    throw new Error(`Invalid ${fieldName}: must be 64 hex characters (32 bytes)`);
-  }
-
-  return publicKey;
-}
+import { validatePublicKey, getErrorMessage } from './validation.js';
 
 export function createSlidesRoutes(getClout: () => Clout | undefined, isInitialized: () => boolean): Router {
   const router = Router();
 
   // Get Slides (Inbox)
-  router.get('/', async (req, res) => {
+  router.get('/', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const clout = getClout()!;
@@ -40,7 +26,10 @@ export function createSlidesRoutes(getClout: () => Clout | undefined, isInitiali
             let content = '[Encrypted]';
             try {
               content = clout.decryptSlide(slide);
-            } catch (e) {}
+            } catch (decryptError) {
+              // Slide may be encrypted for a different recipient or corrupted
+              console.warn('[Slides] Failed to decrypt slide:', getErrorMessage(decryptError));
+            }
 
             return {
               ...slide,
@@ -53,26 +42,27 @@ export function createSlidesRoutes(getClout: () => Clout | undefined, isInitiali
           totalSlides: inbox.slides.length
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   // Send Slide
-  router.post('/', async (req, res) => {
+  router.post('/', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
       const recipient = validatePublicKey(req.body.recipient, 'recipient');
       const { message } = req.body;
 
       if (!message || typeof message !== 'string') {
-        return res.status(400).json({ success: false, error: 'message is required' });
+        res.status(400).json({ success: false, error: 'message is required' });
+        return;
       }
 
       const slide = await getClout()!.slide(recipient, message);
       res.json({ success: true, data: slide });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
