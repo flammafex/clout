@@ -15,7 +15,7 @@ import type { BlindState, PartialEvaluation } from '../vendor/freebird/voprf.js'
 import { TorProxy } from '../tor.js';
 import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
-import { concatBytes, bytesToHex } from '@noble/hashes/utils';
+import { bytesToHex } from '@noble/hashes/utils';
 
 export type SybilMode = 'none' | 'pow' | 'invitation';
 
@@ -431,7 +431,7 @@ export class FreebirdAdapter implements FreebirdClient {
             if (isAllZeros) {
               console.warn(`[Freebird] No DLEQ proof from ${url} (dev mode?), skipping verification`);
             } else {
-              const isValid = this.verifyDleqExternal(G, Q, A, B, proofBytes);
+              const isValid = voprf.verifyDleq(G, Q, A, B, proofBytes, this.context);
               if (!isValid) {
                 console.warn(`[Freebird] Invalid DLEQ proof from ${url}`);
                 return { success: false, url, index };
@@ -584,57 +584,6 @@ export class FreebirdAdapter implements FreebirdClient {
    */
   private decodePublicKey(pubkeyB64: string): any {
     return this.decodePoint(this.base64UrlToBytes(pubkeyB64));
-  }
-
-  /**
-   * External DLEQ verification (duplicated from voprf.ts for internal use)
-   * TODO: Refactor to export this from voprf.ts
-   */
-  private verifyDleqExternal(G: any, Y: any, A: any, B: any, proofBytes: Uint8Array): boolean {
-
-    if (proofBytes.length !== 64) return false;
-
-    const cBytes = proofBytes.slice(0, 32);
-    const sBytes = proofBytes.slice(32, 64);
-    const c = BigInt('0x' + bytesToHex(cBytes));
-    const s = BigInt('0x' + bytesToHex(sBytes));
-
-    // Recompute commitments
-    const sG = G.multiply(s);
-    const cY = Y.multiply(c);
-    const t1 = sG.subtract(cY);
-
-    const sA = A.multiply(s);
-    const cB = B.multiply(c);
-    const t2 = sA.subtract(cB);
-
-    // Recompute challenge
-    const DLEQ_DST_PREFIX = new TextEncoder().encode('DLEQ-P256-v1');
-    const dst = concatBytes(DLEQ_DST_PREFIX, this.context);
-    const dstLenBytes = new Uint8Array(4);
-    const dstLen = dst.length;
-    dstLenBytes[0] = (dstLen >>> 24) & 0xff;
-    dstLenBytes[1] = (dstLen >>> 16) & 0xff;
-    dstLenBytes[2] = (dstLen >>> 8) & 0xff;
-    dstLenBytes[3] = dstLen & 0xff;
-
-    const encodePoint = (p: any) => p.toRawBytes(true);
-
-    const transcript = concatBytes(
-      dstLenBytes,
-      dst,
-      encodePoint(G),
-      encodePoint(Y),
-      encodePoint(A),
-      encodePoint(B),
-      encodePoint(t1),
-      encodePoint(t2)
-    );
-
-    const hash = sha256(transcript);
-    const computedC = BigInt('0x' + bytesToHex(hash)) % p256.CURVE.n;
-
-    return c === computedC;
   }
 
   /**

@@ -181,8 +181,19 @@ function computeLagrangeCoefficient(xi: bigint, allIndices: bigint[]): bigint {
 /**
  * Verifies a Chaum-Pedersen DLEQ proof (Fiat-Shamir transformed).
  * Matches Rust: crypto/src/voprf/dleq.rs
+ *
+ * Proves that log_G(Y) == log_A(B), i.e., the same scalar k was used
+ * to compute Y = G * k and B = A * k.
+ *
+ * @param G - Generator point
+ * @param Y - Public key (G * k)
+ * @param A - Blinded input point
+ * @param B - Evaluated point (A * k)
+ * @param proofBytes - DLEQ proof (64 bytes: c || s)
+ * @param context - Domain separation context
+ * @returns true if proof is valid
  */
-function verifyDleq(
+export function verifyDleq(
   G: any, // Generator
   Y: any, // Public Key
   A: any, // Blinded Point
