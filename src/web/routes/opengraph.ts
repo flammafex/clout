@@ -66,7 +66,6 @@ interface RawOpenGraphData {
   url: string;
   title?: string;
   description?: string;
-  image?: string;
   siteName?: string;
   type?: string;
 }
@@ -107,16 +106,7 @@ function extractOpenGraphMetadata(html: string, url: string): RawOpenGraphData {
     if (descMatch) result.description = decodeHtmlEntities(descMatch[1]);
   }
 
-  // Extract og:image
-  result.image = getMetaContent('image');
-  if (result.image) {
-    // Make relative URLs absolute
-    try {
-      result.image = new URL(result.image, url).href;
-    } catch {
-      // Keep as-is if URL parsing fails
-    }
-  }
+  // Note: og:image intentionally not fetched to avoid console errors from blocked images
 
   // Extract og:site_name
   result.siteName = getMetaContent('site_name');
@@ -261,14 +251,13 @@ export function createOpenGraphRoutes(): Router {
         url: ogData.url,
         title: truncate(ogData.title, 200),
         description: truncate(ogData.description, 500),
-        image: ogData.image,
         siteName: truncate(ogData.siteName, 100),
         type: truncate(ogData.type, 50),
         fetchedAt: Date.now(),
       };
 
       // Check if we got any useful data
-      if (!metadata.title && !metadata.description && !metadata.image) {
+      if (!metadata.title && !metadata.description) {
         return res.status(404).json({
           success: false,
           error: 'No OpenGraph metadata found on this page'
