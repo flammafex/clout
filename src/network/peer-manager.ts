@@ -488,12 +488,18 @@ export class PeerManager {
 
   /**
    * Discover and connect to 2-hop peers (friends of friends)
+   *
+   * FUTURE WORK: This requires a P2P message protocol for trust graph exchange.
+   * Implementation needs:
+   * 1. Define TrustGraphRequest/TrustGraphResponse message types
+   * 2. Add privacy controls (users may not want to expose full graph)
+   * 3. Handle partial/filtered graph responses
+   * 4. Rate limiting to prevent enumeration attacks
    */
   async discoverSecondHopPeers(): Promise<void> {
     // For each connected peer, discover who they trust
-    for (const [publicKey, peer] of this.peers.entries()) {
-      // TODO: Query peer for their trust graph
-      // For now, skip this - will implement after basic connections work
+    for (const [_publicKey, _peer] of this.peers.entries()) {
+      // Not implemented: Requires P2P message protocol for trust graph exchange
     }
   }
 
