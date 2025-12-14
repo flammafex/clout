@@ -60,6 +60,7 @@ export class CloutRelay {
     nsfw?: boolean;
     contentWarning?: string;
     media?: { cid: string };
+    link?: { url: string; title?: string; description?: string; image?: string; siteName?: string; type?: string; fetchedAt: number };
     authorshipProof?: Uint8Array;
     authorDisplayName?: string;
     authorAvatar?: string;
@@ -92,6 +93,8 @@ export class CloutRelay {
         size: 0,
         storedAt: Date.now()
       } : undefined,
+      // OpenGraph link preview (mutually exclusive with media)
+      link: postPackage.link,
       authorshipProof: postPackage.authorshipProof,
       mentions: this.extractMentions(postPackage.content),
       // Include author's chosen display name and avatar

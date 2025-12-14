@@ -1031,6 +1031,7 @@ export class Clout {
     nsfw?: boolean;
     contentWarning?: string;
     media?: { cid: string };
+    link?: { url: string; title?: string; description?: string; image?: string; siteName?: string; type?: string; fetchedAt: number };
     authorshipProof?: Uint8Array;
     authorDisplayName?: string;
     authorAvatar?: string;
