@@ -810,8 +810,11 @@ export function renderPostContent(post) {
 
   // Handle link previews
   if (post.link && post.link.url) {
+    console.log('[Feed] Rendering link preview for post:', post.id, post.link);
     const expired = isLinkPreviewExpired(post.link);
     return content.trim() + renderLinkPreviewCard(post.link, expired);
+  } else if (post.link) {
+    console.log('[Feed] Post has link but no URL:', post.id, post.link);
   }
 
   return content;
