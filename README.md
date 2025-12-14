@@ -63,12 +63,13 @@ docker compose run --rm cli slide <publicKey> "Private message"
 
 ### What Gets Deployed
 
-| Service | Purpose |
-|---------|---------|
-| **Clout** | Web UI + API (port 3000) |
-| **Witness Cluster** | Distributed timestamping (3 nodes) |
-| **Freebird** | Anti-spam tokens (issuer + verifier) |
-| **HyperToken Relay** | P2P message routing |
+| Service | Port | Purpose |
+|---------|------|---------|
+| **Clout** | 3000 | Web UI + API server |
+| **Witness Cluster** | 8080 | Distributed timestamping (3 nodes + gateway) |
+| **Freebird Issuer** | 8081 | Anti-spam token generation |
+| **Freebird Verifier** | 8082 | Token validation + Redis cache |
+| **HyperToken Relay** | 3001 | P2P WebRTC signaling |
 
 All services run locally—no external dependencies, no data leaves your machine.
 
@@ -114,14 +115,14 @@ Your social relationships are **yours**—stored in your browser, invisible to s
 Your Dark Social Graph travels with you:
 
 ```bash
-# Download complete backup (JSON)
+# Download complete encrypted backup (JSON)
 Settings → Data Management → Download Backup
 
 # Import on any device
 Settings → Data Management → Select Backup File
 ```
 
-Backup includes: trust signals, nicknames, tags, mutes, bookmarks, and settings.
+Backup includes: identity keys, profile data, trust signals, nicknames, tags, mutes, bookmarks, and settings—all in a single encrypted file.
 
 ---
 
@@ -177,6 +178,24 @@ Distance 3: Extended network (score: 0.3)
     │
 Distance 4+: Auto-shadowbanned (not in your reality)
 ```
+
+### Consent-Based Trust Requests
+
+Trust is mutual. When you want to follow someone, you send a **trust request**—an encrypted message only they can read:
+
+```
+1. You → Send trust request (encrypted via slide)
+   ├─ Includes: your profile, desired weight, optional message
+   └─ Only recipient can decrypt and see the request
+
+2. Recipient → Decides to accept or ignore
+   ├─ ACCEPT → Mutual trust established, you enter each other's feeds
+   └─ IGNORE → Request stays pending (no notification to sender)
+
+3. Both parties can withdraw/revoke at any time
+```
+
+Trust requests prevent spam follows and ensure relationships are consensual. The sender never knows if they were rejected—they only see "pending" or "accepted."
 
 ### Weighted Trust
 
@@ -366,6 +385,38 @@ Stay connected with live updates through Server-Sent Events (SSE):
 
 ---
 
+## Feed Sorting & Discovery
+
+Control how content appears in your feed:
+
+| Sort Option | Algorithm |
+|-------------|-----------|
+| **Newest** | Chronological, most recent first |
+| **Reactions** | Posts with most reactions (👍❤️🔥) |
+| **Replies** | Posts generating most discussion |
+| **Hot** | Engagement weighted by recency: `(reactions + replies×2) / (age+2)^1.5` |
+
+```bash
+# API examples
+curl /api/feed?sort=hot
+curl /api/feed?sort=reactions&limit=20&offset=40
+```
+
+---
+
+## Link Previews
+
+Posts containing URLs automatically display OpenGraph metadata:
+
+- **Title** and **description** from the linked page
+- **Site name** for context
+- Privacy-focused: no images fetched to prevent tracking
+- Server-side proxy prevents CORS issues
+
+When you post a link, the preview data is stored with the post and displayed inline—giving your network context without requiring them to click.
+
+---
+
 ## Encrypted Direct Messages (Slides)
 
 End-to-end encrypted DMs that propagate through the gossip network:
@@ -454,17 +505,22 @@ const clout = new Clout({
 | Feature | Description |
 |---------|-------------|
 | **Feed** | Personalized content from your trust graph with real-time updates |
+| **Feed Sorting** | Newest, most reactions, most replies, or "hot" algorithm |
 | **Posts** | Rich content with images, video, audio, and PDFs |
+| **Link Previews** | OpenGraph metadata for shared URLs |
 | **Threads** | Full conversation views with nested replies and edit chain resolution |
 | **Reactions** | Express yourself (👍 ❤️ 🔥 😂 😮 🙏) |
+| **Trust Requests** | Consent-based following with encrypted requests |
 | **Bookmarks** | Save posts locally (never leaves your browser) |
 | **Search** | Find posts and users across your network |
 | **Tags** | Organize trusted users into groups, filter feed by tag |
 | **Nicknames** | Set private names for users (only you see them) |
 | **Slides (DMs)** | End-to-end encrypted direct messages |
-| **Profiles** | Display name, bio, and avatar |
+| **Profiles** | Display name, bio, and avatar (embedded in posts) |
 | **QR Codes** | Share your public key easily |
+| **Notifications** | Badge counts for replies, mentions, and DMs |
 | **Offline Mode** | View cached content when disconnected |
+| **Owner Dashboard** | Invitation management and member moderation |
 
 ---
 
@@ -475,12 +531,12 @@ Full REST API for programmatic access:
 ### Feed & Posts
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/feed` | GET | Get personalized feed |
+| `/api/feed` | GET | Get personalized feed (supports `?sort=newest\|reactions\|replies\|hot`) |
 | `/api/feed/tag/:tag` | GET | Get posts from tagged users |
 | `/api/post` | POST | Create new post |
 | `/api/post/:id` | PUT | Edit post |
 | `/api/post/:id/retract` | POST | Retract post |
-| `/api/thread/:id` | GET | Get thread with replies |
+| `/api/thread/:id` | GET | Get thread with replies (resolves edit chains) |
 | `/api/search` | GET | Search posts |
 
 ### Reactions & Bookmarks
@@ -490,22 +546,38 @@ Full REST API for programmatic access:
 | `/api/unreact` | POST | Remove reaction |
 | `/api/bookmark` | POST | Save post |
 | `/api/unbookmark` | POST | Remove bookmark |
+| `/api/bookmarks` | GET | Get bookmarked posts |
 | `/api/mentions` | GET | Get posts mentioning you |
 
 ### Trust & Social Graph
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/trust` | POST | Trust a user |
+| `/api/trust` | POST | Trust a user (direct trust) |
+| `/api/trust/:publicKey` | DELETE | Revoke trust |
 | `/api/trusted` | GET | List trusted users |
+| `/api/reputation/:publicKey` | GET | Get reputation score |
 | `/api/mute` | POST | Mute user |
 | `/api/unmute` | POST | Unmute user |
-| `/api/tags` | GET/POST | Manage tags |
+| `/api/muted` | GET | List muted users |
+| `/api/tags` | GET/POST/DELETE | Manage user tags |
 | `/api/nickname` | POST | Set nickname |
+| `/api/nicknames` | GET | List all nicknames |
+
+### Trust Requests (Consent-Based)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/trust-request` | POST | Send trust request |
+| `/api/trust-requests/incoming` | GET | Get pending requests |
+| `/api/trust-requests/outgoing` | GET | Get sent requests |
+| `/api/trust-request/:id/accept` | POST | Accept request |
+| `/api/trust-request/:id/reject` | POST | Reject request (silent) |
+| `/api/trust-request/:id` | DELETE | Withdraw request |
+| `/api/trust-request/:id/retry` | POST | Retry ghosted request |
 
 ### Slides (DMs)
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/slide` | POST | Send encrypted message |
+| `/api/slides` | POST | Send encrypted message |
 | `/api/slides` | GET | Get inbox |
 
 ### Media
@@ -515,20 +587,88 @@ Full REST API for programmatic access:
 | `/api/media/:cid` | GET | Fetch media by CID |
 | `/api/media/post/:postId` | GET | Fetch media for post |
 
+### Link Previews
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/opengraph/fetch` | GET | Fetch OpenGraph metadata for URL |
+
 ### Identity & Settings
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/identity` | GET | Get current identity |
+| `/api/identity/current` | GET | Get current identity details |
+| `/api/identities` | GET | List all identities |
+| `/api/identities` | POST | Create new identity |
+| `/api/identities/switch` | POST | Switch default identity |
+| `/api/identities/:name/export` | GET | Export identity secret key |
+| `/api/identities/import` | POST | Import identity from secret key |
 | `/api/profile` | POST | Update profile |
 | `/api/settings` | GET/POST | Manage settings |
-| `/api/data/export` | GET | Export backup |
+| `/api/data/export` | GET | Export encrypted backup |
 | `/api/data/import` | POST | Import backup |
 
 ### Real-Time
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/live` | GET (SSE) | Real-time event stream |
+| `/api/live/status` | GET | Connected client count |
 | `/api/notifications/counts` | GET | Notification badges |
+| `/api/notifications/replies` | GET | Get replies to my posts |
+| `/api/notifications/mark-seen` | POST | Mark notifications as seen |
+
+### Admin (Instance Owner)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/admin/members` | GET | List members with quota |
+| `/api/admin/quota/grant` | POST | Grant invitation quota |
+| `/api/admin/invitations` | GET | List all invitations |
+| `/api/admin/invitations` | POST | Create invitations (bypass quota) |
+| `/api/admin/stats` | GET | Freebird statistics |
+| `/api/admin/users` | GET | List all Freebird users |
+| `/api/admin/users/ban` | POST | Ban a user |
+| `/api/admin/user-lookup` | GET | Lookup user by public key |
+| `/api/invitations/quota` | GET | Get my quota status |
+| `/api/invitations/mine` | GET | List my created invitations |
+| `/api/invitations/create` | POST | Create invitation (uses quota) |
+
+---
+
+## Instance Administration
+
+When you deploy a Clout instance, you become the **instance owner**—responsible for onboarding members and maintaining community health.
+
+### Owner Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| **Create Invitations** | Generate invitation codes without quota limits |
+| **Grant Quota** | Allow trusted members to invite others |
+| **User Lookup** | Find which invitation code a user redeemed |
+| **Ban Users** | Remove bad actors (optionally including their invite tree) |
+| **View Statistics** | Monitor Freebird token usage and member counts |
+
+### Invitation Quota System
+
+Members can invite others—but only if the owner grants them quota:
+
+```
+1. Owner grants quota to Alice (5 invitations)
+2. Alice creates invitation code
+3. Bob redeems code → joins network
+4. Alice's quota decreases (4 remaining)
+5. Owner can trace: Bob → Alice → Owner
+```
+
+This creates an **accountability chain**: every member can be traced back through their invitation path. Bad actors can be banned along with everyone they invited.
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `CLOUT_AUTH` | Require authentication | `false` |
+| `FREEBIRD_ADMIN_KEY` | Admin API key for Freebird | (required for admin) |
+| `FREEBIRD_SYBIL_MODE` | `invitation` or `pow` | `invitation` |
+| `WITNESS_NETWORK_ID` | Witness cluster ID | `clout-testnet` |
 
 ---
 
