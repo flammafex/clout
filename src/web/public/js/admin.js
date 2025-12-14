@@ -36,10 +36,10 @@ export async function grantQuota() {
   }
 
   try {
-    const result = await apiCall('/admin/quota/grant', 'POST', { publicKey, amount });
+    const data = await apiCall('/admin/quota/grant', 'POST', { publicKey, amount });
 
-    resultEl.innerHTML = `Granted ${amount} invitations to <code>${result.data.publicKeyShort}...</code><br>` +
-      `Total quota: ${result.data.quota}, Used: ${result.data.used}, Remaining: ${result.data.remaining}`;
+    resultEl.innerHTML = `Granted ${amount} invitations to <code>${data.publicKeyShort}...</code><br>` +
+      `Total quota: ${data.quota}, Used: ${data.used}, Remaining: ${data.remaining}`;
     resultEl.className = 'result-message success';
 
     // Clear the input and refresh member list
@@ -58,14 +58,14 @@ export async function loadMembersWithQuota() {
   const listEl = $('members-quota-list');
 
   try {
-    const result = await apiCall('/admin/members');
+    const data = await apiCall('/admin/members');
 
-    if (!result.data || result.data.count === 0) {
+    if (!data || data.count === 0) {
       listEl.innerHTML = '<p class="empty-state">No members with quota yet. Grant quota to members above.</p>';
       return;
     }
 
-    const membersHtml = result.data.members.map(member => `
+    const membersHtml = data.members.map(member => `
       <div class="member-item">
         <div class="member-info">
           <span class="member-name">${escapeHtml(member.displayName || 'Anonymous')}</span>
@@ -110,13 +110,13 @@ export async function createAdminInvitations() {
     resultEl.textContent = 'Creating invitations...';
     resultEl.className = 'result-message';
 
-    const result = await apiCall('/admin/invitations', 'POST', { count, expiresInDays });
+    const data = await apiCall('/admin/invitations', 'POST', { count, expiresInDays });
 
-    resultEl.textContent = `Created ${result.data.count} invitation(s)`;
+    resultEl.textContent = `Created ${data.count} invitation(s)`;
     resultEl.className = 'result-message success';
 
     // Display the codes
-    codesList.innerHTML = result.data.codes.map(code => `
+    codesList.innerHTML = data.codes.map(code => `
       <div class="code-item">
         <code>${escapeHtml(code)}</code>
         <button class="btn btn-tiny" onclick="window.cloutApp.copySingleCode('${code}')">Copy</button>
@@ -125,7 +125,7 @@ export async function createAdminInvitations() {
     codesDisplay.style.display = 'block';
 
     // Store codes for copy all
-    window._createdCodes = result.data.codes;
+    window._createdCodes = data.codes;
 
     // Refresh invitations list
     await loadAllInvitations();
@@ -158,14 +158,14 @@ export async function loadAllInvitations() {
   const listEl = $('all-invitations-list');
 
   try {
-    const result = await apiCall('/admin/invitations');
+    const data = await apiCall('/admin/invitations');
 
-    if (!result.data || result.data.count === 0) {
+    if (!data || data.count === 0) {
       listEl.innerHTML = '<p class="empty-state">No invitations created yet.</p>';
       return;
     }
 
-    const invitationsHtml = result.data.invitations.map(inv => {
+    const invitationsHtml = data.invitations.map(inv => {
       const statusClass = inv.redeemed ? 'redeemed' : (inv.isExpired ? 'expired' : 'active');
       const statusText = inv.redeemed ? 'Redeemed' : (inv.isExpired ? 'Expired' : 'Active');
 
@@ -199,13 +199,13 @@ export async function loadAllInvitations() {
  */
 export async function loadMyInvitationStatus() {
   try {
-    const result = await apiCall('/invitations/quota');
+    const data = await apiCall('/invitations/quota');
 
-    if (!result.data) {
+    if (!data) {
       return { hasQuota: false };
     }
 
-    const { quotaRemaining, quotaTotal } = result.data;
+    const { quotaRemaining, quotaTotal } = data;
 
     // Update UI
     $('my-quota-remaining').textContent = quotaRemaining;
@@ -231,14 +231,14 @@ export async function loadMyInvitations() {
   const listEl = $('my-invitations-list');
 
   try {
-    const result = await apiCall('/invitations/mine');
+    const data = await apiCall('/invitations/mine');
 
-    if (!result.data || result.data.count === 0) {
+    if (!data || data.count === 0) {
       listEl.innerHTML = '<p class="empty-state">You haven\'t created any invitations yet.</p>';
       return;
     }
 
-    const invitationsHtml = result.data.invitations.map(inv => {
+    const invitationsHtml = data.invitations.map(inv => {
       const statusClass = inv.redeemed ? 'redeemed' : (inv.isExpired ? 'expired' : 'active');
       const statusText = inv.redeemed ? 'Redeemed' : (inv.isExpired ? 'Expired' : 'Active');
 
@@ -275,14 +275,14 @@ export async function createMemberInvitation() {
     resultEl.className = 'result-message';
     codeDisplay.style.display = 'none';
 
-    const result = await apiCall('/invitations/create', 'POST', { expiresInDays: 30 });
+    const data = await apiCall('/invitations/create', 'POST', { expiresInDays: 30 });
 
     resultEl.textContent = '';
-    codeEl.textContent = result.data.code;
+    codeEl.textContent = data.code;
     codeDisplay.style.display = 'block';
 
     // Update quota display
-    const remaining = result.data.quotaRemaining;
+    const remaining = data.quotaRemaining;
     $('my-quota-remaining').textContent = remaining === 'unlimited' ? '∞' : remaining;
 
     // Refresh invitations list
@@ -314,14 +314,14 @@ export async function loadAllUsers() {
   try {
     listEl.innerHTML = '<p class="empty-state">Loading users...</p>';
 
-    const result = await apiCall('/admin/users');
+    const data = await apiCall('/admin/users');
 
-    if (!result.data || result.data.count === 0) {
+    if (!data || data.count === 0) {
       listEl.innerHTML = '<p class="empty-state">No users found.</p>';
       return;
     }
 
-    const usersHtml = result.data.users.map(user => {
+    const usersHtml = data.users.map(user => {
       const statusClass = user.is_banned ? 'banned' : 'active';
       const statusText = user.is_banned ? 'Banned' : 'Active';
 
@@ -377,10 +377,10 @@ export async function banUser() {
   }
 
   try {
-    const result = await apiCall('/admin/users/ban', 'POST', { publicKey, banTree });
+    const data = await apiCall('/admin/users/ban', 'POST', { publicKey, banTree });
 
-    resultEl.innerHTML = `Banned <code>${result.data.publicKeyShort}...</code>` +
-      (result.data.bannedCount > 1 ? ` (${result.data.bannedCount} users total including invite tree)` : '');
+    resultEl.innerHTML = `Banned <code>${data.publicKeyShort}...</code>` +
+      (data.bannedCount > 1 ? ` (${data.bannedCount} users total including invite tree)` : '');
     resultEl.className = 'result-message success';
 
     // Clear the input and refresh user list
