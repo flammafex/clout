@@ -13,7 +13,10 @@
  */
 
 const DB_NAME = 'clout-user-data';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
+
+// Ghost timeout for pending trust requests (7 days in ms)
+const TRUST_REQUEST_GHOST_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
 
 // Default reaction palette - 6 quick-access emojis
 const DEFAULT_REACTION_PALETTE = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
@@ -73,6 +76,22 @@ async function openDatabase() {
       // Store for user preferences (reaction palette, etc.)
       if (!db.objectStoreNames.contains('preferences')) {
         db.createObjectStore('preferences', { keyPath: 'key' });
+      }
+
+      // Store for outgoing trust requests (requests I've sent)
+      if (!db.objectStoreNames.contains('trust_requests_outgoing')) {
+        const outgoingStore = db.createObjectStore('trust_requests_outgoing', { keyPath: 'id' });
+        outgoingStore.createIndex('by_recipient', 'recipient');
+        outgoingStore.createIndex('by_status', 'status');
+        outgoingStore.createIndex('by_createdAt', 'createdAt');
+      }
+
+      // Store for incoming trust requests (requests I've received)
+      if (!db.objectStoreNames.contains('trust_requests_incoming')) {
+        const incomingStore = db.createObjectStore('trust_requests_incoming', { keyPath: 'id' });
+        incomingStore.createIndex('by_requester', 'requester');
+        incomingStore.createIndex('by_status', 'status');
+        incomingStore.createIndex('by_createdAt', 'createdAt');
       }
     };
   });
@@ -221,6 +240,324 @@ export class BrowserUserData {
       const request = store.get(trustedKey);
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  // =========================================================================
+  //  TRUST REQUESTS (Consent-based trust)
+  // =========================================================================
+
+  /**
+   * Create an outgoing trust request
+   */
+  async createTrustRequest(recipient, weight = 1.0, message = null) {
+    const db = await this.ensureDb();
+    const now = Date.now();
+    const id = `${window.browserIdentity?.publicKeyHex || 'unknown'}-${recipient}-${now}`;
+
+    const request = {
+      id,
+      recipient,
+      weight: Math.max(0.1, Math.min(1.0, weight)),
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      retryCount: 0,
+      message
+    };
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_outgoing', 'readwrite');
+      const store = tx.objectStore('trust_requests_outgoing');
+      const putReq = store.put(request);
+      putReq.onsuccess = () => {
+        console.log(`[BrowserUserData] Created trust request to ${recipient.slice(0, 12)}...`);
+        resolve(request);
+      };
+      putReq.onerror = () => reject(putReq.error);
+    });
+  }
+
+  /**
+   * Store an incoming trust request
+   */
+  async storeIncomingTrustRequest(requestData) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_incoming', 'readwrite');
+      const store = tx.objectStore('trust_requests_incoming');
+      const request = store.put({
+        ...requestData,
+        receivedAt: Date.now()
+      });
+      request.onsuccess = () => {
+        console.log(`[BrowserUserData] Stored incoming request from ${requestData.requester.slice(0, 12)}...`);
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get all outgoing trust requests
+   * Automatically updates status to 'ghosted' for requests older than 7 days
+   */
+  async getOutgoingTrustRequests() {
+    const db = await this.ensureDb();
+    const now = Date.now();
+
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_outgoing', 'readwrite');
+      const store = tx.objectStore('trust_requests_outgoing');
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        const requests = request.result || [];
+        const updated = [];
+
+        for (const req of requests) {
+          // Auto-ghost after 7 days if still pending
+          if (req.status === 'pending' && (now - req.createdAt) > TRUST_REQUEST_GHOST_TIMEOUT) {
+            req.status = 'ghosted';
+            req.updatedAt = now;
+            store.put(req);
+          }
+          updated.push(req);
+        }
+
+        resolve(updated);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get all incoming trust requests (pending only by default)
+   */
+  async getIncomingTrustRequests(includeAll = false) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_incoming', 'readonly');
+      const store = tx.objectStore('trust_requests_incoming');
+      const request = store.getAll();
+
+      request.onsuccess = () => {
+        let requests = request.result || [];
+        if (!includeAll) {
+          requests = requests.filter(r => r.status === 'pending');
+        }
+        resolve(requests);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get pending incoming request count (for badge)
+   */
+  async getPendingIncomingCount() {
+    const requests = await this.getIncomingTrustRequests(false);
+    return requests.length;
+  }
+
+  /**
+   * Get pending outgoing count (for enforcing limit)
+   */
+  async getPendingOutgoingCount() {
+    const requests = await this.getOutgoingTrustRequests();
+    return requests.filter(r => r.status === 'pending' || r.status === 'ghosted').length;
+  }
+
+  /**
+   * Check if a request to this recipient already exists
+   */
+  async hasOutgoingRequestTo(recipient) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_outgoing', 'readonly');
+      const store = tx.objectStore('trust_requests_outgoing');
+      const index = store.index('by_recipient');
+      const request = index.getAll(IDBKeyRange.only(recipient));
+
+      request.onsuccess = () => {
+        const existing = (request.result || []).find(r =>
+          r.status === 'pending' || r.status === 'ghosted'
+        );
+        resolve(existing || null);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Check if we've been rejected by this recipient (blocks re-request for 30 days)
+   */
+  async isBlockedFromRequesting(recipient) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_outgoing', 'readonly');
+      const store = tx.objectStore('trust_requests_outgoing');
+      const index = store.index('by_recipient');
+      const request = index.getAll(IDBKeyRange.only(recipient));
+
+      request.onsuccess = () => {
+        const rejected = (request.result || []).find(r => r.status === 'rejected');
+        if (!rejected) {
+          resolve(false);
+          return;
+        }
+        // Check if 30-day block period has passed
+        const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+        const blockedUntil = rejected.updatedAt + thirtyDays;
+        resolve(Date.now() < blockedUntil);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Accept an incoming trust request
+   */
+  async acceptTrustRequest(requestId) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_incoming', 'readwrite');
+      const store = tx.objectStore('trust_requests_incoming');
+      const getReq = store.get(requestId);
+
+      getReq.onsuccess = () => {
+        const request = getReq.result;
+        if (!request) {
+          reject(new Error('Request not found'));
+          return;
+        }
+
+        request.status = 'accepted';
+        request.updatedAt = Date.now();
+        const putReq = store.put(request);
+
+        putReq.onsuccess = () => {
+          console.log(`[BrowserUserData] Accepted trust request ${requestId}`);
+          resolve(request);
+        };
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  }
+
+  /**
+   * Reject an incoming trust request (silently - requester sees it as pending/ghosted)
+   */
+  async rejectTrustRequest(requestId) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_incoming', 'readwrite');
+      const store = tx.objectStore('trust_requests_incoming');
+      const getReq = store.get(requestId);
+
+      getReq.onsuccess = () => {
+        const request = getReq.result;
+        if (!request) {
+          reject(new Error('Request not found'));
+          return;
+        }
+
+        request.status = 'rejected';
+        request.updatedAt = Date.now();
+        const putReq = store.put(request);
+
+        putReq.onsuccess = () => {
+          console.log(`[BrowserUserData] Rejected trust request ${requestId}`);
+          resolve(request);
+        };
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
+    });
+  }
+
+  /**
+   * Withdraw an outgoing trust request
+   */
+  async withdrawTrustRequest(requestId) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_outgoing', 'readwrite');
+      const store = tx.objectStore('trust_requests_outgoing');
+      const request = store.delete(requestId);
+      request.onsuccess = () => {
+        console.log(`[BrowserUserData] Withdrew trust request ${requestId}`);
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Update outgoing request status (called when we get a response)
+   */
+  async updateOutgoingRequestStatus(recipient, status) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_outgoing', 'readwrite');
+      const store = tx.objectStore('trust_requests_outgoing');
+      const index = store.index('by_recipient');
+      const request = index.getAll(IDBKeyRange.only(recipient));
+
+      request.onsuccess = () => {
+        const existing = (request.result || []).find(r =>
+          r.status === 'pending' || r.status === 'ghosted'
+        );
+        if (existing) {
+          existing.status = status;
+          existing.updatedAt = Date.now();
+          store.put(existing);
+        }
+        resolve();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Retry a ghosted request (allowed once)
+   */
+  async retryTrustRequest(requestId) {
+    const db = await this.ensureDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('trust_requests_outgoing', 'readwrite');
+      const store = tx.objectStore('trust_requests_outgoing');
+      const getReq = store.get(requestId);
+
+      getReq.onsuccess = () => {
+        const request = getReq.result;
+        if (!request) {
+          reject(new Error('Request not found'));
+          return;
+        }
+        if (request.status !== 'ghosted') {
+          reject(new Error('Can only retry ghosted requests'));
+          return;
+        }
+        if (request.retryCount >= 1) {
+          reject(new Error('Maximum retries exceeded'));
+          return;
+        }
+
+        request.status = 'pending';
+        request.createdAt = Date.now(); // Reset the clock
+        request.updatedAt = Date.now();
+        request.retryCount += 1;
+        const putReq = store.put(request);
+
+        putReq.onsuccess = () => {
+          console.log(`[BrowserUserData] Retried trust request ${requestId}`);
+          resolve(request);
+        };
+        putReq.onerror = () => reject(putReq.error);
+      };
+      getReq.onerror = () => reject(getReq.error);
     });
   }
 
@@ -728,7 +1065,7 @@ export class BrowserUserData {
 
   async clearAll() {
     const db = await this.ensureDb();
-    const stores = ['profile', 'trust', 'nicknames', 'tags', 'muted', 'bookmarks', 'notifications', 'preferences'];
+    const stores = ['profile', 'trust', 'nicknames', 'tags', 'muted', 'bookmarks', 'notifications', 'preferences', 'trust_requests_outgoing', 'trust_requests_incoming'];
 
     for (const storeName of stores) {
       await new Promise((resolve, reject) => {

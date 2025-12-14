@@ -213,16 +213,9 @@ export class CloutIdentity {
       return false;
     }
 
-    // Check auto-follow-back setting
-    if (this.profile.trustSettings.autoFollowBack) {
-      // Only auto-follow if not already trusting
-      if (!this.profile.trustGraph.has(signal.truster)) {
-        console.log(`[Identity] Auto-following back ${signal.truster.slice(0, 8)}`);
-        this.trust(signal.truster);
-        return true;
-      }
-    }
-
+    // Trust requests now require consent - no auto-follow-back
+    // The incoming trust signal creates a pending request that must be accepted
+    console.log(`[Identity] ${signal.truster.slice(0, 8)} sent a trust request - requires acceptance`);
     return false;
   }
 

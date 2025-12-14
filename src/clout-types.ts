@@ -73,14 +73,11 @@ export interface ContentTypeFilter {
  * Trust settings - Configurable trust behavior
  */
 export interface TrustSettings {
-  /** When someone trusts you, automatically trust them back */
-  readonly autoFollowBack: boolean;
-
   /** When you invite someone, automatically create mutual trust */
   readonly autoMutualOnInvite: boolean;
 
-  /** Require approval before accepting trust from others */
-  readonly requireApproval: boolean;
+  /** Maximum pending outgoing trust requests (default: 20) */
+  readonly maxPendingOutgoing: number;
 
   /** Maximum trust distance to display in feed (1-3) - default for all content */
   readonly maxHops: number;
@@ -117,9 +114,8 @@ export interface TrustSettings {
  * Default trust settings
  */
 export const DEFAULT_TRUST_SETTINGS: TrustSettings = {
-  autoFollowBack: false,        // One-way follows by default
   autoMutualOnInvite: true,     // Invitations create mutual trust
-  requireApproval: false,       // Accept trust signals automatically
+  maxPendingOutgoing: 20,       // Max 20 pending outgoing requests
   maxHops: 3,                   // Show up to 3 degrees
   minReputation: 0.3,           // Minimum score of 0.3
   showNsfw: false,              // Hide NSFW by default
@@ -374,6 +370,64 @@ export interface EncryptedTrustSignal {
 
   /** Signal version for future compatibility */
   readonly version: 'encrypted-v1';
+}
+
+/**
+ * TrustRequestStatus - The state of a trust request
+ *
+ * From requester's perspective:
+ * - pending: Waiting for response (0-7 days)
+ * - ghosted: No response after 7 days (visually faded, can retry once)
+ * - accepted: Trust established
+ *
+ * From recipient's perspective:
+ * - pending: Can Accept/Reject/Ignore
+ * - accepted: Trust established
+ * - rejected: Blocked from re-requesting (hidden from requester as "pending/ghosted")
+ */
+export type TrustRequestStatus = 'pending' | 'accepted' | 'rejected' | 'ghosted';
+
+/**
+ * TrustRequest - A request to establish a trust relationship
+ *
+ * Implements consent-based trust to prevent stalker exploitation.
+ * Alice sends a request, Bob must accept before trust is established.
+ *
+ * Privacy design:
+ * - Rejected requests appear as "pending" to requester (no signal of rejection)
+ * - After 7 days, pending requests become "ghosted" (faded visual)
+ * - Requests are private between requester and recipient (not visible to others)
+ */
+export interface TrustRequest {
+  /** Unique request ID (hash of requester + recipient + timestamp) */
+  readonly id: string;
+
+  /** Who is requesting to trust */
+  readonly requester: string;
+
+  /** Who is being requested to be trusted */
+  readonly recipient: string;
+
+  /** Requested trust weight (0.1-1.0, default 1.0) */
+  readonly weight: number;
+
+  /** When the request was created */
+  readonly createdAt: number;
+
+  /** Current status of the request */
+  readonly status: TrustRequestStatus;
+
+  /** When the status was last updated */
+  readonly updatedAt: number;
+
+  /** Number of times requester has re-requested after ghosting (max 1) */
+  readonly retryCount: number;
+
+  /** Signature from requester over { recipient, weight, createdAt } */
+  readonly signature: Uint8Array;
+
+  /** Optional: Message from requester to recipient */
+  readonly message?: string;
 }
 
 /**

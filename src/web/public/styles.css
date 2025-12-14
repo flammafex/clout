@@ -3619,3 +3619,171 @@ body.offline .btn-action::after {
   color: var(--text-dim);
   font-size: 0.9rem;
 }
+
+/* =========================================================================
+   TRUST REQUESTS (Consent-based trust)
+   ========================================================================= */
+
+.trust-requests-card {
+  margin-bottom: 1rem;
+}
+
+.trust-requests-section {
+  margin-bottom: 1.5rem;
+}
+
+.trust-requests-section h4 {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  margin-bottom: 0.75rem;
+  font-weight: 500;
+}
+
+.trust-requests-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.trust-request-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.trust-request-card.incoming {
+  border-left: 3px solid var(--accent);
+}
+
+.trust-request-card.outgoing {
+  border-left: 3px solid var(--text-dim);
+}
+
+.trust-request-card.ghosted {
+  opacity: 0.5;
+  border-left-color: var(--text-dim);
+}
+
+.trust-request-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.trust-request-name {
+  font-weight: 500;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.trust-request-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.trust-request-time {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.trust-request-message {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.trust-request-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Trust request badges */
+.pending-badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.ghost-badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: rgba(107, 114, 128, 0.2);
+  color: #6b7280;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+/* Trust request action buttons */
+.btn-accept {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid #10b981;
+}
+
+.btn-accept:hover {
+  background: rgba(16, 185, 129, 0.3);
+}
+
+.btn-reject {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid #ef4444;
+}
+
+.btn-reject:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.btn-withdraw {
+  background: rgba(107, 114, 128, 0.2);
+  color: #6b7280;
+  border: 1px solid #6b7280;
+}
+
+.btn-withdraw:hover {
+  background: rgba(107, 114, 128, 0.3);
+}
+
+.btn-retry {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  border: 1px solid #3b82f6;
+}
+
+.btn-retry:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+/* Empty state for requests */
+.empty-state-small {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* Badge for notification count */
+.badge-notification {
+  background: var(--accent);
+  color: white;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  vertical-align: middle;
+  margin-left: 0.5rem;
+}

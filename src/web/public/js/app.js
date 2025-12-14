@@ -31,7 +31,8 @@ import {
 import { viewThread } from './thread.js';
 import {
   loadTrustedUsers, trustUser, quickTrust, muteUser, unmuteUser,
-  editNickname, updateTrustWeightDisplay
+  editNickname, updateTrustWeightDisplay, loadTrustRequests, sendTrustRequest,
+  acceptTrustRequest, rejectTrustRequest, withdrawTrustRequest, retryTrustRequest
 } from './trust.js';
 import { sendSlide, loadSlides, startSlideReply } from './slides.js';
 import {
@@ -85,7 +86,7 @@ function setupTabs() {
       if (tab === 'feed') loadFeed();
       if (tab === 'slides') loadSlides();
       if (tab === 'settings') loadSettings();
-      if (tab === 'trust') { loadTrustedUsers(); loadStats(); loadSettings(); }
+      if (tab === 'trust') { loadTrustedUsers(); loadTrustRequests(); loadStats(); loadSettings(); }
       if (tab === 'profile') { loadProfile(); loadIdentity(); }
       if (tab === 'owner') { loadOwnerInfo(); }
     });
@@ -682,6 +683,14 @@ window.cloutApp = {
   unmuteUser,
   editNickname,
 
+  // Trust Requests (consent-based trust)
+  sendTrustRequest: () => sendTrustRequest(requireMembership),
+  acceptTrustRequest,
+  rejectTrustRequest,
+  withdrawTrustRequest,
+  retryTrustRequest,
+  loadTrustRequests,
+
   // Slides
   sendSlide: () => sendSlide(requireMembership),
   loadSlides,
@@ -763,7 +772,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Event listeners
   $('init-btn').addEventListener('click', initializeClout);
   $('create-post-btn').addEventListener('click', () => createPost(requireMembership, showInvitePopover));
-  $('trust-btn').addEventListener('click', () => trustUser(requireMembership));
+  $('trust-btn').addEventListener('click', () => sendTrustRequest(requireMembership));
   $('refresh-feed-btn').addEventListener('click', loadFeed);
   $('send-slide-btn').addEventListener('click', () => sendSlide(requireMembership));
   $('refresh-slides-btn').addEventListener('click', loadSlides);

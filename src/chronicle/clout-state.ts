@@ -61,9 +61,8 @@ const INITIAL_STATE: CloutState = {
     publicKey: '',
     trustGraph: new Set(),
     trustSettings: {
-        autoFollowBack: false,
         autoMutualOnInvite: true,
-        requireApproval: false,
+        maxPendingOutgoing: 20,
         maxHops: 3,
         minReputation: 0.3
     }

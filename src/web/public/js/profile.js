@@ -267,8 +267,6 @@ export async function loadSettings() {
     $('media-filter-videos-hops').value = videoHops;
     $('media-filter-audio-hops').value = audioHops;
 
-    $('settings-auto-follow-back').checked = data.trustSettings?.autoFollowBack || false;
-
     await loadTags();
   } catch (error) {
     console.error('Error loading settings:', error);
@@ -289,8 +287,7 @@ export async function saveSettings(requireMembership) {
     const settings = {
       showNsfw,
       maxHops: parseInt($('settings-max-hops').value),
-      minReputation: parseInt($('settings-min-reputation').value) / 100,
-      autoFollowBack: $('settings-auto-follow-back').checked
+      minReputation: parseInt($('settings-min-reputation').value) / 100
     };
 
     if (window.CloutUserData && window.userPublicKey) {
