@@ -737,12 +737,7 @@ function renderLinkPreviewCard(link, expired = false) {
     }
   })();
 
-  // Use img tag with error handling - hides if image fails to load (blocked by CORS/hotlinking)
-  const imageHtml = link.image
-    ? `<div class="post-link-preview-image"><img src="${escapeHtml(link.image)}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'" onload="this.parentElement.classList.add('loaded')"></div>`
-    : '';
-
-  return `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-preview" onclick="event.stopPropagation();">${imageHtml}<div class="post-link-preview-content"><div class="post-link-preview-site">${escapeHtml(link.siteName || hostname)}</div><div class="post-link-preview-title">${escapeHtml(link.title || 'Untitled')}</div>${link.description ? `<div class="post-link-preview-description">${escapeHtml(link.description)}</div>` : ''}<div class="post-link-preview-url">${escapeHtml(hostname)}</div></div></a>`;
+  return `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-preview" onclick="event.stopPropagation();"><div class="post-link-preview-content"><div class="post-link-preview-site">${escapeHtml(link.siteName || hostname)}</div><div class="post-link-preview-title">${escapeHtml(link.title || 'Untitled')}</div>${link.description ? `<div class="post-link-preview-description">${escapeHtml(link.description)}</div>` : ''}<div class="post-link-preview-url">${escapeHtml(hostname)}</div></div></a>`;
 }
 
 /**
@@ -810,11 +805,8 @@ export function renderPostContent(post) {
 
   // Handle link previews
   if (post.link && post.link.url) {
-    console.log('[Feed] Rendering link preview for post:', post.id, post.link);
     const expired = isLinkPreviewExpired(post.link);
     return content.trim() + renderLinkPreviewCard(post.link, expired);
-  } else if (post.link) {
-    console.log('[Feed] Post has link but no URL:', post.id, post.link);
   }
 
   return content;

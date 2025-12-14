@@ -622,14 +622,8 @@ function showLinkPreview(data) {
   const titleDiv = $('link-preview-title');
   const descDiv = $('link-preview-description');
 
-  // Set image if available
-  if (data.image) {
-    imageDiv.style.backgroundImage = `url(${data.image})`;
-    imageDiv.style.display = 'block';
-  } else {
-    imageDiv.style.backgroundImage = '';
-    imageDiv.style.display = 'none';
-  }
+  // Images not used - hide the div
+  if (imageDiv) imageDiv.style.display = 'none';
 
   // Set text content
   siteDiv.textContent = data.siteName || new URL(data.url).hostname;
