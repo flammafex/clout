@@ -770,14 +770,9 @@ export async function importBrowserIdentity() {
     const identity = await window.CloutIdentity.importFromFile(file, password);
     await window.CloutIdentity.store(identity);
 
-    // Save profile data if included in backup (v2 format)
-    if (identity.profile && window.CloutUserData) {
-      await window.CloutUserData.saveProfile({
-        publicKey: identity.publicKeyHex,
-        displayName: identity.profile.displayName,
-        avatar: identity.profile.avatar,
-        bio: identity.profile.bio
-      });
+    // Restore all user data
+    if (identity.userData && window.CloutUserData) {
+      await window.CloutUserData.importAll(identity.userData);
     }
 
     showResult('browser-identity-result', 'Identity restored! Reloading...', true);
