@@ -432,15 +432,13 @@ export async function lookupUser() {
     resultEl.textContent = 'Looking up user...';
     resultEl.className = 'result-message';
 
-    const result = await apiCall(`/admin/user-lookup?publicKey=${publicKey}`);
+    const data = await apiCall(`/admin/user-lookup?publicKey=${publicKey}`);
 
-    if (!result.data) {
+    if (!data) {
       resultEl.textContent = 'Lookup failed';
       resultEl.className = 'result-message error';
       return;
     }
-
-    const data = result.data;
 
     if (!data.invitationCode) {
       resultEl.innerHTML = `
