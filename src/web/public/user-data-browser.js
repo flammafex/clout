@@ -249,14 +249,22 @@ export class BrowserUserData {
 
   /**
    * Create an outgoing trust request
+   * Includes requester's profile info so recipient knows who's asking
    */
   async createTrustRequest(recipient, weight = 1.0, message = null) {
     const db = await this.ensureDb();
     const now = Date.now();
-    const id = `${window.browserIdentity?.publicKeyHex || 'unknown'}-${recipient}-${now}`;
+    const requester = window.browserIdentity?.publicKeyHex || 'unknown';
+    const id = `${requester}-${recipient}-${now}`;
+
+    // Get requester's profile info to attach to the request
+    const myProfile = await this.getProfile(requester);
 
     const request = {
       id,
+      requester,
+      requesterDisplayName: myProfile?.displayName || null,
+      requesterAvatar: myProfile?.avatar || null,
       recipient,
       weight: Math.max(0.1, Math.min(1.0, weight)),
       status: 'pending',

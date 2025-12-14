@@ -3647,12 +3647,30 @@ body.offline .btn-action::after {
 
 .trust-request-card {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 0.75rem;
   padding: 0.75rem 1rem;
   background: var(--bg);
   border-radius: 8px;
   border: 1px solid var(--border);
+}
+
+.trust-request-avatar {
+  font-size: 1.5rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.trust-request-key {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-dim);
 }
 
 .trust-request-card.incoming {

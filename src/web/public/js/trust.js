@@ -399,13 +399,17 @@ export async function loadTrustRequests() {
 function renderIncomingRequest(request) {
   const timeAgo = formatTimeAgo(request.createdAt);
   const requesterShort = request.requester.slice(0, 12);
+  const displayName = request.requesterDisplayName || requesterShort + '...';
+  const avatar = request.requesterAvatar || '👤';
 
   return `
     <div class="trust-request-card incoming">
+      <div class="trust-request-avatar">${avatar}</div>
       <div class="trust-request-info">
         <div class="trust-request-name" title="${escapeHtml(request.requester)}">
-          ${escapeHtml(request.requesterDisplayName || requesterShort + '...')}
+          ${escapeHtml(displayName)}
         </div>
+        <div class="trust-request-key">${requesterShort}...</div>
         <div class="trust-request-meta">
           <span class="trust-request-time">${timeAgo}</span>
           ${request.message ? `<span class="trust-request-message">"${escapeHtml(request.message)}"</span>` : ''}
