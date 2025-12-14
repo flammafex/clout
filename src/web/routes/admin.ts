@@ -15,10 +15,11 @@
  */
 
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import type { Clout } from '../../clout.js';
-import { Crypto } from '../../crypto.js';
 import { createFreebirdAdminFromEnv, type FreebirdAdmin } from '../../integrations/freebird-admin.js';
 import type { FileSystemStore, MemberQuotaEntry, CreatedInvitation } from '../../store/file-store.js';
+import { validatePublicKey, getBrowserUserPublicKey, getErrorMessage } from './validation.js';
 
 export interface AdminRoutesConfig {
   getClout: () => Clout | undefined;
@@ -39,45 +40,6 @@ function isOwner(browserUserPublicKey: string | undefined, ownerPublicKey: strin
   return browserUserPublicKey === ownerPublicKey;
 }
 
-/**
- * Extract the browser user's public key from request
- * Accepts from: X-User-PublicKey header or publicKey/userPublicKey body/query param
- */
-function getBrowserUserPublicKey(req: any): string | undefined {
-  // Try header first (preferred for GET requests)
-  const headerKey = req.headers['x-user-publickey'];
-  if (headerKey && typeof headerKey === 'string' && headerKey.length === 64) {
-    return headerKey;
-  }
-
-  // Try query param
-  const queryKey = req.query?.userPublicKey;
-  if (queryKey && typeof queryKey === 'string' && queryKey.length === 64) {
-    return queryKey;
-  }
-
-  // Try body (for POST requests)
-  const bodyKey = req.body?.userPublicKey;
-  if (bodyKey && typeof bodyKey === 'string' && bodyKey.length === 64) {
-    return bodyKey;
-  }
-
-  return undefined;
-}
-
-/**
- * Validate a public key
- */
-function validatePublicKey(publicKey: unknown, fieldName = 'publicKey'): string {
-  if (!publicKey || typeof publicKey !== 'string') {
-    throw new Error(`${fieldName} is required`);
-  }
-  if (!Crypto.isValidPublicKeyHex(publicKey)) {
-    throw new Error(`Invalid ${fieldName}: must be 64 hex characters (32 bytes)`);
-  }
-  return publicKey;
-}
-
 export function createAdminRoutes(config: AdminRoutesConfig): Router {
   const { getClout, isInitialized, getStore, getOwnerPublicKey, findBootstrapInvitationByRedeemer } = config;
   const router = Router();
@@ -95,7 +57,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * List all members with quota
    * GET /admin/members
    */
-  router.get('/admin/members', async (req, res) => {
+  router.get('/admin/members', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -131,8 +93,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           members
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -140,7 +102,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * Grant invitation quota to a member
    * POST /admin/quota/grant
    */
-  router.post('/admin/quota/grant', async (req, res) => {
+  router.post('/admin/quota/grant', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -193,8 +155,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           remaining: entry.quota - entry.used
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -202,7 +164,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * List all invitations (owner only)
    * GET /admin/invitations
    */
-  router.get('/admin/invitations', async (req, res) => {
+  router.get('/admin/invitations', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -239,8 +201,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           invitations: enriched
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -248,7 +210,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * Create invitations (owner only - bypasses quota)
    * POST /admin/invitations
    */
-  router.post('/admin/invitations', async (req, res) => {
+  router.post('/admin/invitations', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -309,8 +271,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           expiresAt
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -318,7 +280,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * Get Freebird stats (owner only)
    * GET /admin/stats
    */
-  router.get('/admin/stats', async (req, res) => {
+  router.get('/admin/stats', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -350,8 +312,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           adminUiUrl
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -359,7 +321,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * List all users from Freebird (owner only)
    * GET /admin/users
    */
-  router.get('/admin/users', async (req, res) => {
+  router.get('/admin/users', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -401,8 +363,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           users: enriched
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -410,7 +372,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * Ban a user (owner only)
    * POST /admin/users/ban
    */
-  router.post('/admin/users/ban', async (req, res) => {
+  router.post('/admin/users/ban', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -454,8 +416,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           banTree
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -463,7 +425,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * Lookup user by public key - find which invitation they used
    * GET /admin/user-lookup?publicKey=abc123
    */
-  router.get('/admin/user-lookup', async (req, res) => {
+  router.get('/admin/user-lookup', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -541,8 +503,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           message: 'User not found - may have joined before tracking was enabled, or is not a member'
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -555,7 +517,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * Get my quota status
    * GET /invitations/quota
    */
-  router.get('/invitations/quota', async (req, res) => {
+  router.get('/invitations/quota', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -579,8 +541,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           ...stats
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -588,7 +550,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * List invitations I've created
    * GET /invitations/mine
    */
-  router.get('/invitations/mine', async (req, res) => {
+  router.get('/invitations/mine', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -620,8 +582,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           invitations: enriched
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -629,7 +591,7 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
    * Create invitation using my quota
    * POST /invitations/create
    */
-  router.post('/invitations/create', async (req, res) => {
+  router.post('/invitations/create', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
@@ -707,8 +669,8 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           quotaRemaining: bypassQuota ? 'unlimited' : store.getRemainingQuota(browserUserKey)
         }
       });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(500).json({ success: false, error: getErrorMessage(error) });
     }
   });
 

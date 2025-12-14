@@ -20,39 +20,10 @@
  */
 
 import { Router } from 'express';
+import type { Request, Response } from 'express';
 import type { Clout } from '../../clout.js';
 import { Crypto } from '../../crypto.js';
-
-/**
- * Validate a hex-encoded public key
- */
-function validatePublicKey(publicKey: unknown, fieldName = 'publicKey'): string {
-  if (!publicKey || typeof publicKey !== 'string') {
-    throw new Error(`${fieldName} is required`);
-  }
-
-  if (!Crypto.isValidPublicKeyHex(publicKey)) {
-    throw new Error(`Invalid ${fieldName}: must be 64 hex characters (32 bytes)`);
-  }
-
-  return publicKey;
-}
-
-/**
- * Validate and convert a hex signature to Uint8Array
- */
-function validateSignature(signature: unknown, fieldName = 'signature'): Uint8Array {
-  if (!signature || typeof signature !== 'string') {
-    throw new Error(`${fieldName} is required`);
-  }
-
-  // Ed25519 signature is 64 bytes = 128 hex chars
-  if (signature.length !== 128 || !/^[0-9a-fA-F]+$/.test(signature)) {
-    throw new Error(`Invalid ${fieldName}: must be 128 hex characters (64 bytes)`);
-  }
-
-  return Crypto.fromHex(signature);
-}
+import { validatePublicKey, validateSignature, getErrorMessage } from './validation.js';
 
 export interface SubmitRoutesConfig {
   getClout: () => Clout | undefined;
@@ -88,7 +59,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    * and sends the signature along with the content. The server verifies
    * the signature and broadcasts the post to the gossip network.
    */
-  router.post('/post/submit', async (req, res) => {
+  router.post('/post/submit', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) {
         throw new Error('Server not initialized');
@@ -206,9 +177,9 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           ticketExpiry: ticket.expiry
         }
       });
-    } catch (error: any) {
-      console.error('[Submit] Post error:', error.message);
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      console.error('[Submit] Post error:', getErrorMessage(error));
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -223,7 +194,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    * is being trusted - only the commitment and encrypted data. This is the
    * foundation of the Dark Social Graph.
    */
-  router.post('/trust/submit', async (req, res) => {
+  router.post('/trust/submit', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) {
         throw new Error('Server not initialized');
@@ -300,9 +271,9 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           timestamp: proof.timestamp
         }
       });
-    } catch (error: any) {
-      console.error('[Submit] Trust signal error:', error.message);
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      console.error('[Submit] Trust signal error:', getErrorMessage(error));
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -315,7 +286,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    *
    * Note: This does NOT store any social graph information.
    */
-  router.post('/identity/register', async (req, res) => {
+  router.post('/identity/register', async (req: Request, res: Response) => {
     try {
       const { publicKey } = req.body;
       const validatedKey = validatePublicKey(publicKey);
@@ -330,8 +301,8 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           registered: true
         }
       });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -344,7 +315,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    * This is the ONLY per-user data the server stores - the proof that
    * they're allowed to post. It does not reveal any social connections.
    */
-  router.post('/daypass/mint', async (req, res) => {
+  router.post('/daypass/mint', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) {
         throw new Error('Server not initialized');
@@ -410,16 +381,16 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           timestamp: proof.timestamp
         }
       });
-    } catch (error: any) {
-      console.error('[Submit] Day Pass mint error:', error.message);
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      console.error('[Submit] Day Pass mint error:', getErrorMessage(error));
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
   /**
    * Get current Day Pass status for a user
    */
-  router.get('/daypass/status/:publicKey', async (req, res) => {
+  router.get('/daypass/status/:publicKey', async (req: Request, res: Response) => {
     try {
       const userKey = validatePublicKey(req.params.publicKey);
 
@@ -453,8 +424,8 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           remainingHours: Math.floor(remainingMs / (1000 * 60 * 60))
         }
       });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -467,7 +438,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    *
    * The server cannot read the message content - only the recipient can decrypt.
    */
-  router.post('/slide/submit', async (req, res) => {
+  router.post('/slide/submit', async (req: Request, res: Response) => {
     try {
       const {
         sender,
@@ -540,9 +511,9 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           timestamp: slide.timestamp
         }
       });
-    } catch (error: any) {
-      console.error('[Submit] Slide error:', error.message);
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      console.error('[Submit] Slide error:', getErrorMessage(error));
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -551,7 +522,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    *
    * Returns encrypted slides that the recipient can decrypt with their private key.
    */
-  router.get('/slides/:publicKey', async (req, res) => {
+  router.get('/slides/:publicKey', async (req: Request, res: Response) => {
     try {
       const recipientKey = validatePublicKey(req.params.publicKey);
 
@@ -567,8 +538,8 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           count: sortedSlides.length
         }
       });
-    } catch (error: any) {
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -579,7 +550,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    * proving they own the post. The server verifies the signature and removes
    * the post from the feed.
    */
-  router.post('/retract/submit', async (req, res) => {
+  router.post('/retract/submit', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) {
         throw new Error('Server not initialized');
@@ -671,9 +642,9 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           timestamp: retractionTimestamp
         }
       });
-    } catch (error: any) {
-      console.error('[Submit] Retraction error:', error.message);
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      console.error('[Submit] Retraction error:', getErrorMessage(error));
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
@@ -683,7 +654,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
    * Edit creates a new post with editOf reference to the original,
    * then retracts the original post with reason 'edited'.
    */
-  router.post('/edit/submit', async (req, res) => {
+  router.post('/edit/submit', async (req: Request, res: Response) => {
     try {
       if (!isInitialized()) {
         throw new Error('Server not initialized');
@@ -819,9 +790,9 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           timestamp: proof.timestamp
         }
       });
-    } catch (error: any) {
-      console.error('[Submit] Edit error:', error.message);
-      res.status(400).json({ success: false, error: error.message });
+    } catch (error) {
+      console.error('[Submit] Edit error:', getErrorMessage(error));
+      res.status(400).json({ success: false, error: getErrorMessage(error) });
     }
   });
 
