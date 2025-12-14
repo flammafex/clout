@@ -672,6 +672,11 @@ export class BrowserUserData {
       throw new Error('Invalid backup data');
     }
 
+    // Import profile
+    if (data.profile) {
+      await this.saveProfile(data.profile);
+    }
+
     // Import trust graph
     if (data.trustGraph && Array.isArray(data.trustGraph)) {
       for (const entry of data.trustGraph) {
