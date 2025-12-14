@@ -726,13 +726,7 @@ function isLinkPreviewExpired(link) {
  */
 function renderLinkPreviewCard(link, expired = false) {
   if (expired) {
-    return `
-      <div class="post-link-expired">
-        <span class="post-link-expired-icon">&#x1F517;</span>
-        <span class="post-link-expired-text">Link preview expired</span>
-        <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-expired-url" onclick="event.stopPropagation();">${escapeHtml(link.url)}</a>
-      </div>
-    `;
+    return `<div class="post-link-expired"><span class="post-link-expired-icon">&#x1F517;</span><span class="post-link-expired-text">Link preview expired</span><a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-expired-url" onclick="event.stopPropagation();">${escapeHtml(link.url)}</a></div>`;
   }
 
   const hostname = (() => {
@@ -748,17 +742,7 @@ function renderLinkPreviewCard(link, expired = false) {
     ? `<div class="post-link-preview-image"><img src="${escapeHtml(link.image)}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'" onload="this.parentElement.classList.add('loaded')"></div>`
     : '';
 
-  return `
-    <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-preview" onclick="event.stopPropagation();">
-      ${imageHtml}
-      <div class="post-link-preview-content">
-        <div class="post-link-preview-site">${escapeHtml(link.siteName || hostname)}</div>
-        <div class="post-link-preview-title">${escapeHtml(link.title || 'Untitled')}</div>
-        ${link.description ? `<div class="post-link-preview-description">${escapeHtml(link.description)}</div>` : ''}
-        <div class="post-link-preview-url">${escapeHtml(hostname)}</div>
-      </div>
-    </a>
-  `;
+  return `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-preview" onclick="event.stopPropagation();">${imageHtml}<div class="post-link-preview-content"><div class="post-link-preview-site">${escapeHtml(link.siteName || hostname)}</div><div class="post-link-preview-title">${escapeHtml(link.title || 'Untitled')}</div>${link.description ? `<div class="post-link-preview-description">${escapeHtml(link.description)}</div>` : ''}<div class="post-link-preview-url">${escapeHtml(hostname)}</div></div></a>`;
 }
 
 /**
