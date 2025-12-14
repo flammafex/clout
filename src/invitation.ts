@@ -21,6 +21,11 @@ import type { PublicKey, FreebirdClient, WitnessClient, Attestation } from './ty
 import type { TrustSignal } from './clout-types.js';
 
 /**
+ * Signing function type - signs a message and returns the signature
+ */
+export type SigningFunction = (message: Uint8Array) => Uint8Array;
+
+/**
  * Invitation package
  */
 export interface Invitation {
@@ -56,6 +61,7 @@ export class InvitationManager {
   private readonly freebird: FreebirdClient;
   private readonly witness: WitnessClient;
   private readonly myPublicKey: string;
+  private readonly sign: SigningFunction;
 
   // Track created and accepted invitations
   private readonly createdInvitations = new Map<string, Invitation>();
@@ -64,11 +70,13 @@ export class InvitationManager {
   constructor(
     publicKey: PublicKey,
     freebird: FreebirdClient,
-    witness: WitnessClient
+    witness: WitnessClient,
+    sign: SigningFunction
   ) {
     this.myPublicKey = Crypto.toHex(publicKey.bytes);
     this.freebird = freebird;
     this.witness = witness;
+    this.sign = sign;
   }
 
   /**
@@ -180,10 +188,14 @@ export class InvitationManager {
 
     // Create trust signal for inviter
     // (This will trigger auto-trust based on settings)
+    const signaturePayload = `trust:${this.myPublicKey}:${invitation.inviter}:${Date.now()}`;
+    const signatureMessage = new TextEncoder().encode(signaturePayload);
+    const signature = this.sign(signatureMessage);
+
     const trustSignal: TrustSignal = {
       truster: this.myPublicKey,
       trustee: invitation.inviter,
-      signature: new Uint8Array(), // TODO: Proper signature
+      signature,
       proof: await this.witness.timestamp(
         Crypto.hashString(`${this.myPublicKey}:ACCEPT:${invitation.inviter}`)
       )

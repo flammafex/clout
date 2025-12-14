@@ -35,7 +35,7 @@ export type { ReputationConfig } from './reputation.js';
 export { CloutStateManager } from './chronicle/clout-state.js';
 
 export { InvitationManager } from './invitation.js';
-export type { Invitation } from './invitation.js';
+export type { Invitation, SigningFunction } from './invitation.js';
 
 // Storage (WNFS-based media storage)
 export { StorageManager, FileBlockStore } from './storage/wnfs-manager.js';
