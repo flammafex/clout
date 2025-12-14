@@ -145,6 +145,8 @@ export interface WitnessClient {
   timestamp(hash: string): Promise<Attestation>;
   verify(attestation: Attestation): Promise<boolean>;
   checkNullifier(nullifier: Uint8Array): Promise<number>;
+  /** Get the quorum threshold (minimum witnesses required for valid attestation) */
+  getQuorumThreshold(): number;
 }
 
 export interface GossipNetwork {

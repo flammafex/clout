@@ -248,15 +248,13 @@ export class TransferValidator {
   }
 
   /**
-   * Get Witness federation depth
+   * Get Witness federation depth (quorum threshold)
    *
-   * In production, this would query the actual Witness network.
-   * For now, we return a default value.
+   * Returns the minimum number of witnesses required for a valid attestation.
+   * This is queried from the actual Witness adapter configuration.
    */
   private getWitnessFederationDepth(): number {
-    // TODO: Query actual Witness federation
-    // For now, assume a 3-of-5 threshold (depth = 3)
-    return 3;
+    return this.witness.getQuorumThreshold();
   }
 
   /**

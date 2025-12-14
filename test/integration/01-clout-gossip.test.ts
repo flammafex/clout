@@ -60,6 +60,10 @@ class MockWitnessClient {
   async checkNullifier(nullifier: Uint8Array): Promise<number> {
     return 0; // Not seen
   }
+
+  getQuorumThreshold(): number {
+    return 2; // Mock: 2-of-3 threshold
+  }
 }
 
 async function createNode(name: string): Promise<{

@@ -639,6 +639,16 @@ export class WitnessAdapter implements WitnessClient {
   }
 
   /**
+   * Get the quorum threshold for valid attestations
+   *
+   * Returns the minimum number of witnesses that must agree for an
+   * attestation to be considered valid (e.g., 2-of-3, 3-of-5).
+   */
+  getQuorumThreshold(): number {
+    return this.quorumThreshold;
+  }
+
+  /**
    * Retrieve attestation for a specific hash
    *
    * Multi-gateway: Tries all gateways and returns first valid attestation

@@ -26,6 +26,9 @@ export class CloutMessaging {
   private readonly gossip?: { publish(msg: ContentGossipMessage): Promise<void> };
   private readonly store?: CloutStore;
 
+  /** Track which slides have been read (local state) */
+  private readonly readSlides = new Set<string>();
+
   constructor(config: MessagingConfig) {
     this.publicKeyHex = config.publicKey;
     this.privateKey = config.privateKey;
@@ -136,11 +139,33 @@ export class CloutMessaging {
   }
 
   /**
-   * Get count of unread slides (future: track read status)
+   * Get count of unread slides
    */
   async getUnreadCount(): Promise<number> {
     const slides = await this.getInbox();
-    // TODO: Track read status
-    return slides.length;
+    return slides.filter(slide => !this.readSlides.has(slide.id)).length;
+  }
+
+  /**
+   * Mark a slide as read
+   */
+  markAsRead(slideId: string): void {
+    this.readSlides.add(slideId);
+  }
+
+  /**
+   * Mark multiple slides as read
+   */
+  markAllAsRead(slideIds: string[]): void {
+    for (const id of slideIds) {
+      this.readSlides.add(id);
+    }
+  }
+
+  /**
+   * Check if a slide has been read
+   */
+  isRead(slideId: string): boolean {
+    return this.readSlides.has(slideId);
   }
 }

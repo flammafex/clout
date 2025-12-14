@@ -99,6 +99,13 @@ export class DHTDiscovery implements PeerDiscovery {
 
   /**
    * Bootstrap from known relay nodes
+   *
+   * FUTURE WORK: Query relays for their peer lists.
+   * Implementation needs:
+   * 1. Define relay API endpoint for peer discovery (e.g., GET /peers)
+   * 2. Implement HTTP/WebSocket query to relay
+   * 3. Handle relay authentication and rate limiting
+   * 4. Merge discovered peers into DHT routing table
    */
   async bootstrap(relays: string[]): Promise<void> {
     console.log(`[DHT] Bootstrapping from ${relays.length} relays`);
@@ -111,8 +118,7 @@ export class DHTDiscovery implements PeerDiscovery {
         address: relay
       });
 
-      // TODO: Query relay for peer list
-      // For now, just log
+      // Not implemented: Relay API for peer discovery not yet defined
       console.log(`[DHT] Added relay node: ${relay}`);
     }
   }
