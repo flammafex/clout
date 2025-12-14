@@ -4,9 +4,56 @@ This directory contains vendored code from the [HyperToken](https://github.com/f
 
 ## Files
 
+### Client-Side Networking
+- **HybridPeerManager.ts** - Hybrid WebSocket + WebRTC peer manager with auto-upgrade
 - **PeerConnection.ts** - WebSocket-based P2P connection class
+- **WebRTCConnection.ts** - WebRTC DataChannel connection
+- **SignalingService.ts** - WebRTC signaling handler
+- **webrtc-polyfill.ts** - Node.js WebRTC compatibility
+
+### Core Utilities
 - **events.ts** - Event emitter base class
 - **crypto.ts** - Cryptographic utility functions
+
+### State Management
+- **Chronicle.ts** - CRDT state management (Automerge + WASM)
+- **WasmBridge.ts** - WASM module loader
+- **pkg/** - Compiled WASM binaries
+
+### Relay Server
+- **relay/RelayServer.ts** - Standalone P2P relay server
+- **relay/start-relay.ts** - Entry point script
+
+## Running the Relay Server
+
+### Development (with ts-node)
+```bash
+npx ts-node src/vendor/hypertoken/relay/start-relay.ts 3000
+```
+
+### Production (compiled)
+```bash
+npm run build
+node dist/src/vendor/hypertoken/relay/start-relay.js 3000
+```
+
+### With Docker
+```bash
+docker compose up -d hypertoken-relay
+```
+
+### Environment Variables
+- `RELAY_PORT` - Port to listen on (default: 8080)
+- `RELAY_VERBOSE` - Enable verbose logging (set to "true")
+
+### Command Line
+```bash
+# Specify port
+node start-relay.js 3000
+
+# Enable verbose logging
+node start-relay.js 3000 --verbose
+```
 
 ## License
 
@@ -14,44 +61,13 @@ These files are licensed under the Apache License 2.0, Copyright 2025 The Carpoc
 
 Original source: https://github.com/flammafex/hypertoken
 
-## Why Vendored?
-
-We vendor these specific files instead of using the full hypertoken-monorepo package to:
-
-1. **Avoid dependency bloat** - We only need the networking layer, not the full game engine
-2. **Simplify TypeScript compilation** - Avoid internal type issues in the broader codebase
-3. **Control versioning** - Pin to a known-good version of the networking code
-
 ## Modifications
 
 Minor modifications have been made:
 - Removed `Engine` import from PeerConnection.ts (changed type to `any`)
 - Updated import paths to be local to this vendor directory
-- Added "Vendored for Scarcity" notices
-
-## Relay Server
-
-To use HyperToken networking, you need a relay server. The simplest way is to use HyperToken's built-in RelayServer:
-
-```bash
-# Clone hypertoken
-git clone https://github.com/flammafex/hypertoken
-cd hypertoken
-
-# Create simple relay server script
-cat > relay.js << 'EOF'
-import { RelayServer } from './network/RelayServer.js';
-
-const relay = new RelayServer({ port: 8080, verbose: true });
-relay.start();
-console.log('Relay server listening on ws://localhost:8080');
-EOF
-
-# Run it
-node relay.js
-```
-
-Alternatively, deploy a production relay using Docker or a cloud service.
+- Added WebRTC tie-breaker to prevent glare in HybridPeerManager
+- Added "Vendored for Clout" notices
 
 ## Updating
 
@@ -61,16 +77,3 @@ To update these vendored files:
 2. Copy the latest versions of the files
 3. Re-apply the modifications listed above
 4. Test that compilation and integration still work
-
-## WASM Module Update Required
-
-The current vendored WASM module stores state as a JSON string internally, which breaks field-level CRDT merge semantics. When changes are made, the entire state is serialized to JSON and stored as a single CRDT field, losing the ability to merge individual field changes correctly.
-
-To restore proper CRDT functionality:
-
-1. Update the WASM module from HyperToken's latest build that uses native Automerge document structure
-2. The updated module should expose binary save/load methods that preserve the full Automerge document format
-3. Rebuild with: `cd hypertoken && cargo build --release --target wasm32-unknown-unknown`
-4. Copy the updated `.wasm` file to this vendor directory
-
-Until the WASM module is updated, the Chronicle implementation uses binary sync via `A.load()` to preserve as much CRDT history as possible when transferring state between WASM and TypeScript layers.
