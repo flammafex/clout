@@ -743,8 +743,9 @@ function renderLinkPreviewCard(link, expired = false) {
     }
   })();
 
+  // Use img tag with error handling - hides if image fails to load (blocked by CORS/hotlinking)
   const imageHtml = link.image
-    ? `<div class="post-link-preview-image" style="background-image: url('${escapeHtml(link.image)}')"></div>`
+    ? `<div class="post-link-preview-image"><img src="${escapeHtml(link.image)}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'" onload="this.parentElement.classList.add('loaded')"></div>`
     : '';
 
   return `
