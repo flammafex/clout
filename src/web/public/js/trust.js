@@ -13,6 +13,7 @@ import * as state from './state.js';
 import { apiCall, submitSignedTrust } from './api.js';
 import { $, showLoading, showResult, escapeHtml, getWeightLabel } from './ui.js';
 import { loadFeed } from './feed.js';
+import { sendTrustAcceptanceSlide } from './slides.js';
 
 /**
  * Load and display trusted users list from browser's Dark Social Graph (IndexedDB)
@@ -470,6 +471,7 @@ function formatTimeAgo(timestamp) {
 
 /**
  * Send a trust request (instead of immediate trust)
+ * Sends the request as an encrypted slide for E2E privacy in transit
  */
 export async function sendTrustRequest(requireMembership) {
   if (!requireMembership()) return;
@@ -481,8 +483,14 @@ export async function sendTrustRequest(requireMembership) {
     return;
   }
 
-  if (!window.CloutUserData) {
-    showResult('trust-result', 'Browser storage not available', false);
+  if (!window.CloutUserData || !window.CloutIdentity || !window.CloutCrypto) {
+    showResult('trust-result', 'Browser crypto not available', false);
+    return;
+  }
+
+  const identity = await window.CloutIdentity.load();
+  if (!identity) {
+    showResult('trust-result', 'No browser identity found', false);
     return;
   }
 
@@ -519,15 +527,35 @@ export async function sendTrustRequest(requireMembership) {
 
   try {
     $('trust-btn').disabled = true;
-    $('trust-btn').textContent = 'Sending...';
+    $('trust-btn').textContent = 'Encrypting...';
+
+    // Get requester profile info
+    const myProfile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+    const timestamp = Date.now();
+    const requestId = `${identity.publicKeyHex}-${publicKey}-${timestamp}`;
+
+    // Create the trust request payload (will be E2E encrypted)
+    const trustRequestPayload = {
+      type: 'trust-request',
+      version: 1,
+      id: requestId,
+      requester: identity.publicKeyHex,
+      requesterDisplayName: myProfile?.displayName || null,
+      requesterAvatar: myProfile?.avatar || null,
+      weight,
+      message: null,  // Optional message could be added later
+      timestamp
+    };
 
     // Create local request record
     await window.CloutUserData.createTrustRequest(publicKey, weight);
 
-    // Send via API (for gossip propagation)
-    await apiCall('/trust-request', 'POST', { publicKey, weight });
+    $('trust-btn').textContent = 'Sending...';
 
-    showResult('trust-result', `Request sent to ${publicKey.slice(0, 8)}...`, true);
+    // Send as encrypted slide (E2E encrypted in transit)
+    await sendTrustRequestSlide(identity, publicKey, trustRequestPayload);
+
+    showResult('trust-result', `Request sent to ${publicKey.slice(0, 8)}... (encrypted)`, true);
     $('trust-public-key').value = '';
 
     if (weightSlider) {
@@ -545,7 +573,41 @@ export async function sendTrustRequest(requireMembership) {
 }
 
 /**
+ * Send a trust request as an encrypted slide
+ */
+async function sendTrustRequestSlide(identity, recipientKey, payload) {
+  const Crypto = window.CloutCrypto;
+
+  // Convert Ed25519 keys to X25519 for encryption
+  const recipientX25519 = Crypto.ed25519ToX25519(recipientKey);
+
+  // Encrypt the trust request payload as JSON
+  const message = JSON.stringify(payload);
+  const encrypted = Crypto.encrypt(message, recipientX25519);
+
+  // Create slide package
+  const timestamp = Date.now();
+  const slideData = {
+    sender: identity.publicKeyHex,
+    recipient: recipientKey,
+    ephemeralPublicKey: Crypto.toHex(encrypted.ephemeralPublicKey),
+    ciphertext: Crypto.toHex(encrypted.ciphertext),
+    timestamp
+  };
+
+  // Sign the slide
+  const signaturePayload = `slide:${slideData.sender}:${slideData.recipient}:${timestamp}`;
+  slideData.signature = Crypto.toHex(Crypto.sign(signaturePayload, identity.privateKey));
+
+  // Submit to server for gossip propagation
+  await apiCall('/slide/submit', 'POST', slideData);
+
+  console.log('[Trust] Trust request sent as encrypted slide to', recipientKey.slice(0, 12));
+}
+
+/**
  * Accept an incoming trust request
+ * Sends an encrypted acceptance slide back to the requester
  */
 export async function acceptTrustRequest(requestId) {
   if (!window.CloutUserData) return;
@@ -567,8 +629,8 @@ export async function acceptTrustRequest(requestId) {
     await submitSignedTrust(request.requester, request.weight || 1.0);
     await window.CloutUserData.trust(request.requester, request.weight || 1.0);
 
-    // Accept via API
-    await apiCall(`/trust-request/${requestId}/accept`, 'POST');
+    // Send encrypted acceptance slide back to requester
+    await sendTrustAcceptanceSlide(request.requester, requestId);
 
     showResult('trust-result', `Accepted ${request.requester.slice(0, 8)}...`, true);
 
@@ -616,15 +678,53 @@ export async function withdrawTrustRequest(requestId) {
 
 /**
  * Retry a ghosted trust request
+ * Re-sends the encrypted slide
  */
 export async function retryTrustRequest(requestId) {
-  if (!window.CloutUserData) return;
+  if (!window.CloutUserData || !window.CloutIdentity || !window.CloutCrypto) return;
 
   try {
-    await window.CloutUserData.retryTrustRequest(requestId);
-    await apiCall(`/trust-request/${requestId}/retry`, 'POST');
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      alert('No browser identity found');
+      return;
+    }
 
-    showResult('trust-result', 'Request sent again', true);
+    // Get the request details
+    const outgoing = await window.CloutUserData.getOutgoingTrustRequests();
+    const request = outgoing.find(r => r.id === requestId);
+
+    if (!request) {
+      alert('Request not found');
+      return;
+    }
+
+    // Update local status
+    await window.CloutUserData.retryTrustRequest(requestId);
+
+    // Get requester profile info
+    const myProfile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+    const timestamp = Date.now();
+    const newRequestId = `${identity.publicKeyHex}-${request.recipient}-${timestamp}`;
+
+    // Create the trust request payload (will be E2E encrypted)
+    const trustRequestPayload = {
+      type: 'trust-request',
+      version: 1,
+      id: newRequestId,
+      requester: identity.publicKeyHex,
+      requesterDisplayName: myProfile?.displayName || null,
+      requesterAvatar: myProfile?.avatar || null,
+      weight: request.weight,
+      message: request.message || null,
+      timestamp,
+      isRetry: true
+    };
+
+    // Re-send as encrypted slide
+    await sendTrustRequestSlide(identity, request.recipient, trustRequestPayload);
+
+    showResult('trust-result', 'Request sent again (encrypted)', true);
     await loadTrustRequests();
   } catch (error) {
     alert(`Error retrying request: ${error.message}`);
