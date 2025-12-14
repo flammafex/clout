@@ -119,15 +119,9 @@ export class CloutTrust {
       }
     } else {
       // It's a trust signal directed at us - someone just trusted us!
-      console.log(`[Clout] ✨ ${signal.truster.slice(0, 8)} added you to their circle`);
-
-      // Could trigger auto-follow-back here if enabled in settings
-      const state = this.state.getState();
-      const settings = state.profile?.trustSettings || DEFAULT_TRUST_SETTINGS;
-      if (settings.autoFollowBack && !this.trustGraph.has(signal.truster)) {
-        console.log(`[Clout] 🔄 Auto-following back ${signal.truster.slice(0, 8)}`);
-        await this.trust(signal.truster);
-      }
+      // This creates an incoming trust request that requires consent
+      console.log(`[Clout] 📨 ${signal.truster.slice(0, 8)} sent you a trust request`);
+      // Trust requests are handled by the browser-side consent flow
     }
   }
 

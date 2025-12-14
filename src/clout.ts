@@ -676,6 +676,102 @@ export class Clout {
   }
 
   // =================================================================
+  //  TRUST REQUESTS (Consent-based trust) - Browser-side storage
+  //  These methods are stubs for API routes; actual storage is in IndexedDB
+  // =================================================================
+
+  /**
+   * Send a trust request (requires browser-side storage)
+   * The actual request is stored in browser IndexedDB and sent via gossip
+   */
+  async sendTrustRequest(recipient: string, weight: number = 1.0, message?: string | null): Promise<any> {
+    const now = Date.now();
+    const id = `${this.publicKeyHex}-${recipient}-${now}`;
+
+    // For server-side, we just create the request object
+    // Browser-side handles storage and gossip
+    const request = {
+      id,
+      requester: this.publicKeyHex,
+      recipient,
+      weight,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      retryCount: 0,
+      message: message || undefined
+    };
+
+    console.log(`[Clout] 📨 Sending trust request to ${recipient.slice(0, 8)}`);
+    return request;
+  }
+
+  /**
+   * Get incoming trust requests (browser-side storage)
+   */
+  async getIncomingTrustRequests(_includeAll: boolean = false): Promise<any[]> {
+    // Browser-side handles storage - return empty for server
+    return [];
+  }
+
+  /**
+   * Get outgoing trust requests (browser-side storage)
+   */
+  async getOutgoingTrustRequests(): Promise<any[]> {
+    // Browser-side handles storage - return empty for server
+    return [];
+  }
+
+  /**
+   * Accept a trust request
+   * When accepting, we establish trust with the requester
+   */
+  async acceptTrustRequest(requestId: string): Promise<any> {
+    // Parse requester from request ID (format: requester-recipient-timestamp)
+    const parts = requestId.split('-');
+    if (parts.length < 3) {
+      throw new Error('Invalid request ID format');
+    }
+    const requester = parts[0];
+
+    // Establish trust with the requester
+    await this.trustModule.trust(requester);
+
+    console.log(`[Clout] ✅ Accepted trust request from ${requester.slice(0, 8)}`);
+    return { id: requestId, status: 'accepted', requester };
+  }
+
+  /**
+   * Reject a trust request (silently - requester sees it as pending/ghosted)
+   */
+  async rejectTrustRequest(requestId: string): Promise<void> {
+    // Just log - no trust established, requester doesn't know
+    console.log(`[Clout] 🚫 Rejected trust request ${requestId}`);
+  }
+
+  /**
+   * Withdraw an outgoing trust request
+   */
+  async withdrawTrustRequest(requestId: string): Promise<void> {
+    console.log(`[Clout] 🔙 Withdrew trust request ${requestId}`);
+  }
+
+  /**
+   * Retry a ghosted trust request
+   */
+  async retryTrustRequest(requestId: string): Promise<any> {
+    const now = Date.now();
+    console.log(`[Clout] 🔄 Retrying trust request ${requestId}`);
+    return {
+      id: requestId,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      retryCount: 1
+    };
+  }
+
+  // =================================================================
   //  PROFILE - Delegated to CloutProfileModule
   // =================================================================
 

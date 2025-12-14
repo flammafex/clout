@@ -380,5 +380,154 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
     }
   });
 
+  // =========================================================================
+  // TRUST REQUESTS (Consent-based trust)
+  // =========================================================================
+
+  // Send a trust request
+  router.post('/trust-request', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const recipient = validatePublicKey(req.body.publicKey, 'publicKey');
+      const weight = typeof req.body.weight === 'number'
+        ? Math.max(0.1, Math.min(1.0, req.body.weight))
+        : 1.0;
+      const message = req.body.message || null;
+
+      // Create and send trust request
+      const request = await clout.sendTrustRequest(recipient, weight, message);
+
+      res.json({
+        success: true,
+        data: request
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get incoming trust requests
+  router.get('/trust-requests/incoming', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const includeAll = req.query.all === 'true';
+      const requests = await clout.getIncomingTrustRequests(includeAll);
+
+      // Enrich with display names
+      const enrichedRequests = requests.map(r => ({
+        ...r,
+        requesterDisplayName: clout.getDisplayName(r.requester),
+        requesterShort: r.requester.slice(0, 12)
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          count: enrichedRequests.length,
+          requests: enrichedRequests
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get outgoing trust requests
+  router.get('/trust-requests/outgoing', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const requests = await clout.getOutgoingTrustRequests();
+
+      // Enrich with display names
+      const enrichedRequests = requests.map(r => ({
+        ...r,
+        recipientDisplayName: clout.getDisplayName(r.recipient),
+        recipientShort: r.recipient.slice(0, 12)
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          count: enrichedRequests.length,
+          requests: enrichedRequests
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Accept a trust request
+  router.post('/trust-request/:id/accept', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const requestId = req.params.id;
+      const result = await clout.acceptTrustRequest(requestId);
+
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Reject a trust request (silently - requester sees pending/ghosted)
+  router.post('/trust-request/:id/reject', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const requestId = req.params.id;
+      await clout.rejectTrustRequest(requestId);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Withdraw an outgoing trust request
+  router.delete('/trust-request/:id', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const requestId = req.params.id;
+      await clout.withdrawTrustRequest(requestId);
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  // Retry a ghosted trust request
+  router.post('/trust-request/:id/retry', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const clout = getClout()!;
+
+      const requestId = req.params.id;
+      const result = await clout.retryTrustRequest(requestId);
+
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   return router;
 }

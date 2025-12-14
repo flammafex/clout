@@ -13,6 +13,7 @@ import * as state from './state.js';
 import { apiCall, submitSignedTrust } from './api.js';
 import { $, showLoading, showResult, escapeHtml, getWeightLabel } from './ui.js';
 import { loadFeed } from './feed.js';
+import { sendTrustAcceptanceSlide } from './slides.js';
 
 /**
  * Load and display trusted users list from browser's Dark Social Graph (IndexedDB)
@@ -331,5 +332,401 @@ export function updateTrustWeightDisplay() {
 
   if (labelDisplay) {
     labelDisplay.textContent = getWeightLabel(weight);
+  }
+}
+
+// =========================================================================
+//  TRUST REQUESTS (Consent-based trust)
+// =========================================================================
+
+const GHOST_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Load and display trust requests (incoming and outgoing)
+ */
+export async function loadTrustRequests() {
+  if (!window.CloutUserData) return;
+
+  try {
+    const [incoming, outgoing] = await Promise.all([
+      window.CloutUserData.getIncomingTrustRequests(false),
+      window.CloutUserData.getOutgoingTrustRequests()
+    ]);
+
+    // Update incoming requests UI
+    const incomingContainer = $('incoming-requests-list');
+    const incomingBadge = $('incoming-requests-badge');
+
+    if (incomingContainer) {
+      if (incoming.length === 0) {
+        incomingContainer.innerHTML = `
+          <div class="empty-state-small">
+            <span>No pending requests</span>
+          </div>
+        `;
+      } else {
+        incomingContainer.innerHTML = incoming.map(req => renderIncomingRequest(req)).join('');
+      }
+    }
+
+    if (incomingBadge) {
+      incomingBadge.textContent = incoming.length;
+      incomingBadge.style.display = incoming.length > 0 ? 'inline' : 'none';
+    }
+
+    // Update outgoing requests UI
+    const outgoingContainer = $('outgoing-requests-list');
+    if (outgoingContainer) {
+      const pendingOutgoing = outgoing.filter(r => r.status === 'pending' || r.status === 'ghosted');
+
+      if (pendingOutgoing.length === 0) {
+        outgoingContainer.innerHTML = `
+          <div class="empty-state-small">
+            <span>No pending requests</span>
+          </div>
+        `;
+      } else {
+        outgoingContainer.innerHTML = pendingOutgoing.map(req => renderOutgoingRequest(req)).join('');
+      }
+    }
+  } catch (error) {
+    console.error('Error loading trust requests:', error);
+  }
+}
+
+/**
+ * Render an incoming trust request card
+ */
+function renderIncomingRequest(request) {
+  const timeAgo = formatTimeAgo(request.createdAt);
+  const requesterShort = request.requester.slice(0, 12);
+  const displayName = request.requesterDisplayName || requesterShort + '...';
+  const avatar = request.requesterAvatar || '👤';
+
+  return `
+    <div class="trust-request-card incoming">
+      <div class="trust-request-avatar">${avatar}</div>
+      <div class="trust-request-info">
+        <div class="trust-request-name" title="${escapeHtml(request.requester)}">
+          ${escapeHtml(displayName)}
+        </div>
+        <div class="trust-request-key">${requesterShort}...</div>
+        <div class="trust-request-meta">
+          <span class="trust-request-time">${timeAgo}</span>
+          ${request.message ? `<span class="trust-request-message">"${escapeHtml(request.message)}"</span>` : ''}
+        </div>
+      </div>
+      <div class="trust-request-actions">
+        <button class="btn-small btn-accept" onclick="window.cloutApp.acceptTrustRequest('${escapeHtml(request.id)}')" title="Accept">✓</button>
+        <button class="btn-small btn-reject" onclick="window.cloutApp.rejectTrustRequest('${escapeHtml(request.id)}')" title="Reject">✕</button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Render an outgoing trust request card
+ */
+function renderOutgoingRequest(request) {
+  const timeAgo = formatTimeAgo(request.createdAt);
+  const recipientShort = request.recipient.slice(0, 12);
+  const isGhosted = request.status === 'ghosted';
+  const canRetry = isGhosted && request.retryCount < 1;
+
+  return `
+    <div class="trust-request-card outgoing ${isGhosted ? 'ghosted' : ''}">
+      <div class="trust-request-info">
+        <div class="trust-request-name" title="${escapeHtml(request.recipient)}">
+          ${escapeHtml(request.recipientDisplayName || recipientShort + '...')}
+          ${isGhosted ? '<span class="ghost-badge">no response</span>' : '<span class="pending-badge">pending</span>'}
+        </div>
+        <div class="trust-request-meta">
+          <span class="trust-request-time">${timeAgo}</span>
+        </div>
+      </div>
+      <div class="trust-request-actions">
+        ${canRetry ? `<button class="btn-small btn-retry" onclick="window.cloutApp.retryTrustRequest('${escapeHtml(request.id)}')" title="Retry">↻</button>` : ''}
+        <button class="btn-small btn-withdraw" onclick="window.cloutApp.withdrawTrustRequest('${escapeHtml(request.id)}')" title="Withdraw">✕</button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Format timestamp as relative time
+ */
+function formatTimeAgo(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return 'just now';
+}
+
+/**
+ * Send a trust request (instead of immediate trust)
+ * Sends the request as an encrypted slide for E2E privacy in transit
+ */
+export async function sendTrustRequest(requireMembership) {
+  if (!requireMembership()) return;
+
+  const publicKey = $('trust-public-key').value.trim();
+
+  if (!publicKey) {
+    showResult('trust-result', 'Please enter a public key', false);
+    return;
+  }
+
+  if (!window.CloutUserData || !window.CloutIdentity || !window.CloutCrypto) {
+    showResult('trust-result', 'Browser crypto not available', false);
+    return;
+  }
+
+  const identity = await window.CloutIdentity.load();
+  if (!identity) {
+    showResult('trust-result', 'No browser identity found', false);
+    return;
+  }
+
+  // Check if already trusted
+  const isTrusted = await window.CloutUserData.isTrusted(publicKey);
+  if (isTrusted) {
+    showResult('trust-result', 'Already in your trust circle', false);
+    return;
+  }
+
+  // Check if request already exists
+  const existingRequest = await window.CloutUserData.hasOutgoingRequestTo(publicKey);
+  if (existingRequest) {
+    showResult('trust-result', 'Request already sent', false);
+    return;
+  }
+
+  // Check pending limit
+  const pendingCount = await window.CloutUserData.getPendingOutgoingCount();
+  if (pendingCount >= 20) {
+    showResult('trust-result', 'Maximum pending requests reached (20)', false);
+    return;
+  }
+
+  // Check if blocked from requesting
+  const isBlocked = await window.CloutUserData.isBlockedFromRequesting(publicKey);
+  if (isBlocked) {
+    showResult('trust-result', 'Cannot send request to this user', false);
+    return;
+  }
+
+  const weightSlider = $('trust-weight');
+  const weight = weightSlider ? parseInt(weightSlider.value, 10) / 100 : 1.0;
+
+  try {
+    $('trust-btn').disabled = true;
+    $('trust-btn').textContent = 'Encrypting...';
+
+    // Get requester profile info
+    const myProfile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+    const timestamp = Date.now();
+    const requestId = `${identity.publicKeyHex}-${publicKey}-${timestamp}`;
+
+    // Create the trust request payload (will be E2E encrypted)
+    const trustRequestPayload = {
+      type: 'trust-request',
+      version: 1,
+      id: requestId,
+      requester: identity.publicKeyHex,
+      requesterDisplayName: myProfile?.displayName || null,
+      requesterAvatar: myProfile?.avatar || null,
+      weight,
+      message: null,  // Optional message could be added later
+      timestamp
+    };
+
+    // Create local request record
+    await window.CloutUserData.createTrustRequest(publicKey, weight);
+
+    $('trust-btn').textContent = 'Sending...';
+
+    // Send as encrypted slide (E2E encrypted in transit)
+    await sendTrustRequestSlide(identity, publicKey, trustRequestPayload);
+
+    showResult('trust-result', `Request sent to ${publicKey.slice(0, 8)}... (encrypted)`, true);
+    $('trust-public-key').value = '';
+
+    if (weightSlider) {
+      weightSlider.value = 100;
+      updateTrustWeightDisplay();
+    }
+
+    await loadTrustRequests();
+  } catch (error) {
+    showResult('trust-result', `Error: ${error.message}`, false);
+  } finally {
+    $('trust-btn').disabled = false;
+    $('trust-btn').textContent = 'Request Trust';
+  }
+}
+
+/**
+ * Send a trust request as an encrypted slide
+ */
+async function sendTrustRequestSlide(identity, recipientKey, payload) {
+  const Crypto = window.CloutCrypto;
+
+  // Convert Ed25519 keys to X25519 for encryption
+  const recipientX25519 = Crypto.ed25519ToX25519(recipientKey);
+
+  // Encrypt the trust request payload as JSON
+  const message = JSON.stringify(payload);
+  const encrypted = Crypto.encrypt(message, recipientX25519);
+
+  // Create slide package
+  const timestamp = Date.now();
+  const slideData = {
+    sender: identity.publicKeyHex,
+    recipient: recipientKey,
+    ephemeralPublicKey: Crypto.toHex(encrypted.ephemeralPublicKey),
+    ciphertext: Crypto.toHex(encrypted.ciphertext),
+    timestamp
+  };
+
+  // Sign the slide
+  const signaturePayload = `slide:${slideData.sender}:${slideData.recipient}:${timestamp}`;
+  slideData.signature = Crypto.toHex(Crypto.sign(signaturePayload, identity.privateKey));
+
+  // Submit to server for gossip propagation
+  await apiCall('/slide/submit', 'POST', slideData);
+
+  console.log('[Trust] Trust request sent as encrypted slide to', recipientKey.slice(0, 12));
+}
+
+/**
+ * Accept an incoming trust request
+ * Sends an encrypted acceptance slide back to the requester
+ */
+export async function acceptTrustRequest(requestId) {
+  if (!window.CloutUserData) return;
+
+  try {
+    // Get the request to find the requester
+    const incoming = await window.CloutUserData.getIncomingTrustRequests(true);
+    const request = incoming.find(r => r.id === requestId);
+
+    if (!request) {
+      alert('Request not found');
+      return;
+    }
+
+    // Accept locally
+    await window.CloutUserData.acceptTrustRequest(requestId);
+
+    // Add to trust circle
+    await submitSignedTrust(request.requester, request.weight || 1.0);
+    await window.CloutUserData.trust(request.requester, request.weight || 1.0);
+
+    // Send encrypted acceptance slide back to requester
+    await sendTrustAcceptanceSlide(request.requester, requestId);
+
+    showResult('trust-result', `Accepted ${request.requester.slice(0, 8)}...`, true);
+
+    await loadTrustRequests();
+    await loadTrustedUsers();
+  } catch (error) {
+    alert(`Error accepting request: ${error.message}`);
+  }
+}
+
+/**
+ * Reject an incoming trust request (silently)
+ */
+export async function rejectTrustRequest(requestId) {
+  if (!window.CloutUserData) return;
+
+  try {
+    await window.CloutUserData.rejectTrustRequest(requestId);
+    await apiCall(`/trust-request/${requestId}/reject`, 'POST');
+
+    await loadTrustRequests();
+  } catch (error) {
+    alert(`Error rejecting request: ${error.message}`);
+  }
+}
+
+/**
+ * Withdraw an outgoing trust request
+ */
+export async function withdrawTrustRequest(requestId) {
+  if (!window.CloutUserData) return;
+
+  if (!confirm('Withdraw this trust request?')) return;
+
+  try {
+    await window.CloutUserData.withdrawTrustRequest(requestId);
+    await apiCall(`/trust-request/${requestId}`, 'DELETE');
+
+    showResult('trust-result', 'Request withdrawn', true);
+    await loadTrustRequests();
+  } catch (error) {
+    alert(`Error withdrawing request: ${error.message}`);
+  }
+}
+
+/**
+ * Retry a ghosted trust request
+ * Re-sends the encrypted slide
+ */
+export async function retryTrustRequest(requestId) {
+  if (!window.CloutUserData || !window.CloutIdentity || !window.CloutCrypto) return;
+
+  try {
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      alert('No browser identity found');
+      return;
+    }
+
+    // Get the request details
+    const outgoing = await window.CloutUserData.getOutgoingTrustRequests();
+    const request = outgoing.find(r => r.id === requestId);
+
+    if (!request) {
+      alert('Request not found');
+      return;
+    }
+
+    // Update local status
+    await window.CloutUserData.retryTrustRequest(requestId);
+
+    // Get requester profile info
+    const myProfile = await window.CloutUserData.getProfile(identity.publicKeyHex);
+    const timestamp = Date.now();
+    const newRequestId = `${identity.publicKeyHex}-${request.recipient}-${timestamp}`;
+
+    // Create the trust request payload (will be E2E encrypted)
+    const trustRequestPayload = {
+      type: 'trust-request',
+      version: 1,
+      id: newRequestId,
+      requester: identity.publicKeyHex,
+      requesterDisplayName: myProfile?.displayName || null,
+      requesterAvatar: myProfile?.avatar || null,
+      weight: request.weight,
+      message: request.message || null,
+      timestamp,
+      isRetry: true
+    };
+
+    // Re-send as encrypted slide
+    await sendTrustRequestSlide(identity, request.recipient, trustRequestPayload);
+
+    showResult('trust-result', 'Request sent again (encrypted)', true);
+    await loadTrustRequests();
+  } catch (error) {
+    alert(`Error retrying request: ${error.message}`);
   }
 }

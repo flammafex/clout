@@ -357,10 +357,36 @@
             </div>
           </div>
 
+          <!-- Trust Requests Section -->
+          <div class="form-card trust-requests-card">
+            <h3>Trust Requests <span id="incoming-requests-badge" class="badge badge-notification" style="display: none;">0</span></h3>
+            <p class="help-text">People who want to join your trust circle must be approved</p>
+
+            <!-- Incoming Requests -->
+            <div class="trust-requests-section">
+              <h4>Incoming Requests</h4>
+              <div id="incoming-requests-list" class="trust-requests-list">
+                <div class="empty-state-small">
+                  <span>No pending requests</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Outgoing Requests -->
+            <div class="trust-requests-section">
+              <h4>Sent Requests</h4>
+              <div id="outgoing-requests-list" class="trust-requests-list">
+                <div class="empty-state-small">
+                  <span>No pending requests</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Add Trust Form -->
           <div class="form-card add-trust-card">
-            <h3>Add to Your Circle</h3>
-            <p class="help-text">Paste someone's public key to start seeing their posts</p>
+            <h3>Request Trust</h3>
+            <p class="help-text">Send a trust request. They must accept before you can see their posts.</p>
             <div class="trust-input-row">
               <input
                 type="text"
@@ -368,7 +394,7 @@
                 placeholder="Paste public key here..."
                 class="input"
               >
-              <button id="trust-btn" class="btn btn-primary">Trust</button>
+              <button id="trust-btn" class="btn btn-primary">Request Trust</button>
             </div>
             <div class="trust-weight-row">
               <label for="trust-weight">Trust Weight:</label>
@@ -434,14 +460,6 @@
               <input type="range" id="settings-min-reputation" min="0" max="100" value="30" class="range">
               <span id="settings-min-reputation-value">0.30</span>
               <p class="help-text-small">Only show posts from users with at least this reputation score</p>
-            </div>
-
-            <div class="setting-item">
-              <label class="checkbox-label">
-                <input type="checkbox" id="settings-auto-follow-back">
-                <span class="checkbox-text">Auto follow-back</span>
-              </label>
-              <p class="help-text-small">Automatically trust anyone who trusts you first</p>
             </div>
 
             <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
