@@ -229,8 +229,19 @@
               <span id="char-count">0</span>/500
             </div>
 
+            <!-- Attachment Type Selector -->
+            <div class="attachment-type-selector">
+              <span class="attachment-label">Attach:</span>
+              <button type="button" id="attach-media-btn" class="attachment-btn active" title="Attach media file">
+                <span class="attachment-icon">📎</span> Media
+              </button>
+              <button type="button" id="attach-link-btn" class="attachment-btn" title="Attach link preview">
+                <span class="attachment-icon">🔗</span> Link
+              </button>
+            </div>
+
             <!-- Media Upload Section -->
-            <div class="media-upload-section">
+            <div id="media-upload-section" class="media-upload-section">
               <div id="media-drop-zone" class="media-drop-zone">
                 <input type="file" id="media-input" accept="image/*,video/*,audio/*,application/pdf" style="display: none;">
                 <div class="drop-zone-content">
@@ -254,6 +265,31 @@
                   </div>
                   <span id="progress-text">Uploading...</span>
                 </div>
+              </div>
+            </div>
+
+            <!-- Link Preview Section -->
+            <div id="link-input-section" class="link-input-section" style="display: none;">
+              <div class="link-input-wrapper">
+                <input type="url" id="link-url-input" class="input" placeholder="Paste a URL to preview...">
+                <button type="button" id="link-fetch-btn" class="btn btn-small">Preview</button>
+              </div>
+              <p class="help-text-small">Link previews expire after 24 hours</p>
+
+              <!-- Link Preview -->
+              <div id="link-preview" class="link-preview-card" style="display: none;">
+                <button type="button" id="link-remove-btn" class="btn-remove" title="Remove link">✕</button>
+                <div id="link-preview-image" class="link-preview-image"></div>
+                <div class="link-preview-content">
+                  <div id="link-preview-site" class="link-preview-site"></div>
+                  <div id="link-preview-title" class="link-preview-title"></div>
+                  <div id="link-preview-description" class="link-preview-description"></div>
+                </div>
+              </div>
+
+              <!-- Link Fetch Status -->
+              <div id="link-fetch-status" class="link-fetch-status" style="display: none;">
+                <span id="link-fetch-text">Fetching preview...</span>
               </div>
             </div>
 

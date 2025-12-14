@@ -26,6 +26,27 @@ export interface MediaMetadata {
 }
 
 /**
+ * OpenGraph metadata for link previews
+ * Embedded in posts to show rich link cards
+ */
+export interface OpenGraphMetadata {
+  /** The original URL */
+  readonly url: string;
+  /** Page title from og:title or <title> */
+  readonly title?: string;
+  /** Page description from og:description or meta description */
+  readonly description?: string;
+  /** Image URL from og:image */
+  readonly image?: string;
+  /** Site name from og:site_name */
+  readonly siteName?: string;
+  /** Content type from og:type */
+  readonly type?: string;
+  /** When the OG data was fetched - used for decay */
+  readonly fetchedAt: number;
+}
+
+/**
  * Media input for creating posts with attached media
  */
 export interface MediaInput {
@@ -173,8 +194,17 @@ export interface PostPackage {
    * Optional: Media metadata for posts with attached media
    * Uses "Offload-and-Link" pattern - only CID is stored in the post,
    * actual media data lives in the local WNFS blockstore
+   * Note: A post can have either media OR link, not both
    */
   readonly media?: MediaMetadata;
+
+  /**
+   * Optional: OpenGraph link preview metadata
+   * Embedded link card with title, description, image from the URL
+   * Note: A post can have either media OR link, not both
+   * Link previews decay after a configurable time (fetchedAt + decayHours)
+   */
+  readonly link?: OpenGraphMetadata;
 
   /**
    * NSFW flag - marks content as Not Safe For Work

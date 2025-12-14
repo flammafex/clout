@@ -1110,6 +1110,242 @@ h2 {
   border-left: 3px solid var(--primary);
 }
 
+/* =========================================================================
+   LINK PREVIEW STYLES
+   ========================================================================= */
+
+/* Attachment type selector */
+.attachment-type-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.attachment-label {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.attachment-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.attachment-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.attachment-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.attachment-icon {
+  font-size: 1rem;
+}
+
+/* Link input section */
+.link-input-section {
+  margin: 1rem 0;
+}
+
+.link-input-wrapper {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.link-input-wrapper .input {
+  flex: 1;
+}
+
+/* Link preview card (in post form) */
+.link-preview-card {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.link-preview-card .btn-remove {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 50%;
+}
+
+.link-preview-image {
+  width: 100%;
+  height: 150px;
+  background: var(--bg-hover);
+  background-size: cover;
+  background-position: center;
+}
+
+.link-preview-image:empty {
+  display: none;
+}
+
+.link-preview-content {
+  padding: 1rem;
+}
+
+.link-preview-site {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.25rem;
+}
+
+.link-preview-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.link-preview-description {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Link fetch status */
+.link-fetch-status {
+  padding: 1rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.link-fetch-status.error {
+  color: var(--error);
+}
+
+/* Link preview in feed posts */
+.post-link-preview {
+  margin-top: 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.post-link-preview:hover {
+  border-color: var(--primary);
+}
+
+.post-link-preview-image {
+  width: 100%;
+  height: 150px;
+  background-color: var(--bg-hover);
+  background-size: cover;
+  background-position: center;
+}
+
+.post-link-preview-content {
+  padding: 0.75rem 1rem;
+}
+
+.post-link-preview-site {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.post-link-preview-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0.25rem 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.post-link-preview-description {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.post-link-preview-url {
+  font-size: 0.7rem;
+  color: var(--primary);
+  margin-top: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Expired link preview */
+.post-link-expired {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.post-link-expired-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.6;
+}
+
+.post-link-expired-text {
+  font-size: 0.9rem;
+}
+
+.post-link-expired-url {
+  font-size: 0.75rem;
+  color: var(--primary);
+  margin-top: 0.5rem;
+  word-break: break-all;
+}
+
+/* Feed item with link indicator */
+.feed-item.has-link {
+  border-left: 3px solid var(--secondary);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .container {

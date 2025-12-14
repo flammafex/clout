@@ -20,7 +20,8 @@ import {
 } from './feed.js';
 import {
   createPost, startReply, cancelReply, startEditPost, cancelEdit,
-  retractPost, setupMediaUpload, setupCharCounter, clearMediaPreview
+  retractPost, setupMediaUpload, setupCharCounter, clearMediaPreview,
+  setupAttachmentSelector, setupLinkPreview, clearLinkPreview
 } from './posts.js';
 import {
   toggleReaction, toggleBookmark, toggleCW,
@@ -755,6 +756,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTabs();
   setupCharCounter();
   setupMediaUpload();
+  setupAttachmentSelector();
+  setupLinkPreview();
   setupSettings(requireMembership);
 
   // Event listeners

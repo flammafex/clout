@@ -12,6 +12,7 @@ export let isVisitor = true; // true until identity is created via invitation
 // Post state
 export let replyingTo = null; // Post ID we're replying to
 export let pendingMedia = null; // { cid, mimeType, filename, size }
+export let pendingLink = null; // { url, title, description, image, siteName, type, fetchedAt }
 export let editingPost = null; // { id, content }
 export let postsCache = {}; // Cache of loaded posts by ID
 
@@ -55,6 +56,10 @@ export function setReplyingTo(value) {
 
 export function setPendingMedia(value) {
   pendingMedia = value;
+}
+
+export function setPendingLink(value) {
+  pendingLink = value;
 }
 
 export function setEditingPost(value) {

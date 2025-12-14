@@ -7,12 +7,16 @@
  * - Retracting posts
  * - Reply functionality
  * - Media upload handling
+ * - Link preview handling
  */
 
 import * as state from './state.js';
 import { apiCall, uploadMediaFile, submitSignedPost, API_BASE } from './api.js';
 import { $, $$, showResult, formatFileSize, isInvitationRequiredError, startDayPassTimer } from './ui.js';
 import { loadFeed, loadFeedWithCurrentFilter } from './feed.js';
+
+// Track which attachment type is active: 'media' or 'link'
+let activeAttachmentType = 'media';
 
 /**
  * Create a new post
@@ -31,8 +35,8 @@ export async function createPost(requireMembership, showInvitePopover) {
   const cwEnabled = $('post-cw-enabled').checked;
   const contentWarning = cwEnabled ? $('post-cw-text').value.trim() : null;
 
-  if (!content && !state.pendingMedia) {
-    showResult('post-result', 'Please enter some content or attach media', false);
+  if (!content && !state.pendingMedia && !state.pendingLink) {
+    showResult('post-result', 'Please enter some content or attach media/link', false);
     return;
   }
 
@@ -53,6 +57,9 @@ export async function createPost(requireMembership, showInvitePopover) {
     if (state.pendingMedia && state.pendingMedia.cid) {
       options.mediaCid = state.pendingMedia.cid;
     }
+    if (state.pendingLink) {
+      options.link = state.pendingLink;
+    }
     if (contentWarning) {
       options.contentWarning = contentWarning;
     }
@@ -65,10 +72,12 @@ export async function createPost(requireMembership, showInvitePopover) {
     }
 
     const hasMedia = state.pendingMedia !== null;
+    const hasLink = state.pendingLink !== null;
+    const attachmentType = hasMedia ? 'media' : (hasLink ? 'link preview' : '');
     showResult('post-result',
       state.replyingTo
-        ? (hasMedia ? 'Reply with media posted!' : 'Reply posted!')
-        : (hasMedia ? 'Post with media created!' : 'Post created successfully!'),
+        ? (attachmentType ? `Reply with ${attachmentType} posted!` : 'Reply posted!')
+        : (attachmentType ? `Post with ${attachmentType} created!` : 'Post created successfully!'),
       true
     );
 
@@ -80,6 +89,7 @@ export async function createPost(requireMembership, showInvitePopover) {
     $('post-cw-text').value = '';
     $('cw-input-wrapper').style.display = 'none';
     clearMediaPreview();
+    clearLinkPreview();
 
     if (state.replyingTo) {
       cancelReply();
@@ -469,4 +479,188 @@ export function setupCharCounter() {
   bioTextarea.addEventListener('input', () => {
     bioCounter.textContent = bioTextarea.value.length;
   });
+}
+
+// =========================================================================
+// Link Preview
+// =========================================================================
+
+/**
+ * Setup attachment type selector (media vs link)
+ */
+export function setupAttachmentSelector() {
+  const mediaBtn = $('attach-media-btn');
+  const linkBtn = $('attach-link-btn');
+  const mediaSection = $('media-upload-section');
+  const linkSection = $('link-input-section');
+
+  if (!mediaBtn || !linkBtn) return;
+
+  mediaBtn.addEventListener('click', () => {
+    switchAttachmentType('media');
+  });
+
+  linkBtn.addEventListener('click', () => {
+    switchAttachmentType('link');
+  });
+}
+
+/**
+ * Switch between media and link attachment modes
+ */
+function switchAttachmentType(type) {
+  activeAttachmentType = type;
+
+  const mediaBtn = $('attach-media-btn');
+  const linkBtn = $('attach-link-btn');
+  const mediaSection = $('media-upload-section');
+  const linkSection = $('link-input-section');
+
+  if (type === 'media') {
+    mediaBtn.classList.add('active');
+    linkBtn.classList.remove('active');
+    mediaSection.style.display = 'block';
+    linkSection.style.display = 'none';
+    // Clear link when switching to media
+    clearLinkPreview();
+  } else {
+    linkBtn.classList.add('active');
+    mediaBtn.classList.remove('active');
+    linkSection.style.display = 'block';
+    mediaSection.style.display = 'none';
+    // Clear media when switching to link
+    clearMediaPreview();
+  }
+}
+
+/**
+ * Setup link preview handlers
+ */
+export function setupLinkPreview() {
+  const urlInput = $('link-url-input');
+  const fetchBtn = $('link-fetch-btn');
+  const removeBtn = $('link-remove-btn');
+
+  if (!urlInput || !fetchBtn) return;
+
+  fetchBtn.addEventListener('click', () => {
+    fetchLinkPreview();
+  });
+
+  // Also fetch on Enter key
+  urlInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      fetchLinkPreview();
+    }
+  });
+
+  removeBtn.addEventListener('click', () => {
+    clearLinkPreview();
+  });
+}
+
+/**
+ * Fetch OpenGraph metadata for a URL
+ */
+async function fetchLinkPreview() {
+  const urlInput = $('link-url-input');
+  const fetchBtn = $('link-fetch-btn');
+  const statusDiv = $('link-fetch-status');
+  const statusText = $('link-fetch-text');
+
+  const url = urlInput.value.trim();
+  if (!url) {
+    showResult('post-result', 'Please enter a URL', false);
+    return;
+  }
+
+  // Basic URL validation
+  try {
+    new URL(url);
+  } catch {
+    showResult('post-result', 'Please enter a valid URL', false);
+    return;
+  }
+
+  // Show loading state
+  fetchBtn.disabled = true;
+  fetchBtn.textContent = 'Fetching...';
+  statusDiv.style.display = 'block';
+  statusDiv.classList.remove('error');
+  statusText.textContent = 'Fetching preview...';
+
+  try {
+    const data = await apiCall(`/opengraph/fetch?url=${encodeURIComponent(url)}`);
+
+    // Store the link metadata
+    state.setPendingLink(data);
+
+    // Display preview
+    showLinkPreview(data);
+
+    statusDiv.style.display = 'none';
+    console.log('Link preview fetched:', data);
+  } catch (error) {
+    console.error('Link preview error:', error);
+    statusDiv.classList.add('error');
+    statusText.textContent = `Error: ${error.message}`;
+    state.setPendingLink(null);
+  } finally {
+    fetchBtn.disabled = false;
+    fetchBtn.textContent = 'Preview';
+  }
+}
+
+/**
+ * Show link preview in the form
+ */
+function showLinkPreview(data) {
+  const preview = $('link-preview');
+  const imageDiv = $('link-preview-image');
+  const siteDiv = $('link-preview-site');
+  const titleDiv = $('link-preview-title');
+  const descDiv = $('link-preview-description');
+
+  // Set image if available
+  if (data.image) {
+    imageDiv.style.backgroundImage = `url(${data.image})`;
+    imageDiv.style.display = 'block';
+  } else {
+    imageDiv.style.backgroundImage = '';
+    imageDiv.style.display = 'none';
+  }
+
+  // Set text content
+  siteDiv.textContent = data.siteName || new URL(data.url).hostname;
+  titleDiv.textContent = data.title || 'Untitled';
+  descDiv.textContent = data.description || '';
+
+  preview.style.display = 'block';
+}
+
+/**
+ * Clear link preview
+ */
+export function clearLinkPreview() {
+  const urlInput = $('link-url-input');
+  const preview = $('link-preview');
+  const statusDiv = $('link-fetch-status');
+  const imageDiv = $('link-preview-image');
+  const siteDiv = $('link-preview-site');
+  const titleDiv = $('link-preview-title');
+  const descDiv = $('link-preview-description');
+
+  if (urlInput) urlInput.value = '';
+  if (preview) preview.style.display = 'none';
+  if (statusDiv) statusDiv.style.display = 'none';
+  if (imageDiv) {
+    imageDiv.style.backgroundImage = '';
+    imageDiv.style.display = 'none';
+  }
+  if (siteDiv) siteDiv.textContent = '';
+  if (titleDiv) titleDiv.textContent = '';
+  if (descDiv) descDiv.textContent = '';
+
+  state.setPendingLink(null);
 }
