@@ -26,7 +26,8 @@ import {
   createSettingsRoutes,
   createDataRoutes,
   createSubmitRoutes,
-  createAdminRoutes
+  createAdminRoutes,
+  createOpenGraphRoutes
 } from './routes/index.js';
 import { createFreebirdProxyRoutes } from './routes/freebird-proxy.js';
 import { createFreebirdAdminFromEnv } from '../integrations/freebird-admin.js';
@@ -521,6 +522,7 @@ export class CloutWebServer {
     this.app.use('/api/slides', createSlidesRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/settings', createSettingsRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/data', createDataRoutes(this.getClout, this.isInitialized, this.identityManager));
+    this.app.use('/api/opengraph', createOpenGraphRoutes());
 
     // Mount browser-identity submit routes (pre-signed payloads)
     // Note: Server only stores Day Pass tickets. All social graph data

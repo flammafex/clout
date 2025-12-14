@@ -102,6 +102,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         timestamp,
         replyTo,
         mediaCid,
+        link,
         nsfw,
         contentWarning,
         ephemeralPublicKey,
@@ -163,6 +164,14 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       // Create post ID from content hash
       const id = Crypto.hashString(content + authorKey + (timestamp || Date.now()));
 
+      // Validate media/link mutual exclusivity
+      if (mediaCid && link) {
+        return res.status(400).json({
+          success: false,
+          error: 'A post cannot have both media and a link preview. Please choose one.'
+        });
+      }
+
       // Build post package for gossip
       const postPackage = {
         id,
@@ -175,6 +184,8 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         nsfw,
         contentWarning,
         media: mediaCid ? { cid: mediaCid } : undefined,
+        // OpenGraph link preview (mutually exclusive with media)
+        link: link || undefined,
         // Include author's chosen display name and avatar (from browser profile)
         authorDisplayName: authorDisplayName || undefined,
         authorAvatar: authorAvatar || undefined,

@@ -94,7 +94,7 @@ export async function ensureDayPass(identity, invitationCode = null) {
 /**
  * Submit a signed post using browser identity
  * @param {string} content - Post content
- * @param {Object} options - Post options (replyTo, mediaCid, nsfw, contentWarning)
+ * @param {Object} options - Post options (replyTo, mediaCid, link, nsfw, contentWarning)
  * @returns {Promise<Object>} Post result
  */
 export async function submitSignedPost(content, options = {}) {
@@ -115,6 +115,7 @@ export async function submitSignedPost(content, options = {}) {
   const signedPost = Crypto.signPost(content, identity.privateKey, {
     replyTo: options.replyTo,
     mediaCid: options.mediaCid,
+    link: options.link,
     nsfw: options.nsfw,
     contentWarning: options.contentWarning
   });

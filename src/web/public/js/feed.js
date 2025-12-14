@@ -588,6 +588,7 @@ export function renderFeedItem(post, fullFeatures = true) {
   }
 
   const hasMedia = post.media && post.media.cid;
+  const hasLink = post.link && post.link.url;
   const rep = post.reputation || { score: 0, distance: 0 };
   const repColor = getReputationColor(rep.score);
   const tags = post.authorTags || [];
@@ -663,7 +664,7 @@ export function renderFeedItem(post, fullFeatures = true) {
   const authorAvatar = post.authorAvatar || '&#x1F464;';
 
   return `
-    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="window.cloutApp.viewThread('${post.id}')" style="cursor: pointer;">
+    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasLink ? 'has-link' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="window.cloutApp.viewThread('${post.id}')" style="cursor: pointer;">
       <div class="feed-item-wrapper">
         <div class="feed-avatar">${renderAvatar(authorAvatar)}</div>
         <div class="feed-post-content">
@@ -706,6 +707,56 @@ export function renderFeedItem(post, fullFeatures = true) {
         </div>
       </div>
     </div>
+  `;
+}
+
+// Link preview decay time: 24 hours
+const LINK_PREVIEW_DECAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Check if a link preview has expired
+ */
+function isLinkPreviewExpired(link) {
+  if (!link || !link.fetchedAt) return true;
+  return Date.now() - link.fetchedAt > LINK_PREVIEW_DECAY_MS;
+}
+
+/**
+ * Render a link preview card
+ */
+function renderLinkPreviewCard(link, expired = false) {
+  if (expired) {
+    return `
+      <div class="post-link-expired">
+        <span class="post-link-expired-icon">&#x1F517;</span>
+        <span class="post-link-expired-text">Link preview expired</span>
+        <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-expired-url" onclick="event.stopPropagation();">${escapeHtml(link.url)}</a>
+      </div>
+    `;
+  }
+
+  const hostname = (() => {
+    try {
+      return new URL(link.url).hostname;
+    } catch {
+      return link.url;
+    }
+  })();
+
+  const imageHtml = link.image
+    ? `<div class="post-link-preview-image" style="background-image: url('${escapeHtml(link.image)}')"></div>`
+    : '';
+
+  return `
+    <a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-preview" onclick="event.stopPropagation();">
+      ${imageHtml}
+      <div class="post-link-preview-content">
+        <div class="post-link-preview-site">${escapeHtml(link.siteName || hostname)}</div>
+        <div class="post-link-preview-title">${escapeHtml(link.title || 'Untitled')}</div>
+        ${link.description ? `<div class="post-link-preview-description">${escapeHtml(link.description)}</div>` : ''}
+        <div class="post-link-preview-url">${escapeHtml(hostname)}</div>
+      </div>
+    </a>
   `;
 }
 
@@ -770,6 +821,12 @@ export function renderPostContent(post) {
 
     const mediaUrl = `${API_BASE}/media/${cid}`;
     return content.trim() + `<div class="post-media"><img src="${mediaUrl}" alt="Post media" loading="lazy" onerror="this.parentElement.innerHTML='<span class=\\'media-error\\'>Media unavailable</span>'"></div>`;
+  }
+
+  // Handle link previews
+  if (post.link && post.link.url) {
+    const expired = isLinkPreviewExpired(post.link);
+    return content.trim() + renderLinkPreviewCard(post.link, expired);
   }
 
   return content;
