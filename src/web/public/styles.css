@@ -483,6 +483,17 @@ h2 {
   background: rgba(34, 197, 94, 0.2);
 }
 
+/* Untrust button (remove from circle) */
+.btn-untrust {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+
+.btn-untrust:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
 /* Muted user styling in trust list */
 .trusted-user-card.muted {
   opacity: 0.6;
@@ -1446,6 +1457,20 @@ h2 {
   font-size: 0.8rem;
   color: var(--text-dim);
   margin: 0.5rem 0 0 0;
+}
+
+.help-text-success {
+  color: #22c55e;
+  margin-bottom: 1rem;
+}
+
+/* Delegation Form */
+.delegate-form {
+  margin-top: 1rem;
+}
+
+.delegation-status {
+  margin-bottom: 1rem;
 }
 
 /* Feed Header with Reputation */

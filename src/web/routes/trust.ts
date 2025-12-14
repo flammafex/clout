@@ -41,6 +41,18 @@ export function createTrustRoutes(getClout: () => Clout | undefined, isInitializ
     }
   });
 
+  // Revoke trust (untrust/unfollow)
+  router.delete('/trust/:publicKey', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+      const publicKey = validatePublicKey(req.params.publicKey);
+      await getClout()!.revokeTrust(publicKey);
+      res.json({ success: true, data: { publicKey, revoked: true } });
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
   // Get list of directly trusted users
   // Philosophical stance: you should trust yourself above all, so self is included at the top
   router.get('/trusted', async (req, res) => {
