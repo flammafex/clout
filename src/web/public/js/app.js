@@ -49,9 +49,7 @@ import {
   showRestorePopover, closeRestorePopover, restoreFromFile
 } from './invite.js';
 import {
-  grantQuota, loadMembersWithQuota, createAdminInvitations, copySingleCode,
-  copyAllCodes, loadAllInvitations, loadMyInvitationStatus, loadMyInvitations,
-  createMemberInvitation, copyMemberCode, loadAllUsers, banUser, quickBan,
+  loadMyInvitationStatus, loadMyInvitations, createMemberInvitation, copyMemberCode,
   lookupUser
 } from './admin.js';
 
@@ -715,22 +713,13 @@ window.cloutApp = {
   backupBrowserIdentity,
   restoreFromServer,
 
-  // Admin - Invitation Management
-  grantQuota,
-  loadMembersWithQuota,
-  createAdminInvitations,
-  copySingleCode,
-  copyAllCodes,
-  loadAllInvitations,
+  // Member Invitations
   loadMyInvitationStatus,
   loadMyInvitations,
   createMemberInvitation,
   copyMemberCode,
 
-  // Admin - User Management
-  loadAllUsers,
-  banUser,
-  quickBan,
+  // User Lookup
   lookupUser,
 
   // Notifications
