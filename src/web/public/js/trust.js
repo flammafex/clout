@@ -621,9 +621,10 @@ async function sendTrustRequestSlide(identity, recipientKey, payload) {
     timestamp
   };
 
-  // Sign the slide
+  // Sign the slide (encode as bytes for ed25519)
   const signaturePayload = `slide:${slideData.sender}:${slideData.recipient}:${timestamp}`;
-  slideData.signature = Crypto.toHex(Crypto.sign(signaturePayload, identity.privateKey));
+  const signatureBytes = new TextEncoder().encode(signaturePayload);
+  slideData.signature = Crypto.toHex(Crypto.sign(signatureBytes, identity.privateKey));
 
   // Submit to server for gossip propagation
   await apiCall('/slide/submit', 'POST', slideData);
