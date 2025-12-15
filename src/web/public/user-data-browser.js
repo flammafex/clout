@@ -254,7 +254,18 @@ export class BrowserUserData {
   async createTrustRequest(recipient, weight = 1.0, message = null) {
     const db = await this.ensureDb();
     const now = Date.now();
-    const requester = window.browserIdentity?.publicKeyHex || 'unknown';
+
+    // Load identity properly via CloutIdentity module
+    let requester = 'unknown';
+    if (window.CloutIdentity) {
+      const identity = await window.CloutIdentity.load();
+      requester = identity?.publicKeyHex || 'unknown';
+    }
+
+    if (requester === 'unknown') {
+      throw new Error('Cannot create trust request without a valid identity');
+    }
+
     const id = `${requester}-${recipient}-${now}`;
 
     // Get requester's profile info to attach to the request
@@ -958,6 +969,13 @@ export class BrowserUserData {
   // =========================================================================
 
   async exportAll() {
+    // Load identity properly via CloutIdentity module
+    let publicKeyHex = null;
+    if (window.CloutIdentity) {
+      const identity = await window.CloutIdentity.load();
+      publicKeyHex = identity?.publicKeyHex || null;
+    }
+
     const [
       profile,
       trustGraph,
@@ -968,7 +986,7 @@ export class BrowserUserData {
       notifications,
       reactionPalette
     ] = await Promise.all([
-      this.getProfile(window.browserIdentity?.publicKeyHex),
+      publicKeyHex ? this.getProfile(publicKeyHex) : Promise.resolve(null),
       this.getTrustGraph(),
       this.getAllNicknames(),
       this.getAllTagsWithUsers(),
