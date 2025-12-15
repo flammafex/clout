@@ -66,9 +66,10 @@ export async function sendSlide(requireMembership) {
       timestamp
     };
 
-    // Sign the slide
+    // Sign the slide (encode as bytes for ed25519)
     const signaturePayload = `slide:${slideData.sender}:${slideData.recipient}:${timestamp}`;
-    slideData.signature = Crypto.toHex(Crypto.sign(signaturePayload, identity.privateKey));
+    const signatureBytes = new TextEncoder().encode(signaturePayload);
+    slideData.signature = Crypto.toHex(Crypto.sign(signatureBytes, identity.privateKey));
 
     $('send-slide-btn').textContent = 'Sending...';
 
@@ -359,9 +360,10 @@ export async function sendTrustAcceptanceSlide(requesterKey, requestId) {
     timestamp
   };
 
-  // Sign the slide
+  // Sign the slide (encode as bytes for ed25519)
   const signaturePayload = `slide:${slideData.sender}:${slideData.recipient}:${timestamp}`;
-  slideData.signature = Crypto.toHex(Crypto.sign(signaturePayload, identity.privateKey));
+  const signatureBytes = new TextEncoder().encode(signaturePayload);
+  slideData.signature = Crypto.toHex(Crypto.sign(signatureBytes, identity.privateKey));
 
   // Submit to server for gossip propagation
   try {
