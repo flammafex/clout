@@ -24,13 +24,23 @@ export interface FreebirdProxyConfig {
   getFreebirdAdapter: () => FreebirdAdapter | undefined;
   /** Check if the server is initialized */
   isInitialized: () => boolean;
+  /**
+   * Check if a user is registered with Freebird (can renew Day Pass without invitation)
+   * Returns true if the user has previously redeemed an invitation
+   */
+  isUserRegistered?: (publicKey: string) => Promise<boolean>;
+  /**
+   * Mark a user as registered with Freebird
+   * Called after successful token issuance
+   */
+  setUserRegistered?: (publicKey: string, registered: boolean) => Promise<void>;
 }
 
 /**
  * Create Freebird proxy routes
  */
 export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
-  const { getFreebirdAdapter, isInitialized } = config;
+  const { getFreebirdAdapter, isInitialized, isUserRegistered, setUserRegistered } = config;
   const router = Router();
 
   /**
@@ -92,6 +102,7 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
    * Request body:
    * - blinded_element_b64: Base64url encoded blinded element
    * - invitation_code?: Optional invitation code for sybil resistance
+   * - user_public_key?: User's public key (for registered user mode)
    *
    * Response:
    * - token: Base64url encoded VOPRF token
@@ -114,13 +125,31 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
         });
       }
 
-      const { blinded_element_b64, invitation_code } = req.body;
+      const { blinded_element_b64, invitation_code, user_public_key } = req.body;
 
       if (!blinded_element_b64 || typeof blinded_element_b64 !== 'string') {
         return res.status(400).json({
           success: false,
           error: 'blinded_element_b64 is required'
         });
+      }
+
+      // Check if user is already registered with Freebird (can renew without invitation)
+      // Only switch to registered mode if:
+      // 1. User provided their public key
+      // 2. User is registered (persisted state)
+      // 3. Current mode is invitation (we're in invitation mode)
+      // 4. No invitation code was just set (not a fresh redemption)
+      let wasInvitationMode = false;
+      const currentMode = adapter.getSybilMode();
+
+      if (user_public_key && isUserRegistered && currentMode === 'invitation') {
+        const registered = await isUserRegistered(user_public_key);
+        if (registered && !invitation_code) {
+          console.log(`[FreebirdProxy] User ${user_public_key.slice(0, 8)}... is registered, using registered mode`);
+          wasInvitationMode = true;
+          adapter.setSybilMode('registered');
+        }
       }
 
       // Note: invitation code and signature should already be set by /api/invitation/redeem
@@ -138,25 +167,49 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
       // Get issuer metadata for public key
       const metadata = await adapter.getIssuerMetadata();
       if (!metadata || !metadata.voprf?.pubkey) {
+        // Restore sybil mode if we changed it
+        if (wasInvitationMode) {
+          adapter.setSybilMode('invitation');
+        }
         return res.status(503).json({
           success: false,
           error: 'Freebird issuer not available or missing public key'
         });
       }
 
-      // Issue the token via Freebird
-      const tokenBytes = await adapter.issueToken(blindedBytes);
+      try {
+        // Issue the token via Freebird
+        const tokenBytes = await adapter.issueToken(blindedBytes);
 
-      // Convert to base64url
-      const token_b64 = bytesToBase64Url(tokenBytes);
-
-      res.json({
-        success: true,
-        data: {
-          token: token_b64,
-          issuer_pubkey: metadata.voprf.pubkey
+        // After successful token issuance, mark user as registered for future renewals
+        if (user_public_key && setUserRegistered && currentMode === 'invitation') {
+          // User successfully issued a token with invitation mode - they're now registered
+          await setUserRegistered(user_public_key, true);
+          console.log(`[FreebirdProxy] Marked user ${user_public_key.slice(0, 8)}... as registered`);
         }
-      });
+
+        // Restore sybil mode if we changed it
+        if (wasInvitationMode) {
+          adapter.setSybilMode('invitation');
+        }
+
+        // Convert to base64url
+        const token_b64 = bytesToBase64Url(tokenBytes);
+
+        res.json({
+          success: true,
+          data: {
+            token: token_b64,
+            issuer_pubkey: metadata.voprf.pubkey
+          }
+        });
+      } catch (issueError) {
+        // Restore sybil mode if we changed it
+        if (wasInvitationMode) {
+          adapter.setSybilMode('invitation');
+        }
+        throw issueError;
+      }
     } catch (error: any) {
       console.error('[FreebirdProxy] Error issuing token:', error.message);
 

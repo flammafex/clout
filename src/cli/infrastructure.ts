@@ -24,6 +24,8 @@ export interface InitializeOptions {
   userPublicKey?: string;
   /** Whether this user is the Freebird instance owner */
   isOwner?: boolean;
+  /** Whether user is already registered with Freebird (can renew Day Pass without invitation) */
+  isFreebirdRegistered?: boolean;
 }
 
 export class InfrastructureManager {
@@ -45,10 +47,16 @@ export class InfrastructureManager {
     }
 
     // Initialize Freebird with owner info if available
+    const baseFreebirdConfig = this.config.getFreebirdConfig();
     const freebirdConfig = {
-      ...this.config.getFreebirdConfig(),
+      ...baseFreebirdConfig,
       userPublicKey: options?.userPublicKey,
-      isOwner: options?.isOwner
+      isOwner: options?.isOwner,
+      // If user is already registered with Freebird, use 'registered' mode for Day Pass renewal
+      // This allows renewal without requiring a new invitation code
+      sybilMode: (options?.isFreebirdRegistered && baseFreebirdConfig.sybilMode === 'invitation')
+        ? 'registered' as const
+        : baseFreebirdConfig.sybilMode
     };
     const freebird = new FreebirdAdapter(freebirdConfig);
 

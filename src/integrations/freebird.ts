@@ -17,7 +17,7 @@ import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 
-export type SybilMode = 'none' | 'pow' | 'invitation';
+export type SybilMode = 'none' | 'pow' | 'invitation' | 'registered';
 
 export interface FreebirdAdapterConfig {
   readonly issuerEndpoints: string[];
@@ -30,6 +30,7 @@ export interface FreebirdAdapterConfig {
    * - 'none': No proof required (development only)
    * - 'pow': Proof-of-work puzzle (rate limits account creation)
    * - 'invitation': Invitation code required (web-of-trust)
+   * - 'registered': User already registered with Freebird (Day Pass renewal)
    *
    * Default: 'none'
    */
@@ -78,7 +79,7 @@ export class FreebirdAdapter implements FreebirdClient {
   private readonly context: Uint8Array;
   private readonly tor: TorProxy | null;
   private readonly allowInsecureFallback: boolean;
-  private readonly sybilMode: SybilMode;
+  private sybilMode: SybilMode;
   private invitationCode: string | undefined;
   private invitationSignature: string | undefined;
   // Track if an invitation was attempted (prevents fallback to owner mode)
@@ -127,6 +128,50 @@ export class FreebirdAdapter implements FreebirdClient {
 
     // Log Sybil mode
     console.log(`[Freebird] Sybil resistance mode: ${this.sybilMode}`);
+  }
+
+  /**
+   * Mark the user as registered with Freebird (for Day Pass renewal)
+   *
+   * After successful token issuance with an invitation code, the user is added
+   * to Freebird's inviters table. Future token requests can use 'registered' mode
+   * instead of requiring a new invitation code.
+   *
+   * Call this after successful mintTicket() with invitation mode.
+   * The calling code should persist this state to survive app restarts.
+   */
+  markAsRegistered(): void {
+    if (this.sybilMode === 'invitation') {
+      console.log('[Freebird] Switching from invitation to registered mode');
+      this.sybilMode = 'registered';
+    } else if (this.sybilMode !== 'registered') {
+      console.warn(`[Freebird] markAsRegistered() called but sybilMode is '${this.sybilMode}', not 'invitation'`);
+    }
+  }
+
+  /**
+   * Set the sybil mode directly
+   *
+   * Used when loading persisted registration state on app restart.
+   * If the user was previously registered, set mode to 'registered'.
+   */
+  setSybilMode(mode: SybilMode): void {
+    console.log(`[Freebird] Setting sybil mode to: ${mode}`);
+    this.sybilMode = mode;
+  }
+
+  /**
+   * Get the current sybil mode
+   */
+  getSybilMode(): SybilMode {
+    return this.sybilMode;
+  }
+
+  /**
+   * Check if user is registered (can renew Day Pass without invitation)
+   */
+  isRegistered(): boolean {
+    return this.sybilMode === 'registered';
   }
 
   /**
@@ -232,6 +277,19 @@ export class FreebirdAdapter implements FreebirdClient {
           throw new Error('[Freebird] Invitation mode requires an invitation code. Call setInvitationCode() first.');
         }
         throw new Error('[Freebird] Invitation mode requires a signature. Call setInvitationCode(code, signature) with both parameters.');
+      }
+
+      case 'registered': {
+        // Registered user mode - user already in Freebird's inviters table
+        // Uses their public key as user_id for Day Pass renewal
+        if (!this.userPublicKey) {
+          throw new Error('[Freebird] Registered mode requires userPublicKey');
+        }
+        console.log(`[Freebird] Using registered user mode for ${this.userPublicKey.slice(0, 8)}...`);
+        return {
+          type: 'registered_user',
+          user_id: this.userPublicKey
+        };
       }
 
       default:

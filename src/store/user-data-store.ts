@@ -70,6 +70,11 @@ export interface UserLocalData {
     lastSeenReplies: number;
     lastSeenMentions: number;
   };
+  /**
+   * Whether the user is registered with Freebird (can renew Day Pass without invitation)
+   * Set to true after first successful token issuance with invitation mode.
+   */
+  isFreebirdRegistered?: boolean;
 }
 
 /**
@@ -569,6 +574,29 @@ export class UserDataStore {
     const userData = await this.loadUserData(publicKey);
     userData.localData.notifications.lastSeenMentions = Date.now();
     await this.saveUserData(publicKey, userData);
+  }
+
+  // =========================================================================
+  //  FREEBIRD REGISTRATION OPERATIONS
+  // =========================================================================
+
+  /**
+   * Check if user is registered with Freebird (can renew Day Pass without invitation)
+   */
+  async isFreebirdRegistered(publicKey: string): Promise<boolean> {
+    const userData = await this.loadUserData(publicKey);
+    return userData.localData.isFreebirdRegistered ?? false;
+  }
+
+  /**
+   * Mark user as registered with Freebird
+   * Call this after successful token issuance with invitation mode
+   */
+  async setFreebirdRegistered(publicKey: string, registered: boolean): Promise<void> {
+    const userData = await this.loadUserData(publicKey);
+    userData.localData.isFreebirdRegistered = registered;
+    await this.saveUserData(publicKey, userData);
+    console.log(`[UserDataStore] 🎫 ${shortKey(publicKey)} Freebird registered: ${registered}`);
   }
 
   // =========================================================================
