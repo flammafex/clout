@@ -445,6 +445,18 @@ export class CloutWebServer {
           this.setOwnerPublicKey(publicKey);
         }
 
+        // Auto-trust: Add the inviter to the new user's trust graph
+        // This creates an initial social connection and lets the new user see their inviter's posts
+        if (publicKey && inviterKey && publicKey !== inviterKey) {
+          try {
+            await this.userDataStore.trust(publicKey, inviterKey);
+            console.log(`[Server] 🤝 Auto-trusted inviter ${inviterKey.slice(0, 8)}... for new user ${publicKey.slice(0, 8)}...`);
+          } catch (trustError: any) {
+            // Non-fatal: log but don't fail the redemption
+            console.warn(`[Server] Failed to auto-trust inviter: ${trustError.message}`);
+          }
+        }
+
         res.json({
           success: true,
           data: {
