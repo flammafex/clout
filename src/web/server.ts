@@ -447,7 +447,11 @@ export class CloutWebServer {
 
         // Auto-trust: Add the inviter to the new user's trust graph
         // This creates an initial social connection and lets the new user see their inviter's posts
-        if (publicKey && inviterKey && publicKey !== inviterKey) {
+        // Skip for bootstrap invitations where inviter is the server's Self identity (not a real user)
+        const serverIdentity = this.identityManager.getIdentity()?.publicKey;
+        const isBootstrapInviter = inviterKey === serverIdentity;
+
+        if (publicKey && inviterKey && publicKey !== inviterKey && !isBootstrapInviter) {
           try {
             await this.userDataStore.trust(publicKey, inviterKey);
             console.log(`[Server] 🤝 Auto-trusted inviter ${inviterKey.slice(0, 8)}... for new user ${publicKey.slice(0, 8)}...`);
