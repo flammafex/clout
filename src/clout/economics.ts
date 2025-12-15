@@ -21,6 +21,12 @@ export interface EconomicsConfig {
   store?: CloutStore;
   ticketBooth: TicketBooth;
   reputationValidator: ReputationValidator;
+  /**
+   * Optional callback called when user is marked as registered with Freebird.
+   * Called after successful token issuance with invitation mode.
+   * The calling code should persist this state to survive app restarts.
+   */
+  onFreebirdRegistered?: () => void;
 }
 
 export class CloutEconomics {
@@ -31,6 +37,7 @@ export class CloutEconomics {
   private readonly store?: CloutStore;
   private readonly ticketBooth: TicketBooth;
   private readonly reputationValidator: ReputationValidator;
+  private readonly onFreebirdRegistered?: () => void;
 
   private currentTicket?: CloutTicket;
 
@@ -42,6 +49,7 @@ export class CloutEconomics {
     this.store = config.store;
     this.ticketBooth = config.ticketBooth;
     this.reputationValidator = config.reputationValidator;
+    this.onFreebirdRegistered = config.onFreebirdRegistered;
   }
 
   /**
@@ -80,10 +88,26 @@ export class CloutEconomics {
 
   /**
    * Helper for testing: Obtain a mock token
+   *
+   * After successful token issuance with invitation mode, marks the user as registered
+   * with Freebird so they can renew their Day Pass without a new invitation code.
    */
   async obtainToken(): Promise<Uint8Array> {
     const blinded = await this.freebird.blind({ bytes: Crypto.fromHex(this.publicKeyHex) });
-    return this.freebird.issueToken(blinded);
+    const token = await this.freebird.issueToken(blinded);
+
+    // After successful token issuance, mark user as registered for future renewals
+    // This allows Day Pass renewal without requiring a new invitation code
+    if (this.freebird.markAsRegistered) {
+      this.freebird.markAsRegistered();
+
+      // Notify calling code to persist the registered state
+      if (this.onFreebirdRegistered) {
+        this.onFreebirdRegistered();
+      }
+    }
+
+    return token;
   }
 
   /**

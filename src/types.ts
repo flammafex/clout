@@ -139,6 +139,16 @@ export interface FreebirdClient {
   issueToken(blindedValue: Uint8Array): Promise<Uint8Array>;
   verifyToken(token: Uint8Array): Promise<boolean>;
   createOwnershipProof(secret: Uint8Array): Promise<Uint8Array>;
+  /**
+   * Mark user as registered with Freebird (for Day Pass renewal without invitation)
+   * Optional: only implemented by FreebirdAdapter
+   */
+  markAsRegistered?(): void;
+  /**
+   * Check if user is registered (can renew Day Pass without invitation code)
+   * Optional: only implemented by FreebirdAdapter
+   */
+  isRegistered?(): boolean;
 }
 
 export interface WitnessClient {

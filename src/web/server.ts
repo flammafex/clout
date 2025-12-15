@@ -538,7 +538,15 @@ export class CloutWebServer {
     // Browser does blinding locally, server proxies to Freebird (no CORS)
     this.app.use('/api/freebird', createFreebirdProxyRoutes({
       getFreebirdAdapter: this.getFreebirdAdapter,
-      isInitialized: this.isInitialized
+      isInitialized: this.isInitialized,
+      // Check if user is registered with Freebird (can renew Day Pass without invitation)
+      isUserRegistered: async (publicKey: string) => {
+        return this.userDataStore.isFreebirdRegistered(publicKey);
+      },
+      // Mark user as registered with Freebird after successful token issuance
+      setUserRegistered: async (publicKey: string, registered: boolean) => {
+        await this.userDataStore.setFreebirdRegistered(publicKey, registered);
+      }
     }));
 
     // Mount admin routes for invitation quota management
