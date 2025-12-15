@@ -203,7 +203,7 @@ export async function loadSlides() {
 
     // Process any trust requests received
     if (trustRequests.length > 0 && window.CloutUserData) {
-      await processTrustRequestSlides(trustRequests);
+      await processTrustRequestSlides(trustRequests, identity);
     }
 
     // Process any trust request acceptances
@@ -256,8 +256,10 @@ export function startSlideReply(recipientKey) {
 /**
  * Process incoming trust request slides
  * Store them as incoming trust requests in IndexedDB
+ * @param {Array} trustRequests - Array of trust request objects from decrypted slides
+ * @param {Object} identity - The browser identity object with publicKeyHex
  */
-async function processTrustRequestSlides(trustRequests) {
+async function processTrustRequestSlides(trustRequests, identity) {
   for (const request of trustRequests) {
     try {
       // Check if we already have this request
@@ -271,7 +273,7 @@ async function processTrustRequestSlides(trustRequests) {
           requester: request.requester,
           requesterDisplayName: request.requesterDisplayName,
           requesterAvatar: request.requesterAvatar,
-          recipient: window.browserIdentity?.publicKeyHex,
+          recipient: identity.publicKeyHex,
           weight: request.weight,
           status: 'pending',
           createdAt: request.timestamp,
