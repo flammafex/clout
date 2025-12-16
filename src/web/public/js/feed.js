@@ -12,7 +12,7 @@ import * as state from './state.js';
 import { apiCall, API_BASE } from './api.js';
 import {
   $, $$, showLoading, showResult, escapeHtml, formatRelativeTime,
-  renderAvatar, getReputationColor, switchToTab
+  renderAvatar, getReputationColor, switchToTab, renderMarkdown
 } from './ui.js';
 import { renderReactionsBar } from './reactions.js';
 
@@ -749,7 +749,7 @@ export function renderPostContent(post) {
     return `<span class="post-decayed">This post's content has expired (${decayDate})</span>`;
   }
 
-  let content = escapeHtml(post.content);
+  let content = renderMarkdown(escapeHtml(post.content));
   const visitor = isVisitorMode();
 
   // Debug: Log media state for troubleshooting
