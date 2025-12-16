@@ -547,7 +547,8 @@ export class CloutWebServer {
       getClout: this.getClout,
       isInitialized: this.isInitialized,
       getUserTicket: this.getUserTicket,
-      setUserTicket: this.setUserTicket
+      setUserTicket: this.setUserTicket,
+      getOwnerPublicKey: this.getOwnerPublicKey
     }));
 
     // Mount Freebird proxy routes (for browser VOPRF blinding)
