@@ -8,7 +8,7 @@
  */
 
 import * as state from './state.js';
-import { apiCall } from './api.js';
+import { apiCall, submitSignedTrust } from './api.js';
 import { $, showLoading, showResult, escapeHtml, formatRelativeTime } from './ui.js';
 
 /**
@@ -130,9 +130,10 @@ export async function loadSlides() {
       await window.CloutUserData.markSeen('slides');
     }
 
-    updateSlidesBadge(data.slides?.length || 0);
+    // Note: Badge is updated AFTER filtering out trust signals (see below)
 
     if (!data.slides || data.slides.length === 0) {
+      updateSlidesBadge(0);
       slidesList.innerHTML = `
         <div class="empty-state-helpful">
           <div class="empty-icon">📬</div>
@@ -211,6 +212,9 @@ export async function loadSlides() {
     if (trustResponses.length > 0 && window.CloutUserData) {
       await processTrustResponseSlides(trustResponses);
     }
+
+    // Update badge to show only regular messages (not trust signals)
+    updateSlidesBadge(decryptedSlides.length);
 
     // Check if we have any regular messages to display
     if (decryptedSlides.length === 0) {
@@ -309,15 +313,33 @@ async function processTrustRequestSlides(trustRequests, identity) {
 
 /**
  * Process trust request acceptance slides
- * Update our outgoing request status
+ * Update our outgoing request status AND add them to our trust circle (reciprocal trust)
  */
 async function processTrustResponseSlides(responses) {
   for (const response of responses) {
     try {
       if (response.type === 'trust-request-accepted') {
+        const accepterKey = response.accepter;
+
         // Update our outgoing request to accepted
-        await window.CloutUserData.updateOutgoingRequestStatus(response.accepter, 'accepted');
-        console.log('[Slides] Our trust request was accepted by', response.accepter?.slice(0, 12));
+        await window.CloutUserData.updateOutgoingRequestStatus(accepterKey, 'accepted');
+
+        // Check if we already trust them (avoid duplicate trust)
+        const alreadyTrusted = await window.CloutUserData.isTrusted(accepterKey);
+        if (!alreadyTrusted) {
+          // Get the weight we originally requested (default to 1.0)
+          const outgoing = await window.CloutUserData.getOutgoingTrustRequests();
+          const originalRequest = outgoing.find(r => r.recipient === accepterKey);
+          const weight = originalRequest?.weight ?? 1.0;
+
+          // Add them to our trust circle (reciprocal trust)
+          await submitSignedTrust(accepterKey, weight);
+          await window.CloutUserData.trust(accepterKey, weight);
+
+          console.log('[Slides] ✅ Trust request accepted! Added', accepterKey?.slice(0, 12), 'to trust circle');
+        } else {
+          console.log('[Slides] Trust request accepted by', accepterKey?.slice(0, 12), '(already trusted)');
+        }
       }
     } catch (error) {
       console.error('[Slides] Error processing trust response:', error);
