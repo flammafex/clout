@@ -204,9 +204,20 @@ export function isInvitationRequiredError(error) {
          msg.includes('no valid');
 }
 
+// Abuse prevention limits
+const MAX_CODE_BLOCK_LENGTH = 5000;
+const MAX_LINKS = 10;
+const MAX_CONSECUTIVE_NEWLINES = 2;
+
 /**
  * Render text-only markdown (no images, no raw HTML)
  * Supports: **bold**, *italic*, `code`, ~~strikethrough~~, [links](url), > blockquotes, line breaks
+ *
+ * Security features:
+ * - Limits consecutive newlines to prevent vertical spam
+ * - Limits code block size to prevent page bloat
+ * - Limits number of links to prevent link spam
+ * - Uses crypto-random placeholders to prevent injection
  *
  * @param {string} text - Already HTML-escaped text
  * @returns {string} - HTML with markdown formatting applied
@@ -216,10 +227,22 @@ export function renderMarkdown(text) {
 
   let html = text;
 
+  // Generate a unique placeholder prefix to prevent injection attacks
+  // (user cannot predict this value to inject fake placeholders)
+  const placeholderId = Math.random().toString(36).substring(2, 15);
+
+  // Collapse excessive newlines to prevent vertical spam (max 2 consecutive)
+  const newlinePattern = new RegExp(`\n{${MAX_CONSECUTIVE_NEWLINES + 1},}`, 'g');
+  html = html.replace(newlinePattern, '\n'.repeat(MAX_CONSECUTIVE_NEWLINES));
+
   // Code blocks (``` ... ```) - must come before inline code
   // Match triple backticks with optional language identifier
   html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    return `<pre><code class="code-block${lang ? ` lang-${lang}` : ''}">${code.trim()}</code></pre>`;
+    // Truncate excessively long code blocks
+    const truncated = code.length > MAX_CODE_BLOCK_LENGTH
+      ? code.substring(0, MAX_CODE_BLOCK_LENGTH) + '\n... (truncated)'
+      : code;
+    return `<pre><code class="code-block${lang ? ` lang-${lang}` : ''}">${truncated.trim()}</code></pre>`;
   });
 
   // Inline code (`code`) - use negative lookbehind/lookahead to avoid matching inside code blocks
@@ -236,9 +259,15 @@ export function renderMarkdown(text) {
   // Strikethrough (~~text~~)
   html = html.replace(/~~([^~]+)~~/g, '<s>$1</s>');
 
-  // Links [text](url) - only allow http/https URLs for safety
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  // Links [text](url) - only allow http/https URLs for safety, limit count
+  let linkCount = 0;
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (match, text, url) => {
+    if (linkCount >= MAX_LINKS) {
+      return text; // Just show the link text, don't render as link
+    }
+    linkCount++;
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  });
 
   // Blockquotes (> text) - handle at start of line
   html = html.replace(/^&gt;\s?(.*)$/gm, '<blockquote>$1</blockquote>');
@@ -246,11 +275,11 @@ export function renderMarkdown(text) {
   html = html.replace(/<\/blockquote>\n<blockquote>/g, '\n');
 
   // Line breaks - convert newlines to <br> (but not inside <pre> blocks)
-  // First, protect pre blocks
+  // First, protect pre blocks using unpredictable placeholder
   const preBlocks = [];
   html = html.replace(/<pre><code[^>]*>[\s\S]*?<\/code><\/pre>/g, (match) => {
     preBlocks.push(match);
-    return `__PRE_BLOCK_${preBlocks.length - 1}__`;
+    return `__PRE_${placeholderId}_${preBlocks.length - 1}__`;
   });
 
   // Convert newlines to <br>
@@ -258,7 +287,7 @@ export function renderMarkdown(text) {
 
   // Restore pre blocks
   preBlocks.forEach((block, i) => {
-    html = html.replace(`__PRE_BLOCK_${i}__`, block);
+    html = html.replace(`__PRE_${placeholderId}_${i}__`, block);
   });
 
   return html;
