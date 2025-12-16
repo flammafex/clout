@@ -17,7 +17,26 @@ import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 
-export type SybilMode = 'none' | 'pow' | 'invitation' | 'registered';
+export type SybilMode = 'none' | 'pow' | 'invitation' | 'registered' | 'federated_trust';
+
+/**
+ * A token from a federated (trusted) Freebird issuer
+ *
+ * Used for cross-community onboarding: if Community A trusts Community B,
+ * users with valid tokens from B can obtain tokens from A without an invitation.
+ */
+export interface FederatedToken {
+  /** The issuer ID that issued this token (e.g., "issuer:community-b.com:v1") */
+  readonly sourceIssuerId: string;
+  /** The raw token bytes */
+  readonly token: Uint8Array;
+  /** When this token expires (Unix timestamp in seconds) */
+  readonly expiresAt: number;
+  /** When this token was issued (Unix timestamp in seconds) */
+  readonly issuedAt: number;
+  /** Human-readable name of the source community (for UI) */
+  readonly communityName?: string;
+}
 
 export interface FreebirdAdapterConfig {
   readonly issuerEndpoints: string[];
@@ -61,6 +80,14 @@ export interface FreebirdAdapterConfig {
    * Default: false (fail if servers unavailable)
    */
   readonly allowInsecureFallback?: boolean;
+  /**
+   * Federated token from another trusted community.
+   * Used when sybilMode is 'federated_trust' as an alternative to invitation.
+   *
+   * If you have a valid token from a community that this issuer trusts,
+   * you can use it to obtain a token here without needing an invitation.
+   */
+  readonly federatedToken?: FederatedToken;
 }
 
 /**
@@ -89,6 +116,8 @@ export class FreebirdAdapter implements FreebirdClient {
   private metadata: Map<string, any> = new Map();
   private blindStates: Map<string, BlindState> = new Map();
   private fallbackWarningShown = false;
+  // Federated trust: token from another trusted community
+  private federatedToken: FederatedToken | undefined;
 
   constructor(config: FreebirdAdapterConfig) {
     if (!config.issuerEndpoints || config.issuerEndpoints.length === 0) {
@@ -103,6 +132,7 @@ export class FreebirdAdapter implements FreebirdClient {
     this.invitationCode = config.invitationCode;
     this.userPublicKey = config.userPublicKey;
     this.isOwner = config.isOwner ?? false;
+    this.federatedToken = config.federatedToken;
     // Context must match Freebird server
     this.context = new TextEncoder().encode('freebird:v1');
 
@@ -190,6 +220,93 @@ export class FreebirdAdapter implements FreebirdClient {
       console.warn(`[Freebird] ⚠️ WARNING: Invitation code set but sybilMode is '${this.sybilMode}' (not 'invitation')`);
       console.warn(`[Freebird] ⚠️ The invitation code will be IGNORED. Set FREEBIRD_SYBIL_MODE=invitation`);
     }
+  }
+
+  /**
+   * Set a federated token for 'federated_trust' sybil mode
+   *
+   * Use this when you have a valid token from a community that this issuer trusts.
+   * This provides an alternative onboarding path to invitations.
+   *
+   * @param token - The federated token from another community
+   */
+  setFederatedToken(token: FederatedToken): void {
+    // Validate token is not expired
+    const nowSecs = Math.floor(Date.now() / 1000);
+    if (token.expiresAt < nowSecs) {
+      throw new Error(
+        `[Freebird] Cannot set expired federated token. ` +
+        `Token from ${token.sourceIssuerId} expired at ${new Date(token.expiresAt * 1000).toISOString()}`
+      );
+    }
+
+    this.federatedToken = token;
+
+    console.log(
+      `[Freebird] Federated token set: ${token.sourceIssuerId}` +
+      (token.communityName ? ` (${token.communityName})` : '') +
+      `, expires ${new Date(token.expiresAt * 1000).toISOString()}`
+    );
+
+    // Warn if sybilMode is not 'federated_trust' - the token won't be used!
+    if (this.sybilMode !== 'federated_trust') {
+      console.warn(`[Freebird] ⚠️ WARNING: Federated token set but sybilMode is '${this.sybilMode}' (not 'federated_trust')`);
+      console.warn(`[Freebird] ⚠️ The federated token will be IGNORED. Set sybilMode to 'federated_trust'`);
+    }
+  }
+
+  /**
+   * Get the current federated token (if any)
+   */
+  getFederatedToken(): FederatedToken | undefined {
+    return this.federatedToken;
+  }
+
+  /**
+   * Check if a valid (non-expired) federated token is available
+   */
+  hasFederatedToken(): boolean {
+    if (!this.federatedToken) return false;
+    const nowSecs = Math.floor(Date.now() / 1000);
+    return this.federatedToken.expiresAt > nowSecs;
+  }
+
+  /**
+   * Clear the federated token
+   */
+  clearFederatedToken(): void {
+    if (this.federatedToken) {
+      console.log(`[Freebird] Clearing federated token from ${this.federatedToken.sourceIssuerId}`);
+      this.federatedToken = undefined;
+    }
+  }
+
+  /**
+   * Create a FederatedToken from raw token bytes and issuer metadata
+   *
+   * Helper method for creating a federated token structure from a token
+   * obtained from another Freebird issuer.
+   *
+   * @param token - The raw VOPRF token bytes
+   * @param sourceIssuerId - The issuer ID (e.g., "issuer:community-b.com:v1")
+   * @param expiresAt - Expiration timestamp (Unix seconds)
+   * @param issuedAt - Issuance timestamp (Unix seconds), defaults to now
+   * @param communityName - Human-readable community name (optional)
+   */
+  static createFederatedToken(
+    token: Uint8Array,
+    sourceIssuerId: string,
+    expiresAt: number,
+    issuedAt?: number,
+    communityName?: string
+  ): FederatedToken {
+    return {
+      token,
+      sourceIssuerId,
+      expiresAt,
+      issuedAt: issuedAt ?? Math.floor(Date.now() / 1000),
+      communityName
+    };
   }
 
   /**
@@ -289,6 +406,40 @@ export class FreebirdAdapter implements FreebirdClient {
         return {
           type: 'registered_user',
           user_id: this.userPublicKey
+        };
+      }
+
+      case 'federated_trust': {
+        // Federated trust mode - user has a token from a trusted community
+        // This is an alternative to invitation for cross-community onboarding
+        if (!this.federatedToken) {
+          throw new Error(
+            '[Freebird] Federated trust mode requires a federated token. ' +
+            'Call setFederatedToken() first with a token from a trusted community.'
+          );
+        }
+
+        // Check if token is expired
+        const nowSecs = Math.floor(Date.now() / 1000);
+        if (this.federatedToken.expiresAt < nowSecs) {
+          const expiredAgo = nowSecs - this.federatedToken.expiresAt;
+          throw new Error(
+            `[Freebird] Federated token from ${this.federatedToken.sourceIssuerId} expired ${expiredAgo}s ago. ` +
+            'Please obtain a fresh token from the source community.'
+          );
+        }
+
+        console.log(
+          `[Freebird] Using federated trust: token from ${this.federatedToken.sourceIssuerId}` +
+          (this.federatedToken.communityName ? ` (${this.federatedToken.communityName})` : '')
+        );
+
+        return {
+          type: 'federated_trust',
+          source_issuer_id: this.federatedToken.sourceIssuerId,
+          source_token_b64: voprf.bytesToBase64Url(this.federatedToken.token),
+          token_exp: this.federatedToken.expiresAt,
+          token_issued_at: this.federatedToken.issuedAt
         };
       }
 
