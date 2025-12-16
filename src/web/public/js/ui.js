@@ -203,3 +203,63 @@ export function isInvitationRequiredError(error) {
          msg.includes('daypass') ||
          msg.includes('no valid');
 }
+
+/**
+ * Render text-only markdown (no images, no raw HTML)
+ * Supports: **bold**, *italic*, `code`, ~~strikethrough~~, [links](url), > blockquotes, line breaks
+ *
+ * @param {string} text - Already HTML-escaped text
+ * @returns {string} - HTML with markdown formatting applied
+ */
+export function renderMarkdown(text) {
+  if (!text) return '';
+
+  let html = text;
+
+  // Code blocks (``` ... ```) - must come before inline code
+  // Match triple backticks with optional language identifier
+  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    return `<pre><code class="code-block${lang ? ` lang-${lang}` : ''}">${code.trim()}</code></pre>`;
+  });
+
+  // Inline code (`code`) - use negative lookbehind/lookahead to avoid matching inside code blocks
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // Bold (**text** or __text__)
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+
+  // Italic (*text* or _text_) - be careful not to match inside words
+  html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  html = html.replace(/(?<![a-zA-Z0-9])_([^_\n]+)_(?![a-zA-Z0-9])/g, '<em>$1</em>');
+
+  // Strikethrough (~~text~~)
+  html = html.replace(/~~([^~]+)~~/g, '<s>$1</s>');
+
+  // Links [text](url) - only allow http/https URLs for safety
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  // Blockquotes (> text) - handle at start of line
+  html = html.replace(/^&gt;\s?(.*)$/gm, '<blockquote>$1</blockquote>');
+  // Merge consecutive blockquotes
+  html = html.replace(/<\/blockquote>\n<blockquote>/g, '\n');
+
+  // Line breaks - convert newlines to <br> (but not inside <pre> blocks)
+  // First, protect pre blocks
+  const preBlocks = [];
+  html = html.replace(/<pre><code[^>]*>[\s\S]*?<\/code><\/pre>/g, (match) => {
+    preBlocks.push(match);
+    return `__PRE_BLOCK_${preBlocks.length - 1}__`;
+  });
+
+  // Convert newlines to <br>
+  html = html.replace(/\n/g, '<br>');
+
+  // Restore pre blocks
+  preBlocks.forEach((block, i) => {
+    html = html.replace(`__PRE_BLOCK_${i}__`, block);
+  });
+
+  return html;
+}
