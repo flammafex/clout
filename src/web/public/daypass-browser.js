@@ -43,7 +43,8 @@ export async function requestDayPass(publicKeyBytes, options = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       blinded_element_b64: blindedB64,
-      invitation_code: invitationCode
+      invitation_code: invitationCode,
+      user_public_key: publicKeyHex  // Required for registered user check
     })
   });
 
