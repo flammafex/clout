@@ -365,6 +365,10 @@ h2 {
   font-size: 1.1rem;
   margin-bottom: 0.75rem;
   line-height: 1.6;
+  /* Prevent long unbroken text from overflowing horizontally */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* Markdown formatting in posts */
