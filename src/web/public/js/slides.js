@@ -212,6 +212,22 @@ export async function loadSlides() {
       await processTrustResponseSlides(trustResponses);
     }
 
+    // Check if we have any regular messages to display
+    if (decryptedSlides.length === 0) {
+      // All messages were special (trust requests/responses) or there were none
+      const hasSpecialMessages = trustRequests.length > 0 || trustResponses.length > 0;
+      slidesList.innerHTML = `
+        <div class="empty-state-helpful">
+          <div class="empty-icon">📬</div>
+          <h4>No messages yet</h4>
+          <p>${hasSpecialMessages
+            ? 'You have trust requests - check the Trust tab!'
+            : 'Send an encrypted slide to someone in your trust circle'}</p>
+        </div>
+      `;
+      return;
+    }
+
     slidesList.innerHTML = decryptedSlides.map(slide => {
       const senderNickname = slide.senderNickname;
       const senderName = senderNickname || (slide.sender ? slide.sender.slice(0, 16) + '...' : 'Unknown');
