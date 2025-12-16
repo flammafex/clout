@@ -290,6 +290,319 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
     }
   });
 
+  /**
+   * GET /freebird/federation/export-token
+   *
+   * Exports a user's VOPRF token in the FederatedToken format.
+   * This allows users to take their token to another community
+   * that trusts this issuer via federated trust.
+   *
+   * Query params:
+   * - token_b64: Base64url encoded VOPRF token (required)
+   * - expires_at: Token expiry timestamp in seconds (required)
+   * - issued_at: Token issued timestamp in seconds (optional, defaults to now)
+   * - community_name: Name of this community (optional, uses instance name)
+   *
+   * Response:
+   * - federated_token: Portable token with issuer metadata
+   */
+  router.get('/federation/export-token', async (req, res) => {
+    try {
+      if (!isInitialized()) {
+        return res.status(503).json({
+          success: false,
+          error: 'Server not initialized'
+        });
+      }
+
+      const adapter = getFreebirdAdapter();
+      if (!adapter) {
+        return res.status(503).json({
+          success: false,
+          error: 'Freebird not configured'
+        });
+      }
+
+      const { token_b64, expires_at, issued_at, community_name } = req.query;
+
+      // Validate required parameters
+      if (!token_b64 || typeof token_b64 !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'token_b64 query parameter is required'
+        });
+      }
+
+      if (!expires_at || typeof expires_at !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'expires_at query parameter is required (unix timestamp in seconds)'
+        });
+      }
+
+      const expiresAtNum = parseInt(expires_at, 10);
+      if (isNaN(expiresAtNum)) {
+        return res.status(400).json({
+          success: false,
+          error: 'expires_at must be a valid unix timestamp'
+        });
+      }
+
+      // Check if token is expired
+      const now = Math.floor(Date.now() / 1000);
+      if (expiresAtNum <= now) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot export an expired token'
+        });
+      }
+
+      // Get issuer metadata to include issuer_id
+      const metadata = await adapter.getIssuerMetadata();
+      if (!metadata || !metadata.issuer_id) {
+        return res.status(503).json({
+          success: false,
+          error: 'Freebird issuer not available'
+        });
+      }
+
+      // Parse optional issued_at or default to now
+      const issuedAtNum = issued_at && typeof issued_at === 'string'
+        ? parseInt(issued_at, 10)
+        : now;
+
+      // Use provided community name or fall back to instance name
+      const communityNameStr = community_name && typeof community_name === 'string'
+        ? community_name
+        : process.env.INSTANCE_NAME || undefined;
+
+      // Convert token from base64url to bytes for validation
+      const tokenBytes = base64UrlToBytes(token_b64);
+
+      // Build the federated token response
+      const federatedToken = {
+        source_issuer_id: metadata.issuer_id,
+        token_b64: token_b64,  // Keep as base64url for portability
+        expires_at: expiresAtNum,
+        issued_at: issuedAtNum,
+        community_name: communityNameStr,
+        // Include issuer public key for verification at destination
+        issuer_pubkey: metadata.voprf?.pubkey
+      };
+
+      console.log(`[FreebirdProxy] Exported federated token for issuer ${metadata.issuer_id}`);
+
+      res.json({
+        success: true,
+        data: {
+          federated_token: federatedToken,
+          // Instructions for using this token
+          usage: {
+            description: 'Present this token to a community that trusts this issuer',
+            set_mode: 'Set sybil_mode to "federated_trust" when requesting a token',
+            import_endpoint: '/freebird/federation/import-token'
+          }
+        }
+      });
+    } catch (error: any) {
+      console.error('[FreebirdProxy] Error exporting federated token:', error.message);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to export federated token'
+      });
+    }
+  });
+
+  /**
+   * POST /freebird/federation/import-token
+   *
+   * Imports a federated token from another community for use with
+   * this issuer's federated_trust mode.
+   *
+   * This validates the token format and stores it in the adapter
+   * for use in subsequent token issuance requests.
+   *
+   * Request body:
+   * - federated_token: The federated token object from export
+   *   - source_issuer_id: string
+   *   - token_b64: string
+   *   - expires_at: number
+   *   - issued_at: number
+   *   - community_name?: string
+   *
+   * Response:
+   * - imported: true on success
+   * - can_issue: whether this issuer accepts tokens from the source
+   */
+  router.post('/federation/import-token', async (req, res) => {
+    try {
+      if (!isInitialized()) {
+        return res.status(503).json({
+          success: false,
+          error: 'Server not initialized'
+        });
+      }
+
+      const adapter = getFreebirdAdapter();
+      if (!adapter) {
+        return res.status(503).json({
+          success: false,
+          error: 'Freebird not configured'
+        });
+      }
+
+      const { federated_token } = req.body;
+
+      if (!federated_token || typeof federated_token !== 'object') {
+        return res.status(400).json({
+          success: false,
+          error: 'federated_token object is required in request body'
+        });
+      }
+
+      const { source_issuer_id, token_b64, expires_at, issued_at, community_name } = federated_token;
+
+      // Validate required fields
+      if (!source_issuer_id || typeof source_issuer_id !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'federated_token.source_issuer_id is required'
+        });
+      }
+
+      if (!token_b64 || typeof token_b64 !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'federated_token.token_b64 is required'
+        });
+      }
+
+      if (!expires_at || typeof expires_at !== 'number') {
+        return res.status(400).json({
+          success: false,
+          error: 'federated_token.expires_at is required (unix timestamp)'
+        });
+      }
+
+      // Check if token is expired
+      const now = Math.floor(Date.now() / 1000);
+      if (expires_at <= now) {
+        return res.status(400).json({
+          success: false,
+          error: 'Federated token has expired'
+        });
+      }
+
+      // Convert token to bytes
+      const tokenBytes = base64UrlToBytes(token_b64);
+
+      // Import the federated token into the adapter
+      // The adapter will use this for federated_trust mode
+      adapter.setFederatedToken({
+        sourceIssuerId: source_issuer_id,
+        token: tokenBytes,
+        expiresAt: expires_at,
+        issuedAt: issued_at || now,
+        communityName: community_name
+      });
+
+      // Check if this issuer is in federated_trust mode and accepts this source
+      // For now, we just import - the actual trust check happens during issuance
+      const currentMode = adapter.getSybilMode();
+
+      console.log(`[FreebirdProxy] Imported federated token from ${source_issuer_id} (community: ${community_name || 'unknown'})`);
+
+      res.json({
+        success: true,
+        data: {
+          imported: true,
+          source_issuer_id,
+          community_name: community_name || null,
+          expires_at,
+          current_mode: currentMode,
+          can_issue: currentMode === 'federated_trust' || currentMode === 'none',
+          hint: currentMode !== 'federated_trust'
+            ? 'Set sybil_mode to federated_trust to use this token for issuance'
+            : 'Token ready for federated trust issuance'
+        }
+      });
+    } catch (error: any) {
+      console.error('[FreebirdProxy] Error importing federated token:', error.message);
+
+      // Check for specific error types
+      if (error.message.includes('expired')) {
+        return res.status(400).json({
+          success: false,
+          error: error.message
+        });
+      }
+
+      res.status(500).json({
+        success: false,
+        error: 'Failed to import federated token'
+      });
+    }
+  });
+
+  /**
+   * GET /freebird/federation/status
+   *
+   * Returns the current federation status including:
+   * - Whether federated trust is enabled
+   * - Currently imported federated token (if any)
+   * - This issuer's ID for export purposes
+   */
+  router.get('/federation/status', async (req, res) => {
+    try {
+      if (!isInitialized()) {
+        return res.status(503).json({
+          success: false,
+          error: 'Server not initialized'
+        });
+      }
+
+      const adapter = getFreebirdAdapter();
+      if (!adapter) {
+        return res.status(503).json({
+          success: false,
+          error: 'Freebird not configured'
+        });
+      }
+
+      const metadata = await adapter.getIssuerMetadata();
+      const currentMode = adapter.getSybilMode();
+      const hasFederatedToken = adapter.hasFederatedToken();
+      const federatedToken = adapter.getFederatedToken();
+
+      res.json({
+        success: true,
+        data: {
+          this_issuer: {
+            issuer_id: metadata?.issuer_id || null,
+            community_name: process.env.INSTANCE_NAME || null
+          },
+          federation: {
+            mode_enabled: currentMode === 'federated_trust',
+            current_sybil_mode: currentMode,
+            has_imported_token: hasFederatedToken,
+            imported_token: hasFederatedToken && federatedToken ? {
+              source_issuer_id: federatedToken.sourceIssuerId,
+              community_name: federatedToken.communityName || null,
+              expires_at: federatedToken.expiresAt,
+              is_valid: federatedToken.expiresAt > Math.floor(Date.now() / 1000)
+            } : null
+          }
+        }
+      });
+    } catch (error: any) {
+      console.error('[FreebirdProxy] Error getting federation status:', error.message);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to get federation status'
+      });
+    }
+  });
+
   return router;
 }
 

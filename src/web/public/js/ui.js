@@ -93,7 +93,8 @@ export function formatFileSize(bytes) {
  */
 export function renderAvatar(avatar) {
   if (!avatar) return '&#x1F464;'; // 👤
-  if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
+  // Handle absolute URLs (http/https) and relative URLs (starting with /)
+  if (avatar.startsWith('http://') || avatar.startsWith('https://') || avatar.startsWith('/')) {
     return `<img src="${escapeHtml(avatar)}" alt="avatar" class="avatar-img" onerror="this.outerHTML='&#x1F464;'">`;
   }
   return escapeHtml(avatar);
