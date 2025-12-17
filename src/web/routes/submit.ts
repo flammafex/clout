@@ -32,6 +32,8 @@ export interface SubmitRoutesConfig {
   getUserTicket?: (publicKey: string) => Promise<any>;
   /** Store Day Pass ticket for a user */
   setUserTicket?: (publicKey: string, ticket: any) => Promise<void>;
+  /** Check if user is registered with Freebird (can renew Day Pass without invitation) */
+  isUserRegistered?: (publicKey: string) => Promise<boolean>;
   /** Get instance owner public key (gets 7-day passes) */
   getOwnerPublicKey?: () => string | undefined;
 }
@@ -51,7 +53,7 @@ interface EncryptedSlide {
 const slideStore: Map<string, EncryptedSlide[]> = new Map();
 
 export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
-  const { getClout, isInitialized, getUserTicket, setUserTicket, getOwnerPublicKey } = config;
+  const { getClout, isInitialized, getUserTicket, setUserTicket, isUserRegistered, getOwnerPublicKey } = config;
   const router = Router();
 
   /**
@@ -398,10 +400,14 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
 
   /**
    * Get current Day Pass status for a user
+   * Includes isRegistered flag for users who can renew without invitation code
    */
   router.get('/daypass/status/:publicKey', async (req: Request, res: Response) => {
     try {
       const userKey = validatePublicKey(req.params.publicKey);
+
+      // Check if user is registered with Freebird (can renew without invitation)
+      const registered = isUserRegistered ? await isUserRegistered(userKey) : false;
 
       let ticket = null;
       if (getUserTicket) {
@@ -413,7 +419,8 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           success: true,
           data: {
             publicKey: userKey,
-            hasTicket: false
+            hasTicket: false,
+            isRegistered: registered
           }
         });
       }
@@ -430,7 +437,8 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
           isExpired,
           expiry: ticket.expiry,
           remainingMs,
-          remainingHours: Math.floor(remainingMs / (1000 * 60 * 60))
+          remainingHours: Math.floor(remainingMs / (1000 * 60 * 60)),
+          isRegistered: registered
         }
       });
     } catch (error) {

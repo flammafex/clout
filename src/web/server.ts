@@ -548,6 +548,10 @@ export class CloutWebServer {
       isInitialized: this.isInitialized,
       getUserTicket: this.getUserTicket,
       setUserTicket: this.setUserTicket,
+      // Check if user is registered with Freebird (can renew Day Pass without invitation)
+      isUserRegistered: async (publicKey: string) => {
+        return this.userDataStore.isFreebirdRegistered(publicKey);
+      }
       getOwnerPublicKey: this.getOwnerPublicKey
     }));
 
