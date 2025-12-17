@@ -10,6 +10,21 @@ import { $, escapeHtml, formatRelativeTime } from './ui.js';
 // =========================================================================
 
 /**
+ * Update the settings tab badge based on quota status
+ */
+export function updateSettingsBadge(hasQuota, remaining = 0) {
+  const badge = $('settings-badge');
+  if (!badge) return;
+
+  if (hasQuota && remaining > 0) {
+    badge.textContent = remaining;
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+/**
  * Load member's quota status and invitations
  */
 export async function loadMyInvitationStatus() {
@@ -17,6 +32,7 @@ export async function loadMyInvitationStatus() {
     const data = await apiCall('/invitations/quota');
 
     if (!data) {
+      updateSettingsBadge(false);
       return { hasQuota: false };
     }
 
@@ -28,13 +44,16 @@ export async function loadMyInvitationStatus() {
     // Show the member section if they have quota
     if (quotaTotal > 0) {
       $('member-invites-section').style.display = 'block';
+      updateSettingsBadge(true, quotaRemaining);
       await loadMyInvitations();
       return { hasQuota: true, remaining: quotaRemaining };
     }
 
+    updateSettingsBadge(false);
     return { hasQuota: false };
   } catch (error) {
     console.warn('[Admin] Could not load invitation quota:', error.message);
+    updateSettingsBadge(false);
     return { hasQuota: false };
   }
 }
@@ -96,9 +115,10 @@ export async function createMemberInvitation() {
     codeEl.textContent = data.code;
     codeDisplay.style.display = 'block';
 
-    // Update quota display
+    // Update quota display and badge
     const remaining = data.quotaRemaining;
     $('my-quota-remaining').textContent = remaining === 'unlimited' ? '∞' : remaining;
+    updateSettingsBadge(true, remaining === 'unlimited' ? 99 : remaining);
 
     // Refresh invitations list
     await loadMyInvitations();
