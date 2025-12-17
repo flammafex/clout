@@ -38,8 +38,8 @@ import { sendSlide, loadSlides, startSlideReply } from './slides.js';
 import {
   loadIdentity, loadProfile, showProfileEdit, cancelProfileEdit,
   saveProfile, toggleQRCode, loadStats, loadSettings, saveSettings,
-  saveMediaFilters, loadTags, viewTagUsers, addTag, exportBackup,
-  importBackup, loadIdentities, switchIdentity, createIdentity,
+  saveMediaFilters, loadTags, viewTagUsers, addTag,
+  loadIdentities, switchIdentity, createIdentity,
   exportIdentityKey, importIdentityKey, setupSettings, createBrowserIdentity,
   loadDelegationStatus, delegatePass, acceptDelegation
 } from './profile.js';

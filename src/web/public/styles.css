@@ -2231,10 +2231,9 @@ h2 {
 }
 
 /* =========================================================================
-   DATA MANAGEMENT STYLES
+   IDENTITY MANAGEMENT STYLES
    ========================================================================= */
 
-.data-management,
 .identity-management {
   display: flex;
   flex-direction: column;

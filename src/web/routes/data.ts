@@ -1,5 +1,5 @@
 /**
- * Data Routes - Export, Import, and Identity Management
+ * Data Routes - Profile and Identity Management
  */
 
 import { Router } from 'express';
@@ -12,75 +12,6 @@ export function createDataRoutes(
   identityManager: IdentityManager
 ): Router {
   const router = Router();
-
-  // =========================================================================
-  // EXPORT / BACKUP
-  // =========================================================================
-
-  // Export all user data as JSON backup
-  router.get('/export', async (req, res) => {
-    try {
-      if (!isInitialized()) throw new Error('Not initialized');
-      const clout = getClout()!;
-
-      const backup = await clout.exportBackup();
-
-      // Set headers for file download
-      res.setHeader('Content-Type', 'application/json');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="clout-backup-${backup.identity.publicKey.slice(0, 8)}-${Date.now()}.json"`
-      );
-
-      res.json(backup);
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
-
-  // =========================================================================
-  // IMPORT / RESTORE
-  // =========================================================================
-
-  // Import data from backup
-  router.post('/import', async (req, res) => {
-    try {
-      if (!isInitialized()) throw new Error('Not initialized');
-      const clout = getClout()!;
-
-      const backup = req.body;
-
-      // Validate backup format
-      if (!backup || !backup.version) {
-        return res.status(400).json({
-          success: false,
-          error: 'Invalid backup format: missing version'
-        });
-      }
-
-      // Check version compatibility
-      if (backup.version !== '1.0') {
-        return res.status(400).json({
-          success: false,
-          error: `Unsupported backup version: ${backup.version}`
-        });
-      }
-
-      const result = await clout.importBackup(backup, {
-        replaceLocalData: false
-      });
-
-      res.json({
-        success: true,
-        data: {
-          trustSignalsImported: result.trustSignalsImported,
-          localDataImported: result.localDataImported
-        }
-      });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
 
   // =========================================================================
   // PROFILE
