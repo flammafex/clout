@@ -40,6 +40,15 @@ export interface FreebirdUser {
   invitees?: string[];
 }
 
+export interface FreebirdInvitationDetails {
+  code: string;
+  inviter_id: string;
+  invitee_id: string | null;
+  created_at: number;
+  expires_at: number;
+  redeemed: boolean;
+}
+
 export class FreebirdAdmin {
   private readonly issuerUrl: string;
   private readonly adminKey: string;
@@ -119,14 +128,34 @@ export class FreebirdAdmin {
   /**
    * Grant invitation quota to a user
    *
-   * @param userId User's public key
-   * @param quota Number of invitations to grant
+   * @param freebirdUserId The Freebird user_id (invitee_id generated during invitation redemption)
+   * @param count Number of invitations to grant
    */
-  async grantInvitationQuota(userId: string, quota: number): Promise<void> {
+  async grantInvitationQuota(freebirdUserId: string, count: number): Promise<void> {
     await this.request('/admin/invites/grant', 'POST', {
-      user_id: userId,
-      quota
+      user_id: freebirdUserId,
+      count
     });
+  }
+
+  /**
+   * Get invitation details by code
+   *
+   * Used to look up the Freebird invitee_id from an invitation code.
+   * This enables the flow: Clout publicKey → invitation code → Freebird invitee_id
+   *
+   * @param code The invitation code
+   * @returns Invitation details including invitee_id, or null if not found
+   */
+  async getInvitationByCode(code: string): Promise<FreebirdInvitationDetails | null> {
+    try {
+      return await this.request<FreebirdInvitationDetails>(`/admin/invitations/${encodeURIComponent(code)}`);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('404')) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**

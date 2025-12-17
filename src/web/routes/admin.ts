@@ -101,6 +101,9 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
   /**
    * Grant invitation quota to a member
    * POST /admin/quota/grant
+   *
+   * Flow: Clout publicKey → invitation code → Freebird invitee_id → grant quota
+   * This privacy-preserving approach avoids storing a mapping between Clout and Freebird IDs.
    */
   router.post('/admin/quota/grant', async (req: Request, res: Response) => {
     try {
@@ -131,18 +134,48 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
         });
       }
 
-      // Also grant quota in Freebird if admin key available
-      const freebirdAdmin = getFreebirdAdmin();
-      if (freebirdAdmin) {
-        try {
-          await freebirdAdmin.grantInvitationQuota(memberPublicKey, amount);
-        } catch (e: any) {
-          console.warn(`[Admin] Freebird quota grant failed: ${e.message}`);
-          // Continue anyway - local quota tracking is the source of truth
+      // Step 1: Look up which invitation code this member redeemed
+      let invitationCode: string | null = null;
+
+      // Check in createdInvitations (member invitations)
+      const memberInvitation = store.getInvitationByRedeemer(memberPublicKey);
+      if (memberInvitation) {
+        invitationCode = memberInvitation.code;
+      }
+
+      // Check in bootstrap invitations if not found
+      if (!invitationCode && findBootstrapInvitationByRedeemer) {
+        const bootstrapInv = findBootstrapInvitationByRedeemer(memberPublicKey);
+        if (bootstrapInv) {
+          invitationCode = bootstrapInv.code;
         }
       }
 
-      // Grant quota locally
+      // Step 2: Look up Freebird invitee_id and grant quota
+      const freebirdAdmin = getFreebirdAdmin();
+      let freebirdGranted = false;
+
+      if (freebirdAdmin && invitationCode) {
+        try {
+          // Look up the Freebird invitee_id from the invitation code
+          const freebirdInvitation = await freebirdAdmin.getInvitationByCode(invitationCode);
+
+          if (freebirdInvitation && freebirdInvitation.invitee_id) {
+            // Grant quota using the correct Freebird user ID
+            await freebirdAdmin.grantInvitationQuota(freebirdInvitation.invitee_id, amount);
+            freebirdGranted = true;
+            console.log(`[Admin] Granted ${amount} quota to Freebird user ${freebirdInvitation.invitee_id.slice(0, 16)}...`);
+          } else {
+            console.warn(`[Admin] Invitation ${invitationCode.slice(0, 8)}... not found in Freebird or not redeemed`);
+          }
+        } catch (e: any) {
+          console.warn(`[Admin] Freebird quota grant failed: ${e.message}`);
+        }
+      } else if (freebirdAdmin && !invitationCode) {
+        console.warn(`[Admin] Could not find invitation code for ${memberPublicKey.slice(0, 16)}... - Freebird quota not granted`);
+      }
+
+      // Step 3: Grant quota locally (always do this regardless of Freebird result)
       const entry = store.grantQuota(memberPublicKey, amount);
 
       res.json({
@@ -150,9 +183,11 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
         data: {
           publicKey: memberPublicKey,
           publicKeyShort: memberPublicKey.slice(0, 16),
+          displayName: clout.getDisplayName(memberPublicKey),
           quota: entry.quota,
           used: entry.used,
-          remaining: entry.quota - entry.used
+          remaining: entry.quota - entry.used,
+          freebirdSynced: freebirdGranted
         }
       });
     } catch (error) {
