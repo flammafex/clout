@@ -551,7 +551,7 @@ export class CloutWebServer {
       // Check if user is registered with Freebird (can renew Day Pass without invitation)
       isUserRegistered: async (publicKey: string) => {
         return this.userDataStore.isFreebirdRegistered(publicKey);
-      }
+      },
       getOwnerPublicKey: this.getOwnerPublicKey
     }));
 
