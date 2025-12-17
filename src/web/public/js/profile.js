@@ -530,99 +530,6 @@ export async function addTag() {
   }
 }
 
-// =========================================================================
-// Data Management
-// =========================================================================
-
-/**
- * Export backup
- */
-export async function exportBackup() {
-  try {
-    $('export-backup-btn').disabled = true;
-    $('export-backup-btn').textContent = 'Exporting...';
-
-    const response = await fetch('/api/data/export');
-    if (!response.ok) throw new Error('Export failed');
-    const serverBackup = await response.json();
-
-    let localData = null;
-    if (window.CloutUserData) {
-      try {
-        localData = await window.CloutUserData.exportAll();
-        console.log('[Export] Including IndexedDB data:', Object.keys(localData));
-      } catch (e) {
-        console.warn('[Export] Could not export IndexedDB data:', e);
-      }
-    }
-
-    const backup = {
-      ...serverBackup,
-      darkSocialGraph: localData
-    };
-
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `clout-backup-${backup.identity.publicKey.slice(0, 8)}-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    alert('Backup downloaded successfully!');
-  } catch (error) {
-    alert(`Export failed: ${error.message}`);
-  } finally {
-    $('export-backup-btn').disabled = false;
-    $('export-backup-btn').textContent = 'Download Backup';
-  }
-}
-
-/**
- * Import backup
- */
-export async function importBackup(file) {
-  try {
-    const text = await file.text();
-    const backup = JSON.parse(text);
-
-    if (!backup.version) {
-      throw new Error('Invalid backup file format');
-    }
-
-    $('import-backup-btn').disabled = true;
-    $('import-backup-btn').textContent = 'Importing...';
-
-    const result = await apiCall('/data/import', 'POST', backup);
-
-    let localDataImported = false;
-    if (backup.darkSocialGraph && window.CloutUserData) {
-      try {
-        await window.CloutUserData.importAll(backup.darkSocialGraph);
-        localDataImported = true;
-        console.log('[Import] Restored IndexedDB data from backup');
-      } catch (e) {
-        console.warn('[Import] Could not restore IndexedDB data:', e);
-      }
-    }
-
-    showResult('import-result',
-      `Imported: ${result.trustSignalsImported} trust signals` +
-      (localDataImported ? ', local social graph' : ''),
-      true);
-
-    setTimeout(() => loadFeed(), 1000);
-  } catch (error) {
-    showResult('import-result', `Import failed: ${error.message}`, false);
-  } finally {
-    $('import-backup-btn').disabled = false;
-    $('import-backup-btn').textContent = 'Select Backup File';
-    $('import-backup-input').value = '';
-  }
-}
-
 /**
  * Load identities list
  */
@@ -901,14 +808,6 @@ export function setupSettings(requireMembership) {
   $('save-settings-btn').addEventListener('click', () => saveSettings(requireMembership));
   $('save-media-filters-btn').addEventListener('click', () => saveMediaFilters(requireMembership));
   $('add-tag-btn').addEventListener('click', addTag);
-
-  $('export-backup-btn').addEventListener('click', exportBackup);
-  $('import-backup-btn').addEventListener('click', () => $('import-backup-input').click());
-  $('import-backup-input').addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-      importBackup(e.target.files[0]);
-    }
-  });
 
   // Browser identity export/import (in Profile tab)
   const exportBrowserBtn = $('export-browser-identity-btn');
