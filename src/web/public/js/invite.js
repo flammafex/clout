@@ -309,10 +309,12 @@ async function completeIdentityRestore(identity, resultEl) {
   // Check if this identity has a valid Day Pass
   let hasValidDayPass = false;
   let ticketExpiry = null;
+  let isRegistered = false;
 
   try {
     const dayPassStatus = await apiCall(`/daypass/status/${identity.publicKeyHex}`);
     hasValidDayPass = dayPassStatus.hasTicket && !dayPassStatus.isExpired;
+    isRegistered = dayPassStatus.isRegistered || false;
     if (hasValidDayPass) {
       ticketExpiry = dayPassStatus.expiry;
     }
@@ -357,6 +359,16 @@ async function completeIdentityRestore(identity, resultEl) {
       updateNotificationCounts();
       setInterval(updateNotificationCounts, 30000);
     }, 1500);
+  } else if (isRegistered) {
+    // Identity restored with expired Day Pass but user is registered - auto-renew
+    resultEl.textContent = 'Identity restored! Renewing Day Pass...';
+    resultEl.className = 'result-message success';
+
+    setTimeout(async () => {
+      closeRestorePopover();
+      // Try to renew Day Pass without invitation code
+      await renewDayPass(identity);
+    }, 1500);
   } else {
     // Identity restored but no valid Day Pass - need invitation code
     resultEl.textContent = 'Identity restored! You need an invitation code to activate your Day Pass.';
@@ -367,5 +379,69 @@ async function completeIdentityRestore(identity, resultEl) {
       closeRestorePopover();
       showInvitePopover();
     }, 2000);
+  }
+}
+
+/**
+ * Renew Day Pass for a registered user (no invitation code needed)
+ */
+async function renewDayPass(identity) {
+  const statusEl = $('member-status');
+  const originalText = statusEl?.textContent || '';
+
+  try {
+    if (statusEl) {
+      statusEl.textContent = 'Renewing Day Pass...';
+      statusEl.className = 'status-badge renewing';
+    }
+
+    // Request Day Pass without invitation code - backend will use registered mode
+    if (!window.CloutDayPass) {
+      throw new Error('Day Pass module not loaded');
+    }
+
+    const dayPass = await window.CloutDayPass.requestDayPass(identity.publicKey, {
+      // No invitation code needed for registered users
+    });
+
+    console.log('[Clout] Day Pass renewed, expires:', new Date(dayPass.expiry).toLocaleString());
+
+    // Activate the session
+    state.setInitialized(true);
+    state.setIsVisitor(false);
+
+    $('init-section').style.display = 'none';
+    $('main-app').style.display = 'block';
+    $('visitor-banner').style.display = 'none';
+
+    // Show all member tabs
+    ['post', 'trust', 'slides', 'profile', 'settings'].forEach(tabName => {
+      const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
+      if (tabBtn) tabBtn.style.display = '';
+    });
+
+    updateStatus('Connected', true);
+    startDayPassTimer(dayPass.expiry);
+
+    // Load member data
+    await loadFeed();
+    await loadIdentity();
+    await loadProfile();
+    loadSlides().catch(() => {});
+    connectLiveUpdates();
+    updateNotificationCounts();
+    setInterval(updateNotificationCounts, 30000);
+
+  } catch (error) {
+    console.error('[Clout] Day Pass renewal failed:', error);
+
+    if (statusEl) {
+      statusEl.textContent = originalText;
+      statusEl.className = 'status-badge';
+    }
+
+    // Show error and fall back to invitation code prompt
+    alert('Day Pass renewal failed: ' + error.message + '\n\nYou may need to enter an invitation code.');
+    showInvitePopover();
   }
 }

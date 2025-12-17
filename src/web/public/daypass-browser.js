@@ -20,9 +20,12 @@ import { Crypto } from './crypto-browser.js';
  * This is the main entry point for new users who need to post.
  * It handles the full VOPRF blinding flow automatically.
  *
+ * For registered users (those who have previously redeemed an invitation),
+ * no invitation code is needed - the backend will use registered mode.
+ *
  * @param {Uint8Array} publicKeyBytes - User's Ed25519 public key (32 bytes)
  * @param {Object} options - Optional configuration
- * @param {string} options.invitationCode - Invitation code for sybil resistance
+ * @param {string} options.invitationCode - Invitation code for sybil resistance (optional for registered users)
  * @param {string} options.apiBase - API base URL (default: '')
  * @returns {Promise<Object>} Day Pass info: { publicKey, expiry, durationHours }
  */
@@ -37,13 +40,15 @@ export async function requestDayPass(publicKeyBytes, options = {}) {
   const { blinded, blindedB64 } = VOPRF.blind(publicKeyBytes);
 
   // Step 2: Request token via server proxy
+  // Send user_public_key so backend can check if user is registered (for Day Pass renewal)
   console.log('[DayPass] Requesting token from Freebird (via proxy)...');
   const issueResponse = await fetch(`${apiBase}/api/freebird/proxy/issue`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       blinded_element_b64: blindedB64,
-      invitation_code: invitationCode
+      invitation_code: invitationCode,
+      user_public_key: publicKeyHex
     })
   });
 

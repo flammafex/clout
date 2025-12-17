@@ -547,7 +547,11 @@ export class CloutWebServer {
       getClout: this.getClout,
       isInitialized: this.isInitialized,
       getUserTicket: this.getUserTicket,
-      setUserTicket: this.setUserTicket
+      setUserTicket: this.setUserTicket,
+      // Check if user is registered with Freebird (can renew Day Pass without invitation)
+      isUserRegistered: async (publicKey: string) => {
+        return this.userDataStore.isFreebirdRegistered(publicKey);
+      }
     }));
 
     // Mount Freebird proxy routes (for browser VOPRF blinding)
