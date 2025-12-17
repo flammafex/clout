@@ -117,6 +117,206 @@ export function copyMemberCode() {
 }
 
 // =========================================================================
+// Owner Admin Functions - Members & Quota Management
+// =========================================================================
+
+/**
+ * Load all members with quota (owner only)
+ */
+export async function loadAdminMembers() {
+  const listEl = $('admin-members-list');
+
+  try {
+    listEl.innerHTML = '<p class="loading">Loading members...</p>';
+
+    const data = await apiCall('/admin/members');
+
+    if (!data || data.count === 0) {
+      listEl.innerHTML = '<p class="empty-state">No members with quota yet.</p>';
+      return;
+    }
+
+    const membersHtml = data.members.map(member => {
+      return `
+        <div class="admin-list-item member-item">
+          <div class="member-info">
+            <span class="member-name">${escapeHtml(member.displayName || 'Anonymous')}</span>
+            <code class="member-key">${member.publicKeyShort}...</code>
+          </div>
+          <div class="member-quota">
+            <span class="quota-badge ${member.remaining > 0 ? 'has-quota' : 'no-quota'}">
+              ${member.remaining}/${member.quota} remaining
+            </span>
+            <button class="btn btn-small" onclick="window.cloutApp.prefillGrantQuota('${member.publicKey}')">Grant More</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    listEl.innerHTML = membersHtml;
+  } catch (error) {
+    listEl.innerHTML = `<p class="empty-state error">Failed to load: ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+/**
+ * Pre-fill the grant quota form with a member's public key
+ */
+export function prefillGrantQuota(publicKey) {
+  $('grant-quota-pubkey').value = publicKey;
+  $('grant-quota-pubkey').focus();
+}
+
+/**
+ * Grant quota to a member (owner only)
+ */
+export async function grantQuota() {
+  const publicKey = $('grant-quota-pubkey').value.trim();
+  const amount = parseInt($('grant-quota-amount').value, 10);
+  const resultEl = $('grant-quota-result');
+
+  if (!publicKey) {
+    resultEl.textContent = 'Please enter a public key';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (publicKey.length !== 64 || !/^[a-fA-F0-9]+$/.test(publicKey)) {
+    resultEl.textContent = 'Invalid public key format (must be 64 hex characters)';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (isNaN(amount) || amount < 1 || amount > 100) {
+    resultEl.textContent = 'Amount must be between 1 and 100';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  try {
+    resultEl.textContent = 'Granting quota...';
+    resultEl.className = 'result-message';
+
+    const data = await apiCall('/admin/quota/grant', 'POST', { publicKey, amount });
+
+    const syncStatus = data.freebirdSynced ? '(synced with Freebird)' : '(local only)';
+    resultEl.innerHTML = `
+      <span class="success">Granted ${amount} invites to ${escapeHtml(data.displayName || data.publicKeyShort + '...')}</span>
+      <span class="sync-status">${syncStatus}</span>
+      <br>New total: ${data.quota} (${data.remaining} remaining)
+    `;
+    resultEl.className = 'result-message success';
+
+    // Clear the form
+    $('grant-quota-pubkey').value = '';
+
+    // Refresh members list
+    await loadAdminMembers();
+  } catch (error) {
+    resultEl.textContent = `Failed: ${error.message}`;
+    resultEl.className = 'result-message error';
+  }
+}
+
+/**
+ * Create invitations as owner
+ */
+export async function ownerCreateInvitations() {
+  const count = parseInt($('owner-invite-count').value, 10) || 1;
+  const days = parseInt($('owner-invite-days').value, 10) || 30;
+  const resultEl = $('owner-invite-result');
+  const codesDisplay = $('owner-created-codes');
+  const codesListEl = $('owner-invite-codes-list');
+
+  if (count < 1 || count > 100) {
+    resultEl.textContent = 'Count must be between 1 and 100';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  if (days < 1 || days > 365) {
+    resultEl.textContent = 'Days must be between 1 and 365';
+    resultEl.className = 'result-message error';
+    return;
+  }
+
+  try {
+    resultEl.textContent = `Creating ${count} invitation(s)...`;
+    resultEl.className = 'result-message';
+    codesDisplay.style.display = 'none';
+
+    const data = await apiCall('/admin/invitations', 'POST', { count, expiresInDays: days });
+
+    if (!data.invitations || data.invitations.length === 0) {
+      resultEl.textContent = 'No invitations created';
+      resultEl.className = 'result-message error';
+      return;
+    }
+
+    resultEl.textContent = `Created ${data.invitations.length} invitation(s)`;
+    resultEl.className = 'result-message success';
+
+    // Display the codes
+    const codesHtml = data.invitations.map(inv => `
+      <div class="code-item">
+        <code>${escapeHtml(inv.code)}</code>
+        <button class="btn btn-small" onclick="navigator.clipboard.writeText('${escapeHtml(inv.code)}')">Copy</button>
+      </div>
+    `).join('');
+
+    codesListEl.innerHTML = codesHtml;
+    codesDisplay.style.display = 'block';
+
+    // Refresh invitations list
+    await loadAdminInvitations();
+  } catch (error) {
+    resultEl.textContent = `Failed: ${error.message}`;
+    resultEl.className = 'result-message error';
+  }
+}
+
+/**
+ * Load all invitations (owner only)
+ */
+export async function loadAdminInvitations() {
+  const listEl = $('admin-invitations-list');
+
+  try {
+    listEl.innerHTML = '<p class="loading">Loading invitations...</p>';
+
+    const data = await apiCall('/admin/invitations');
+
+    if (!data || data.count === 0) {
+      listEl.innerHTML = '<p class="empty-state">No invitations created yet.</p>';
+      return;
+    }
+
+    const invitationsHtml = data.invitations.map(inv => {
+      const statusClass = inv.redeemed ? 'redeemed' : (inv.isExpired ? 'expired' : 'active');
+      const statusText = inv.redeemed ? 'Redeemed' : (inv.isExpired ? 'Expired' : 'Active');
+
+      return `
+        <div class="admin-list-item invitation-item ${statusClass}">
+          <div class="invitation-info">
+            <code class="invitation-code">${escapeHtml(inv.code.slice(0, 12))}...</code>
+            <span class="invitation-status ${statusClass}">${statusText}</span>
+          </div>
+          <div class="invitation-details">
+            <span class="invitation-creator">By: ${escapeHtml(inv.creatorDisplayName || inv.creatorShort + '...')}</span>
+            <span class="invitation-date">${formatRelativeTime(inv.createdAt)}</span>
+            ${inv.redeemed ? `<span class="invitation-redeemer">→ ${escapeHtml(inv.redeemerDisplayName || inv.redeemerShort + '...')}</span>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    listEl.innerHTML = invitationsHtml;
+  } catch (error) {
+    listEl.innerHTML = `<p class="empty-state error">Failed to load: ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+// =========================================================================
 // User Lookup (for finding invitation codes to revoke in Freebird)
 // =========================================================================
 

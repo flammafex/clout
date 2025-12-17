@@ -879,6 +879,57 @@
               </div>
               <div id="lookup-user-result" class="result-message"></div>
             </div>
+
+            <!-- Members & Quota Management -->
+            <div class="admin-subsection">
+              <h4>👥 Members & Quota</h4>
+              <p class="help-text-small">Manage member invitation quotas. Members with quota can invite others to join.</p>
+              <div class="members-controls">
+                <button id="refresh-members-btn" class="btn btn-secondary" onclick="window.cloutApp.loadAdminMembers()">Refresh Members</button>
+              </div>
+              <div id="admin-members-list" class="admin-list">
+                <p class="empty-state">Click "Refresh Members" to load the member list.</p>
+              </div>
+              <div class="grant-quota-form">
+                <h5>Grant Quota to Member</h5>
+                <div class="form-row">
+                  <input type="text" id="grant-quota-pubkey" class="input" placeholder="Member's public key (64 hex chars)">
+                  <input type="number" id="grant-quota-amount" class="input input-small" placeholder="Amount" min="1" max="100" value="5">
+                  <button id="grant-quota-btn" class="btn btn-primary" onclick="window.cloutApp.grantQuota()">Grant</button>
+                </div>
+                <div id="grant-quota-result" class="result-message"></div>
+              </div>
+            </div>
+
+            <!-- Owner Create Invitations -->
+            <div class="admin-subsection">
+              <h4>🎟️ Create Invitations</h4>
+              <p class="help-text-small">Create invitation codes to distribute. These are tied to your identity as the instance owner.</p>
+              <div class="create-invites-form">
+                <div class="form-row">
+                  <input type="number" id="owner-invite-count" class="input input-small" placeholder="Count" min="1" max="100" value="1">
+                  <input type="number" id="owner-invite-days" class="input input-small" placeholder="Days" min="1" max="365" value="30">
+                  <button id="owner-create-invite-btn" class="btn btn-primary" onclick="window.cloutApp.ownerCreateInvitations()">Create</button>
+                </div>
+                <div id="owner-invite-result" class="result-message"></div>
+                <div id="owner-created-codes" class="owner-codes-display" style="display: none;">
+                  <p>Created invitation codes:</p>
+                  <div id="owner-invite-codes-list" class="codes-list"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- All Invitations -->
+            <div class="admin-subsection">
+              <h4>📋 All Invitations</h4>
+              <p class="help-text-small">View all invitations created in this instance.</p>
+              <div class="invitations-controls">
+                <button id="refresh-invitations-btn" class="btn btn-secondary" onclick="window.cloutApp.loadAdminInvitations()">Refresh Invitations</button>
+              </div>
+              <div id="admin-invitations-list" class="admin-list">
+                <p class="empty-state">Click "Refresh Invitations" to load all invitations.</p>
+              </div>
+            </div>
           </div>
 
           <!-- Member Invitation Section (visible to members with quota) -->

@@ -52,7 +52,9 @@ import {
 } from './invite.js';
 import {
   loadMyInvitationStatus, loadMyInvitations, createMemberInvitation, copyMemberCode,
-  lookupUser
+  lookupUser,
+  loadAdminMembers, prefillGrantQuota, grantQuota,
+  ownerCreateInvitations, loadAdminInvitations
 } from './admin.js';
 
 // =========================================================================
@@ -736,6 +738,13 @@ window.cloutApp = {
 
   // User Lookup
   lookupUser,
+
+  // Owner Admin - Members & Invitations
+  loadAdminMembers,
+  prefillGrantQuota,
+  grantQuota,
+  ownerCreateInvitations,
+  loadAdminInvitations,
 
   // Notifications
   loadNewPosts
