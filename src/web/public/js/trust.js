@@ -11,7 +11,7 @@
 
 import * as state from './state.js';
 import { apiCall, submitSignedTrust } from './api.js';
-import { $, showLoading, showResult, escapeHtml, getWeightLabel } from './ui.js';
+import { $, showLoading, showResult, escapeHtml, getWeightLabel, renderAvatar } from './ui.js';
 import { loadFeed } from './feed.js';
 import { sendTrustAcceptanceSlide } from './slides.js';
 
@@ -427,11 +427,11 @@ function renderIncomingRequest(request) {
   const timeAgo = formatTimeAgo(request.createdAt);
   const requesterShort = request.requester.slice(0, 12);
   const displayName = request.requesterDisplayName || requesterShort + '...';
-  const avatar = request.requesterAvatar || '👤';
+  const avatarHtml = renderAvatar(request.requesterAvatar);
 
   return `
     <div class="trust-request-card incoming">
-      <div class="trust-request-avatar">${avatar}</div>
+      <div class="trust-request-avatar">${avatarHtml}</div>
       <div class="trust-request-info">
         <div class="trust-request-name" title="${escapeHtml(request.requester)}">
           ${escapeHtml(displayName)}

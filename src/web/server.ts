@@ -552,6 +552,7 @@ export class CloutWebServer {
       isUserRegistered: async (publicKey: string) => {
         return this.userDataStore.isFreebirdRegistered(publicKey);
       }
+      getOwnerPublicKey: this.getOwnerPublicKey
     }));
 
     // Mount Freebird proxy routes (for browser VOPRF blinding)

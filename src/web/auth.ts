@@ -262,6 +262,8 @@ export const PUBLIC_ROUTES = [
   '/api/reactions/emojis', // Visitors can see available reactions
   '/api/freebird',       // Browser VOPRF proxy (new users need tokens)
   '/api/daypass'         // Day Pass status/minting (new users need this)
+  // Note: /api/freebird/federation/* is covered by /api/freebird prefix
+  // Federation endpoints allow cross-community token exchange
 ];
 
 /**

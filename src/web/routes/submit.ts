@@ -34,6 +34,8 @@ export interface SubmitRoutesConfig {
   setUserTicket?: (publicKey: string, ticket: any) => Promise<void>;
   /** Check if user is registered with Freebird (can renew Day Pass without invitation) */
   isUserRegistered?: (publicKey: string) => Promise<boolean>;
+  /** Get instance owner public key (gets 7-day passes) */
+  getOwnerPublicKey?: () => string | undefined;
 }
 
 // In-memory storage for browser-encrypted slides
@@ -51,7 +53,7 @@ interface EncryptedSlide {
 const slideStore: Map<string, EncryptedSlide[]> = new Map();
 
 export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
-  const { getClout, isInitialized, getUserTicket, setUserTicket, isUserRegistered } = config;
+  const { getClout, isInitialized, getUserTicket, setUserTicket, isUserRegistered, getOwnerPublicKey } = config;
   const router = Router();
 
   /**
@@ -347,14 +349,21 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       }
 
       // Mint Day Pass for this user
-      // New users get 24-hour passes
+      // Instance owners get 7-day passes, new users get 24-hour passes
       const now = Date.now();
-      const expiry = now + (24 * 60 * 60 * 1000); // 24 hours
+      const ownerKey = getOwnerPublicKey?.();
+      const isOwner = ownerKey && userKey.toLowerCase() === ownerKey.toLowerCase();
+      const durationHours = isOwner ? 168 : 24; // 7 days for owner, 1 day for others
+      const expiry = now + (durationHours * 60 * 60 * 1000);
+
+      if (isOwner) {
+        console.log(`[Submit] Instance owner ${userKey.slice(0, 8)}... gets 7-day pass`);
+      }
 
       const ticket = {
         owner: userKey,
         expiry,
-        durationHours: 24,
+        durationHours,
         ticketType: 'browser-identity' as const,
         freebirdProof: tokenBytes,
         created: now
@@ -379,7 +388,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         data: {
           publicKey: userKey,
           expiry,
-          durationHours: 24,
+          durationHours,
           timestamp: proof.timestamp
         }
       });
