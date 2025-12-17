@@ -31,7 +31,6 @@ import { CloutMedia } from './clout/media.js';
 import { CloutTrust } from './clout/trust.js';
 import { CloutReactions, REACTION_EMOJIS } from './clout/reactions.js';
 import { CloutFeed } from './clout/feed.js';
-import { CloutBackup } from './clout/backup.js';
 import { CloutRelay } from './clout/relay.js';
 import { CloutProfileModule } from './clout/profile.js';
 
@@ -117,7 +116,6 @@ export class Clout {
   private readonly trustModule: CloutTrust;
   private readonly reactions: CloutReactions;
   private readonly feedModule: CloutFeed;
-  private readonly backup: CloutBackup;
   private readonly relay: CloutRelay;
   private readonly profileModule: CloutProfileModule;
 
@@ -288,14 +286,6 @@ export class Clout {
       trustGraph: this.trustGraph,
       reputationValidator: this.reputationValidator,
       getCloutNode: () => this.cloutNode,
-      getProfile: () => this.getProfile()
-    });
-
-    this.backup = new CloutBackup({
-      publicKey: this.publicKeyHex,
-      state: this.state,
-      localData: this.localData,
-      trustGraph: this.trustGraph,
       getProfile: () => this.getProfile()
     });
 
@@ -1095,21 +1085,6 @@ export class Clout {
     blobDensity: number;
   }> {
     return this.feedModule.getCloutStats();
-  }
-
-  // =================================================================
-  //  BACKUP - Delegated to CloutBackup
-  // =================================================================
-
-  async exportBackup(): Promise<import('./clout/backup.js').BackupData> {
-    return this.backup.exportBackup();
-  }
-
-  async importBackup(
-    backup: import('./clout/backup.js').BackupData,
-    options?: { replaceLocalData?: boolean }
-  ): Promise<{ trustSignalsImported: number; localDataImported: boolean }> {
-    return this.backup.importBackup(backup, options);
   }
 
   // =================================================================
