@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clout - Uncensorable Social Network</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="description" content="Uncensorable reputation protocol - Trust-based social network">
+  <meta name="theme-color" content="#3b82f6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Clout">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
+
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- Import map for @noble/* crypto libraries (browser-compatible builds) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@noble/hashes/sha256": "https://esm.sh/@noble/hashes@1.4.0/sha256",
+      "@noble/hashes/hkdf": "https://esm.sh/@noble/hashes@1.4.0/hkdf",
+      "@noble/hashes/utils": "https://esm.sh/@noble/hashes@1.4.0/utils",
+      "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.9.7/ed25519",
+      "@noble/curves/p256": "https://esm.sh/@noble/curves@1.9.7/p256",
+      "@noble/ciphers/chacha": "https://esm.sh/@noble/ciphers@1.3.0/chacha",
+      "@noble/ciphers/webcrypto": "https://esm.sh/@noble/ciphers@1.3.0/webcrypto"
+    }
+  }
+  </script>
+
+  <!-- Load browser crypto modules -->
+  <script type="module" src="clout-modules.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <img src="clout.webp" class="header-logo" alt="Clout">
+      <p class="subtitle">Uncensorable reputation protocol - Trust-based social network</p>
+
+      <!-- Instance Info -->
+      <div id="instance-info" class="instance-info" style="display: none;">
+        <span id="instance-operator-text"></span>
+      </div>
+
+      <div class="status-row">
+        <div class="status">
+          <span id="status-indicator" class="status-dot"></span>
+          <span id="status-text">Not initialized</span>
+          <span id="offline-indicator" class="offline-indicator" style="display: none;">Offline</span>
+        </div>
+        <div id="instance-clout" class="instance-clout">
+          <div class="clout-stat" title="Total posts in Chronicle">
+            <span class="clout-value" id="clout-posts">-</span>
+            <span class="clout-label">posts</span>
+          </div>
+          <div class="clout-stat" title="Unique authors">
+            <span class="clout-value" id="clout-authors">-</span>
+            <span class="clout-label">authors</span>
+          </div>
+          <div class="clout-stat" title="Total reactions">
+            <span class="clout-value" id="clout-reactions">-</span>
+            <span class="clout-label">reactions</span>
+          </div>
+          <div class="clout-stat clout-peers" title="Connected peers (gossip network)">
+            <span class="clout-value" id="clout-peers">-</span>
+            <span class="clout-label">peers</span>
+          </div>
+        </div>
+      </div>
+      <div id="day-pass-timer" class="day-pass-timer" style="display: none;">
+        🕊️ Freebird Day Pass: <span id="day-pass-countdown">--:--:--</span> remaining
+      </div>
+
+      <!-- Visitor Banner -->
+      <div id="visitor-banner" class="visitor-banner" style="display: none;">
+        <div class="visitor-banner-content">
+          <span class="visitor-icon">👀</span>
+          <div class="visitor-text">
+            <strong>Browsing as a visitor</strong>
+            <span>You can view the feed, but you'll need an invitation to post and interact.</span>
+          </div>
+          <button id="visitor-join-btn" class="btn btn-primary">Have an invite code?</button>
+          <button id="visitor-restore-btn" class="btn btn-secondary">Restore Identity</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Invite Required Popover -->
+    <div id="invite-popover" class="popover" style="display: none;">
+      <div class="popover-content">
+        <button class="popover-close" onclick="window.cloutApp.closeInvitePopover()">×</button>
+        <h3>🎟️ Join Clout</h3>
+        <p>Clout is an invitation-only network. Redeem your invitation to create your identity and join the conversation.</p>
+
+        <div class="invite-section">
+          <h4>Have an invitation code?</h4>
+          <div class="invite-input-group">
+            <input type="text" id="invite-code-input" class="input" placeholder="Enter invitation code">
+            <button id="redeem-invite-btn" class="btn btn-primary" onclick="window.cloutApp.redeemInvite()">Join Network</button>
+          </div>
+          <div id="invite-result" class="result-message"></div>
+        </div>
+
+        <div class="invite-section">
+          <h4>Need an invitation?</h4>
+          <p class="help-text">Ask someone you know in the network to invite you. Members can share invitations with people they personally vouch for.</p>
+        </div>
+
+        <div class="invite-section invite-section-alt">
+          <h4>Or start your own club</h4>
+          <p class="help-text">Run your own Clout instance and be the one sending invites.</p>
+          <a href="https://github.com/flammafex/clout" target="_blank" rel="noopener" class="btn btn-secondary">View on GitHub</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Restore Identity Popover -->
+    <div id="restore-popover" class="popover" style="display: none;">
+      <div class="popover-content">
+        <button class="popover-close" onclick="window.cloutApp.closeRestorePopover()">×</button>
+        <h3>🔑 Restore Identity</h3>
+        <p>Restore your Clout identity from a backup file.</p>
+
+        <div class="invite-section">
+          <p class="help-text">Upload your encrypted identity backup file (.backup)</p>
+          <div class="restore-input-group">
+            <input type="file" id="restore-file-input" class="input" accept=".backup">
+            <input type="password" id="restore-password-input" class="input" placeholder="Backup password">
+            <button id="restore-file-btn" class="btn btn-primary" onclick="window.cloutApp.restoreFromFile()">Restore</button>
+          </div>
+        </div>
+
+        <div id="restore-result" class="result-message"></div>
+      </div>
+    </div>
+
+    <!-- Initialization Section -->
+    <div id="init-section" class="section">
+      <h2>Welcome to Clout</h2>
+      <p>Initialize your Clout identity to start posting and viewing feeds</p>
+      <button id="init-btn" class="btn btn-primary">Initialize Clout</button>
+    </div>
+
+    <!-- Main Application -->
+    <div id="main-app" style="display: none;">
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="feed">Feed <span id="feed-badge" class="tab-badge" style="display: none;">0</span></button>
+        <button class="tab-btn" data-tab="post">Post</button>
+        <button class="tab-btn" data-tab="trust">Trust</button>
+        <button class="tab-btn" data-tab="slides">Slides <span id="slides-badge" class="tab-badge" style="display: none;">0</span></button>
+        <button class="tab-btn" data-tab="profile">Profile</button>
+        <button class="tab-btn" data-tab="owner">Owner</button>
+        <button class="tab-btn" data-tab="thread" style="display: none;">Thread</button>
+        <button class="tab-btn" data-tab="settings">Settings <span id="settings-badge" class="tab-badge" style="display: none;">!</span></button>
+      </nav>
+
+      <!-- Feed Tab -->
+      <div id="feed-tab" class="tab-content active">
+        <div class="section">
+          <div class="section-header">
+            <h2>📰 Your Feed</h2>
+            <div class="header-actions">
+              <div id="feed-filters-container" class="feed-filters">
+                <button class="filter-btn active" data-filter="all" title="All Posts">All</button>
+                <button class="filter-btn" data-filter="bookmarks" title="Bookmarked Posts">🔖</button>
+                <button class="filter-btn" data-filter="replies" title="Replies to Your Posts">💬</button>
+                <button class="filter-btn" data-filter="mentions" title="Mentions">@</button>
+              </div>
+              <button id="refresh-feed-btn" class="btn btn-small">Refresh</button>
+            </div>
+          </div>
+
+          <!-- Tag Filter (populated dynamically) -->
+          <div id="tag-filters" class="tag-filters" style="display: none;">
+            <span class="tag-filter-label">Tags:</span>
+            <div id="tag-filter-pills" class="tag-filter-pills">
+              <!-- Tag pills added by JS -->
+            </div>
+          </div>
+
+          <!-- Search Bar (hidden for visitors) -->
+          <div id="search-bar-container" class="search-bar">
+            <input type="text" id="feed-search" class="input" placeholder="Search posts, authors...">
+            <button id="search-btn" class="btn btn-small">Search</button>
+            <button id="clear-search-btn" class="btn btn-small" style="display: none;">Clear</button>
+          </div>
+
+          <!-- Sort Options -->
+          <div id="feed-sort-container" class="feed-sort">
+            <span class="sort-label">Sort:</span>
+            <div class="feed-sort-buttons">
+              <button class="feed-sort-btn active" data-sort="newest" onclick="window.cloutApp.setFeedSort('newest')">Newest</button>
+              <button class="feed-sort-btn" data-sort="hot" onclick="window.cloutApp.setFeedSort('hot')">Hot</button>
+              <button class="feed-sort-btn" data-sort="reactions" onclick="window.cloutApp.setFeedSort('reactions')">Top</button>
+              <button class="feed-sort-btn" data-sort="replies" onclick="window.cloutApp.setFeedSort('replies')">Discussed</button>
+            </div>
+          </div>
+
+          <!-- New Posts Banner (for live updates) -->
+          <div id="new-posts-banner" class="new-posts-banner" style="display: none;">
+            <button onclick="window.cloutApp.loadNewPosts()">⬆️ <span id="new-posts-count">0</span> new posts - Click to load</button>
+          </div>
+
+          <div id="feed-list" class="feed-list">
+            <!-- Empty state shown by JS when no posts -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Post Tab -->
+      <div id="post-tab" class="tab-content">
+        <div class="section">
+          <h2>📝 Create Post</h2>
+          <p class="help-text">Share your thoughts with your trust network</p>
+
+          <div class="form-card">
+            <textarea
+              id="post-content"
+              placeholder="What's on your mind?"
+              class="textarea"
+              maxlength="500"
+            ></textarea>
+            <div class="char-count">
+              <span id="char-count">0</span>/500
+            </div>
+
+            <!-- Attachment Type Selector -->
+            <div class="attachment-type-selector">
+              <span class="attachment-label">Attach:</span>
+              <button type="button" id="attach-media-btn" class="attachment-btn active" title="Attach media file">
+                <span class="attachment-icon">📎</span> Media
+              </button>
+              <button type="button" id="attach-link-btn" class="attachment-btn" title="Attach link preview">
+                <span class="attachment-icon">🔗</span> Link
+              </button>
+            </div>
+
+            <!-- Media Upload Section -->
+            <div id="media-upload-section" class="media-upload-section">
+              <div id="media-drop-zone" class="media-drop-zone">
+                <input type="file" id="media-input" accept="image/*,video/*,audio/*,application/pdf" style="display: none;">
+                <div class="drop-zone-content">
+                  <span class="drop-icon">📎</span>
+                  <span class="drop-text">Drop media here or <button type="button" id="media-browse-btn" class="btn-link">browse</button></span>
+                  <span class="drop-hint">Images, videos, audio, PDFs (max 100MB)</span>
+                </div>
+              </div>
+
+              <!-- Media Preview -->
+              <div id="media-preview" class="media-preview" style="display: none;">
+                <div class="media-preview-header">
+                  <span id="media-preview-name">filename.jpg</span>
+                  <span id="media-preview-size">0 KB</span>
+                  <button type="button" id="media-remove-btn" class="btn-remove" title="Remove media">✕</button>
+                </div>
+                <div id="media-preview-content" class="media-preview-content"></div>
+                <div id="media-upload-progress" class="media-upload-progress" style="display: none;">
+                  <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                  </div>
+                  <span id="progress-text">Uploading...</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Link Preview Section -->
+            <div id="link-input-section" class="link-input-section" style="display: none;">
+              <div class="link-input-wrapper">
+                <input type="url" id="link-url-input" class="input" placeholder="Paste a URL to preview...">
+                <button type="button" id="link-fetch-btn" class="btn btn-small">Preview</button>
+              </div>
+              <p class="help-text-small">Link previews expire after 24 hours</p>
+
+              <!-- Link Preview -->
+              <div id="link-preview" class="link-preview-card" style="display: none;">
+                <button type="button" id="link-remove-btn" class="btn-remove" title="Remove link">✕</button>
+                <div id="link-preview-image" class="link-preview-image"></div>
+                <div class="link-preview-content">
+                  <div id="link-preview-site" class="link-preview-site"></div>
+                  <div id="link-preview-title" class="link-preview-title"></div>
+                  <div id="link-preview-description" class="link-preview-description"></div>
+                </div>
+              </div>
+
+              <!-- Link Fetch Status -->
+              <div id="link-fetch-status" class="link-fetch-status" style="display: none;">
+                <span id="link-fetch-text">Fetching preview...</span>
+              </div>
+            </div>
+
+            <!-- Content Warning -->
+            <div class="content-warning-section">
+              <label class="checkbox-label">
+                <input type="checkbox" id="post-cw-enabled">
+                <span class="checkbox-text">Add Content Warning</span>
+              </label>
+              <div id="cw-input-wrapper" class="cw-input-wrapper" style="display: none;">
+                <input type="text" id="post-cw-text" class="input" placeholder="e.g., spoilers, politics, food" maxlength="50">
+                <p class="help-text-small">Content will be hidden behind this warning until clicked</p>
+              </div>
+            </div>
+
+            <!-- NSFW Toggle -->
+            <div class="nsfw-toggle">
+              <label class="checkbox-label">
+                <input type="checkbox" id="post-nsfw">
+                <span class="checkbox-text">Mark as NSFW (Not Safe For Work)</span>
+              </label>
+              <p class="help-text-small">Content marked NSFW will only be visible to users who have enabled NSFW in settings</p>
+            </div>
+
+            <button id="create-post-btn" class="btn btn-primary">Post</button>
+          </div>
+
+          <div id="post-result" class="result-message" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Trust Tab -->
+      <div id="trust-tab" class="tab-content">
+        <div class="section">
+          <h2>🤝 Your Trust Circle</h2>
+
+          <!-- Network Overview (merged from Stats tab) -->
+          <div class="network-overview">
+            <div class="overview-stat">
+              <span class="overview-value" id="stat-posts">0</span>
+              <span class="overview-label">Posts</span>
+            </div>
+            <div class="overview-stat">
+              <span class="overview-value" id="stat-trusted">0</span>
+              <span class="overview-label">Trusted</span>
+            </div>
+            <div class="overview-stat">
+              <span class="overview-value" id="stat-network">0</span>
+              <span class="overview-label">In Network</span>
+            </div>
+          </div>
+
+          <!-- Your Trusted People -->
+          <div class="trust-network-section">
+            <div class="section-header">
+              <h3>People You Trust</h3>
+              <span class="trust-count" id="trust-count-badge">0</span>
+            </div>
+            <div id="trusted-users-list" class="trusted-users-list">
+              <div class="empty-state-helpful">
+                <div class="empty-icon">🌱</div>
+                <h4>Your trust circle is empty</h4>
+                <p>Start by trusting someone you know. Their posts will appear in your feed, and you'll see posts from people they trust too.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Trust Requests Section -->
+          <div class="form-card trust-requests-card">
+            <h3>Trust Requests <span id="incoming-requests-badge" class="badge badge-notification" style="display: none;">0</span></h3>
+            <p class="help-text">People who want to join your trust circle must be approved</p>
+
+            <!-- Incoming Requests -->
+            <div class="trust-requests-section">
+              <h4>Incoming Requests</h4>
+              <div id="incoming-requests-list" class="trust-requests-list">
+                <div class="empty-state-small">
+                  <span>No pending requests</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Outgoing Requests -->
+            <div class="trust-requests-section">
+              <h4>Sent Requests</h4>
+              <div id="outgoing-requests-list" class="trust-requests-list">
+                <div class="empty-state-small">
+                  <span>No pending requests</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Add Trust Form -->
+          <div class="form-card add-trust-card">
+            <h3>Request Trust</h3>
+            <p class="help-text">Send a trust request. They must accept before you can see their posts.</p>
+            <div class="trust-input-row">
+              <input
+                type="text"
+                id="trust-public-key"
+                placeholder="Paste public key here..."
+                class="input"
+              >
+              <button id="trust-btn" class="btn btn-primary">Request Trust</button>
+            </div>
+            <div class="trust-weight-row">
+              <label for="trust-weight">Trust Weight:</label>
+              <input type="range" id="trust-weight" min="10" max="100" value="100" class="range trust-weight-slider">
+              <span id="trust-weight-value" class="trust-weight-display">1.0</span>
+              <span class="trust-weight-label" id="trust-weight-label">Full Trust</span>
+            </div>
+            <p class="help-text-small">Higher weight = more influence on your feed. Use lower weights for new acquaintances.</p>
+            <div id="trust-result" class="result-message" style="display: none;"></div>
+          </div>
+
+          <!-- Trust Explainer -->
+          <div class="trust-explainer">
+            <h4>How Your Feed Works</h4>
+            <div class="trust-levels">
+              <div class="trust-level level-self">
+                <span class="level-icon">🪞</span>
+                <div class="level-info">
+                  <strong>Self (0 hops)</strong>
+                  <p>Your own posts</p>
+                </div>
+              </div>
+              <div class="trust-level level-1">
+                <span class="level-icon">👤</span>
+                <div class="level-info">
+                  <strong>Direct (1 hop)</strong>
+                  <p>People you personally trust</p>
+                </div>
+              </div>
+              <div class="trust-level level-2">
+                <span class="level-icon">👥</span>
+                <div class="level-info">
+                  <strong>Friends of Friends (2 hops)</strong>
+                  <p>Vouched for by someone you trust</p>
+                </div>
+              </div>
+              <div class="trust-level level-3">
+                <span class="level-icon">🌐</span>
+                <div class="level-info">
+                  <strong>Extended Network (3 hops)</strong>
+                  <p>Within your wider web of trust</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Trust Settings -->
+          <div class="form-card">
+            <h3>Trust Settings</h3>
+
+            <div class="setting-item">
+              <label for="settings-max-hops">Maximum Trust Distance</label>
+              <select id="settings-max-hops" class="select">
+                <option value="1">1 hop (direct follows only)</option>
+                <option value="2">2 hops (friends of friends)</option>
+                <option value="3" selected>3 hops (extended network)</option>
+              </select>
+              <p class="help-text-small">Control how far into your trust network you see posts from</p>
+            </div>
+
+            <div class="setting-item">
+              <label for="settings-min-reputation">Minimum Reputation Score</label>
+              <input type="range" id="settings-min-reputation" min="0" max="100" value="30" class="range">
+              <span id="settings-min-reputation-value">0.30</span>
+              <p class="help-text-small">Only show posts from users with at least this reputation score</p>
+            </div>
+
+            <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
+            <div id="settings-result" class="result-message" style="display: none;"></div>
+          </div>
+
+          <!-- Trust Tags Management -->
+          <div class="form-card">
+            <h3>Trust Tags</h3>
+            <p class="help-text">Organize your trusted users with tags. Use tags to filter your feed.</p>
+
+            <div class="tags-manager">
+              <div class="tags-list" id="tags-list">
+                <p class="empty-state">No tags yet</p>
+              </div>
+
+              <div class="add-tag-form">
+                <input type="text" id="new-tag-name" class="input" placeholder="Tag name (e.g. family, work)">
+                <input type="text" id="new-tag-user" class="input" placeholder="User public key">
+                <button id="add-tag-btn" class="btn btn-primary">Add Tag</button>
+              </div>
+              <div id="tag-result" class="result-message" style="display: none;"></div>
+            </div>
+          </div>
+
+          <!-- Media Trust Settings -->
+          <div class="form-card">
+            <h3>Media Trust Settings</h3>
+            <p class="help-text">Set stricter trust requirements for media content. This helps filter potentially untrusted rich media while still seeing text posts from your extended network.</p>
+
+            <div class="media-filters">
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🖼️</span>
+                  <span>Images</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-images-hops">Max Distance:</label>
+                  <select id="media-filter-images-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🎬</span>
+                  <span>Videos</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-videos-hops">Max Distance:</label>
+                  <select id="media-filter-videos-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="media-filter-row">
+                <div class="media-filter-label">
+                  <span class="media-icon">🎵</span>
+                  <span>Audio</span>
+                </div>
+                <div class="media-filter-controls">
+                  <label for="media-filter-audio-hops">Max Distance:</label>
+                  <select id="media-filter-audio-hops" class="select select-small">
+                    <option value="1">1 hop (direct only)</option>
+                    <option value="2">2 hops</option>
+                    <option value="3" selected>3 hops (use default)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <button id="save-media-filters-btn" class="btn btn-primary">Save Media Settings</button>
+            <div id="media-filter-result" class="result-message" style="display: none;"></div>
+          </div>
+
+          <!-- Day Pass Delegation -->
+          <div class="form-card" id="daypass-delegation-section">
+            <h3>Day Pass Delegation</h3>
+            <p class="help-text">Share your posting privileges with newcomers. Requires reputation of 0.7 or higher.</p>
+
+            <div id="delegation-status" class="delegation-status">
+              <!-- Status loaded by JS -->
+            </div>
+
+            <div id="delegate-form" class="delegate-form" style="display: none;">
+              <div class="setting-item">
+                <label for="delegate-recipient">Recipient Public Key</label>
+                <input type="text" id="delegate-recipient" class="input" placeholder="Paste recipient's 64-character public key">
+              </div>
+
+              <div class="setting-item">
+                <label for="delegate-duration">Duration</label>
+                <select id="delegate-duration" class="select">
+                  <option value="12">12 hours</option>
+                  <option value="24" selected>24 hours</option>
+                  <option value="48">48 hours</option>
+                </select>
+              </div>
+
+              <button id="delegate-btn" class="btn btn-primary" onclick="window.cloutApp.delegatePass()">Delegate Day Pass</button>
+              <div id="delegate-result" class="result-message" style="display: none;"></div>
+            </div>
+
+            <div id="accept-delegation-section" style="display: none;">
+              <p class="help-text-success">You have a pending Day Pass delegation!</p>
+              <button id="accept-delegation-btn" class="btn btn-primary" onclick="window.cloutApp.acceptDelegation()">Accept Delegation</button>
+              <div id="accept-result" class="result-message" style="display: none;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slides Tab -->
+      <div id="slides-tab" class="tab-content">
+        <div class="section">
+          <div class="section-header">
+            <h2>📬 Slides (Encrypted DMs)</h2>
+            <button id="refresh-slides-btn" class="btn btn-small">Refresh</button>
+          </div>
+
+          <!-- Send Slide Form -->
+          <div class="form-card">
+            <h3>Send a Slide</h3>
+            <input
+              type="text"
+              id="slide-recipient"
+              placeholder="Recipient's public key"
+              class="input"
+            >
+            <textarea
+              id="slide-message"
+              placeholder="Your encrypted message..."
+              class="textarea"
+              maxlength="500"
+            ></textarea>
+            <div class="char-count">
+              <span id="slide-char-count">0</span>/500
+            </div>
+            <button id="send-slide-btn" class="btn btn-primary">Send Encrypted Slide</button>
+          </div>
+
+          <div id="slide-result" class="result-message" style="display: none;"></div>
+
+          <!-- Inbox -->
+          <div class="section-header" style="margin-top: 2rem;">
+            <h3>📥 Inbox</h3>
+          </div>
+
+          <div id="slides-list" class="slides-list">
+            <p class="empty-state">No slides yet</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Thread Tab -->
+      <div id="thread-tab" class="tab-content">
+        <div class="section">
+          <div class="section-header">
+            <h2>🧵 Thread</h2>
+            <button id="back-to-feed-btn" class="btn btn-small">← Back to Feed</button>
+          </div>
+
+          <div id="thread-content">
+            <!-- Parent post -->
+            <div id="thread-parent" class="thread-parent"></div>
+
+            <!-- Replies -->
+            <div id="thread-replies" class="thread-replies">
+              <h3>Replies</h3>
+              <div id="thread-replies-list"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profile Tab -->
+      <div id="profile-tab" class="tab-content">
+        <div class="section">
+          <h2>👤 Your Identity</h2>
+
+          <div class="profile-view" id="profile-view">
+            <div class="profile-card">
+              <div class="profile-header">
+                <div class="profile-avatar">
+                  <span id="profile-avatar-display">👤</span>
+                </div>
+                <div class="profile-info">
+                  <h3 id="profile-name-display">(No name set)</h3>
+                  <p id="profile-bio-display" class="profile-bio"></p>
+                </div>
+              </div>
+              <button id="edit-profile-btn" class="btn btn-primary">Edit Profile</button>
+            </div>
+
+            <!-- Your Identity Section -->
+            <div class="identity-section">
+              <h3>Your Public Key</h3>
+              <p class="help-text">Share this so others can trust you and see your posts</p>
+              <div class="public-key-box">
+                <code id="identity-public-key">Loading...</code>
+                <div class="key-actions">
+                  <button class="btn btn-small" onclick="copyToClipboard('identity-public-key')">Copy</button>
+                  <button class="btn btn-small" onclick="toggleQRCode()">QR Code</button>
+                </div>
+              </div>
+
+              <!-- QR Code Display -->
+              <div id="qr-code-container" class="qr-code-container" style="display: none;">
+                <div id="qr-code" class="qr-code"></div>
+                <p class="qr-code-help">Others can scan this to add you</p>
+              </div>
+
+              <div class="identity-meta">
+                <span>Created: <span id="identity-created">Loading...</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="profile-edit" id="profile-edit" style="display: none;">
+            <div class="form-card">
+              <h3>Edit Profile</h3>
+
+              <div class="form-group">
+                <label for="profile-name">Display Name</label>
+                <input
+                  type="text"
+                  id="profile-name"
+                  class="input"
+                  placeholder="Your name"
+                  maxlength="50"
+                >
+              </div>
+
+              <div class="form-group">
+                <label for="profile-bio">Bio</label>
+                <textarea
+                  id="profile-bio"
+                  class="textarea"
+                  placeholder="Tell people about yourself..."
+                  maxlength="200"
+                  rows="3"
+                ></textarea>
+                <div class="char-count">
+                  <span id="bio-char-count">0</span>/200
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="profile-avatar">Avatar (emoji or URL)</label>
+                <input
+                  type="text"
+                  id="profile-avatar"
+                  class="input"
+                  placeholder="👤 or https://..."
+                  maxlength="100"
+                >
+              </div>
+
+              <div class="form-actions">
+                <button id="save-profile-btn" class="btn btn-primary">Save Profile</button>
+                <button id="cancel-edit-btn" class="btn btn-secondary">Cancel</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="profile-result" class="result-message" style="display: none;"></div>
+
+          <!-- Identity Backup/Swap -->
+          <div class="settings-card">
+            <h3>Identity Backup & Swap</h3>
+            <p class="help-text">Export your identity for backup, or import a different identity to switch accounts on this device.</p>
+
+            <div class="identity-management">
+              <div class="identity-import-export">
+                <div class="data-section">
+                  <h4>Backup Identity</h4>
+                  <p class="help-text-small">Download an encrypted backup of your identity. You'll be prompted for a password.</p>
+                  <button id="export-browser-identity-btn" class="btn btn-primary">Download Backup</button>
+                </div>
+                <div class="data-section">
+                  <h4>Restore Identity</h4>
+                  <p class="help-text-small">Restore from a backup file. This will replace your current browser identity.</p>
+                  <input type="file" id="import-browser-identity-file" class="input" accept=".backup">
+                  <input type="password" id="import-browser-identity-password" class="input" placeholder="Backup password">
+                  <button id="import-browser-identity-btn" class="btn">Restore from Backup</button>
+                </div>
+                <div class="data-section">
+                  <h4>Create New Identity</h4>
+                  <p class="help-text-small warning">Generate a fresh identity. This will permanently delete your current identity!</p>
+                  <button id="create-browser-identity-btn" class="btn btn-danger">Create New Identity</button>
+                </div>
+                <div id="browser-identity-result" class="result-message" style="display: none;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Settings Tab -->
+      <div id="settings-tab" class="tab-content">
+        <div class="section">
+          <h2>⚙️ Settings</h2>
+
+          <!-- Content Settings -->
+          <div class="settings-card">
+            <h3>Content Filtering</h3>
+
+            <div class="setting-item">
+              <label class="checkbox-label">
+                <input type="checkbox" id="settings-nsfw-enabled">
+                <span class="checkbox-text">Show NSFW content</span>
+              </label>
+              <p class="help-text-small">Enable to see posts marked as Not Safe For Work</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Owner Tab -->
+      <div id="owner-tab" class="tab-content">
+        <div class="section">
+          <h2>🏠 Instance Owner</h2>
+
+          <div class="owner-info-card settings-card">
+            <h3>About This Instance</h3>
+            <div class="owner-details">
+              <div class="owner-field">
+                <label>Instance Name</label>
+                <span id="owner-instance-name">Loading...</span>
+              </div>
+              <div class="owner-field">
+                <label>Operated By</label>
+                <span id="owner-operator-name">Loading...</span>
+              </div>
+              <div class="owner-field">
+                <label>Description</label>
+                <p id="owner-description">Loading...</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="owner-key-card settings-card">
+            <h3>Instance Public Key</h3>
+            <p class="help-text">This is the server's identity on the network. Posts relayed through this instance are signed by this key.</p>
+            <div class="public-key-box">
+              <code id="owner-public-key">Loading...</code>
+              <div class="key-actions">
+                <button class="btn btn-small" onclick="copyToClipboard('owner-public-key')">Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="invite-request-card settings-card">
+            <h3>Request an Invitation</h3>
+            <p class="help-text">Want to join this Clout instance? Contact the operator using the information below.</p>
+
+            <div class="pgp-key-section">
+              <h4>PGP Public Key</h4>
+              <p class="help-text-small">Encrypt your invitation request with this key for privacy.</p>
+              <div id="owner-pgp-key-container">
+                <pre id="owner-pgp-key" class="pgp-key-display">No PGP key configured</pre>
+              </div>
+              <button class="btn btn-small" id="copy-pgp-key-btn" onclick="copyToClipboard('owner-pgp-key')" style="display: none;">Copy PGP Key</button>
+            </div>
+
+            <div class="contact-section">
+              <h4>Contact</h4>
+              <p id="owner-contact-info" class="help-text-small">Contact information not configured</p>
+            </div>
+          </div>
+
+          <!-- Owner Admin Section (only visible to instance owner) -->
+          <div id="owner-admin-section" class="owner-admin-card settings-card" style="display: none;">
+            <h3>Instance Administration</h3>
+            <p class="help-text">You are the owner of this instance. These tools help you manage your identity and invitations.</p>
+
+            <div class="admin-subsection">
+              <h4>Browser Identity Backup</h4>
+              <p class="help-text-small">Save your browser identity to this server for safekeeping. If you ever clear your browser data, you can restore it here.</p>
+              <div class="backup-controls">
+                <button id="backup-identity-btn" class="btn btn-primary" onclick="window.cloutApp.backupBrowserIdentity()">Backup Identity to Server</button>
+                <div id="backup-result" class="result-message"></div>
+              </div>
+            </div>
+
+            <div class="admin-subsection">
+              <h4>Restore from Server</h4>
+              <p class="help-text-small">Restore a previously backed-up identity from this server.</p>
+              <div class="restore-controls">
+                <select id="restore-identity-select" class="input">
+                  <option value="">Select a saved identity...</option>
+                </select>
+                <button id="restore-identity-btn" class="btn" onclick="window.cloutApp.restoreFromServer()">Restore</button>
+              </div>
+              <div id="restore-result" class="result-message"></div>
+            </div>
+
+            <div class="admin-subsection">
+              <h4>Freebird Admin</h4>
+              <p class="help-text-small">Manage invitations and sybil protection settings.</p>
+              <a id="freebird-admin-link" href="#" target="_blank" rel="noopener" class="btn btn-secondary">Open Freebird Admin</a>
+            </div>
+
+            <!-- User Lookup -->
+            <div class="admin-subsection">
+              <h4>🔍 User Lookup</h4>
+              <p class="help-text-small">Find which invitation code a user redeemed. Use this to revoke access in Freebird Admin.</p>
+              <div class="lookup-user-form">
+                <input type="text" id="lookup-user-pubkey" class="input" placeholder="User's public key (64 hex chars)">
+                <button id="lookup-user-btn" class="btn btn-primary" onclick="window.cloutApp.lookupUser()">Lookup</button>
+              </div>
+              <div id="lookup-user-result" class="result-message"></div>
+            </div>
+
+            <!-- Members & Quota Management -->
+            <div class="admin-subsection">
+              <h4>👥 Members & Quota</h4>
+              <p class="help-text-small">Manage member invitation quotas. Members with quota can invite others to join.</p>
+              <div class="members-controls">
+                <button id="refresh-members-btn" class="btn btn-secondary" onclick="window.cloutApp.loadAdminMembers()">Refresh Members</button>
+              </div>
+              <div id="admin-members-list" class="admin-list">
+                <p class="empty-state">Click "Refresh Members" to load the member list.</p>
+              </div>
+              <div class="grant-quota-form">
+                <h5>Grant Quota to Member</h5>
+                <div class="form-row">
+                  <input type="text" id="grant-quota-pubkey" class="input" placeholder="Member's public key (64 hex chars)">
+                  <input type="number" id="grant-quota-amount" class="input input-small" placeholder="Amount" min="1" max="100" value="5">
+                  <button id="grant-quota-btn" class="btn btn-primary" onclick="window.cloutApp.grantQuota()">Grant</button>
+                </div>
+                <div id="grant-quota-result" class="result-message"></div>
+              </div>
+            </div>
+
+            <!-- Owner Create Invitations -->
+            <div class="admin-subsection">
+              <h4>🎟️ Create Invitations</h4>
+              <p class="help-text-small">Create invitation codes to distribute. These are tied to your identity as the instance owner.</p>
+              <div class="create-invites-form">
+                <div class="form-row">
+                  <input type="number" id="owner-invite-count" class="input input-small" placeholder="Count" min="1" max="100" value="1">
+                  <input type="number" id="owner-invite-days" class="input input-small" placeholder="Days" min="1" max="365" value="30">
+                  <button id="owner-create-invite-btn" class="btn btn-primary" onclick="window.cloutApp.ownerCreateInvitations()">Create</button>
+                </div>
+                <div id="owner-invite-result" class="result-message"></div>
+                <div id="owner-created-codes" class="owner-codes-display" style="display: none;">
+                  <p>Created invitation codes:</p>
+                  <div id="owner-invite-codes-list" class="codes-list"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- All Invitations -->
+            <div class="admin-subsection">
+              <h4>📋 All Invitations</h4>
+              <p class="help-text-small">View all invitations created in this instance.</p>
+              <div class="invitations-controls">
+                <button id="refresh-invitations-btn" class="btn btn-secondary" onclick="window.cloutApp.loadAdminInvitations()">Refresh Invitations</button>
+              </div>
+              <div id="admin-invitations-list" class="admin-list">
+                <p class="empty-state">Click "Refresh Invitations" to load all invitations.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Member Invitation Section (visible to members with quota) -->
+          <div id="member-invites-section" class="member-invites-card settings-card" style="display: none;">
+            <h3>🎟️ Your Invitations</h3>
+            <p class="help-text">You can invite people you personally vouch for to join the network.</p>
+
+            <!-- Quota Status -->
+            <div class="quota-status">
+              <div class="quota-display">
+                <span class="quota-label">Remaining Invites:</span>
+                <span id="my-quota-remaining" class="quota-value">0</span>
+              </div>
+            </div>
+
+            <!-- Create Invitation -->
+            <div class="create-invite-section">
+              <button id="create-member-invite-btn" class="btn btn-primary" onclick="window.cloutApp.createMemberInvitation()">Generate Invitation Code</button>
+              <div id="member-invite-result" class="result-message"></div>
+              <div id="member-created-code" class="member-code-display" style="display: none;">
+                <p>Share this code with someone you vouch for:</p>
+                <code id="member-invite-code"></code>
+                <button class="btn btn-small" onclick="window.cloutApp.copyMemberCode()">Copy</button>
+              </div>
+            </div>
+
+            <!-- My Invitations List -->
+            <div class="my-invitations">
+              <h4>Your Created Invitations</h4>
+              <div id="my-invitations-list" class="invitations-list">
+                <p class="empty-state">You haven't created any invitations yet.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async () => {
+        try {
+          const registration = await navigator.serviceWorker.register('/service-worker.js');
+          console.log('[PWA] Service worker registered:', registration.scope);
+
+          // Check for updates periodically
+          setInterval(() => {
+            registration.update();
+          }, 60 * 60 * 1000); // Check every hour
+
+          // Handle updates
+          registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // New version available
+                if (confirm('New version available! Reload to update?')) {
+                  newWorker.postMessage({ type: 'SKIP_WAITING' });
+                  window.location.reload();
+                }
+              }
+            });
+          });
+        } catch (error) {
+          console.error('[PWA] Service worker registration failed:', error);
+        }
+      });
+
+      // Offline/online detection
+      const offlineIndicator = document.getElementById('offline-indicator');
+
+      function updateOnlineStatus() {
+        if (navigator.onLine) {
+          offlineIndicator.style.display = 'none';
+          document.body.classList.remove('offline');
+        } else {
+          offlineIndicator.style.display = 'inline';
+          document.body.classList.add('offline');
+        }
+      }
+
+      window.addEventListener('online', updateOnlineStatus);
+      window.addEventListener('offline', updateOnlineStatus);
+      updateOnlineStatus();
+    }
+  </script>
+</body>
+</html>

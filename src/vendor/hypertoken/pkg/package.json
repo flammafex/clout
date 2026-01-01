@@ -1,0 +1,19 @@
+{
+  "name": "hypertoken-core",
+  "type": "module",
+  "collaborators": [
+    "HyperToken Contributors"
+  ],
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "files": [
+    "hypertoken_core_bg.wasm",
+    "hypertoken_core.js",
+    "hypertoken_core.d.ts"
+  ],
+  "main": "hypertoken_core.js",
+  "types": "hypertoken_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

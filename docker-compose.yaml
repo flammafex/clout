@@ -1,0 +1,305 @@
+# ============================================
+# Clout - Docker Compose Configuration
+# ============================================
+#
+# Quick Start:
+#   docker compose up --build
+#
+# CLI commands:
+#   docker compose run --rm cli identity
+#   docker compose run --rm cli post "Hello world"
+#   docker compose run --rm cli feed
+#
+# Browser VOPRF Proxy:
+#   The browser blinds tokens locally and sends blinded requests to Clout.
+#   Clout proxies to Freebird internally (http://freebird-issuer:8081).
+#   This bypasses CORS while keeping browser-side privacy intact.
+#
+# ============================================
+
+services:
+  # ----------------------------------------
+  # Clout Web UI - Main service
+  # ----------------------------------------
+  clout:
+    build:
+      context: .
+      target: runtime
+    image: clout:latest
+    container_name: clout
+    ports:
+      - "${CLOUT_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - CLOUT_AUTH=${CLOUT_AUTH:-false}
+      - CLOUT_DATA_DIR=/data
+      # External services - use Docker service names when running full stack
+      - WITNESS_GATEWAY_URL=${WITNESS_GATEWAY_URL:-http://witness-gateway:8080}
+      - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-clout-testnet}
+      - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
+      - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
+      - FREEBIRD_SYBIL_MODE=${FREEBIRD_SYBIL_MODE:-invitation}
+      - FREEBIRD_ADMIN_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
+      - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
+      # Tor (optional)
+      - TOR_ENABLED=${TOR_ENABLED:-false}
+      - TOR_PROXY=${TOR_PROXY:-socks5://tor:9050}
+    volumes:
+      - clout-data:/data
+    networks:
+      - clout-net
+    depends_on:
+      freebird-issuer:
+        condition: service_healthy
+      freebird-verifier:
+        condition: service_started
+      witness-gateway:
+        condition: service_started
+      hypertoken-relay:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ----------------------------------------
+  # Clout CLI - Interactive commands
+  # ----------------------------------------
+  cli:
+    build:
+      context: .
+      target: cli
+    image: clout-cli:latest
+    profiles:
+      - cli
+    environment:
+      - CLOUT_DATA_DIR=/data
+      - WITNESS_GATEWAY_URL=${WITNESS_GATEWAY_URL:-http://witness-gateway:8080}
+      - WITNESS_NETWORK_ID=${WITNESS_NETWORK_ID:-clout-testnet}
+      - FREEBIRD_ISSUER_URL=${FREEBIRD_ISSUER_URL:-http://freebird-issuer:8081}
+      - FREEBIRD_VERIFIER_URL=${FREEBIRD_VERIFIER_URL:-http://freebird-verifier:8082}
+      - FREEBIRD_SYBIL_MODE=${FREEBIRD_SYBIL_MODE:-invitation}
+      - HYPERTOKEN_RELAY_URL=${HYPERTOKEN_RELAY_URL:-ws://hypertoken-relay:3000}
+    volumes:
+      - clout-data:/data
+    networks:
+      - clout-net
+    stdin_open: true
+    tty: true
+
+  # ----------------------------------------
+  # SOPHIA OS
+  # ----------------------------------------
+
+  # ============================================================================
+  # FREEBIRD CLUSTER
+  # ============================================================================
+  freebird-issuer:
+    image: ghcr.io/flammafex/freebird-issuer:latest
+    ports:
+      - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
+    environment:
+      - RUST_LOG=info,freebird=debug
+      - BIND_ADDR=0.0.0.0:8081
+      - ISSUER_ID=clout-issuer
+      - TOKEN_TTL_MIN=60
+      - SYBIL_RESISTANCE=${FREEBIRD_SYBIL_MODE:-invitation}
+      - ADMIN_ENABLED=true
+      - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
+    volumes:
+      - freebird-issuer-data:/data
+    networks:
+      - clout-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/.well-known/issuer"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  freebird-verifier:
+    image: ghcr.io/flammafex/freebird-verifier:latest
+    container_name: freebird-verifier
+    ports:
+      - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
+    environment:
+      - RUST_LOG=info
+      - BIND_ADDR=0.0.0.0:8082
+      - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      freebird-issuer:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - clout-net
+    restart: unless-stopped
+
+  # Redis - For Freebird verifier caching
+  redis:
+    image: redis:alpine
+    container_name: freebird-redis
+    volumes:
+      - redis-data:/data
+    networks:
+      - clout-net
+    restart: unless-stopped
+
+# ============================================================================
+  # WITNESS CLUSTER
+  # ============================================================================
+  witness-setup:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    volumes:
+      - witness-config:/data
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        if [ -f /data/network.json ]; then
+          echo "✅ Configuration already exists. Skipping setup."
+          exit 0
+        fi
+
+        echo "🔧 Generating Witness Keys..."
+
+        # Generate witness-1
+        OUT1=$$(witness-node --generate-key)
+        PRIV1=$$(echo "$$OUT1" | grep "Private key:" | awk '{print $$3}')
+        PUB1=$$(echo "$$OUT1" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-1\", \"private_key\": \"$$PRIV1\", \"port\": 4001, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness1.json
+
+        # Generate witness-2
+        OUT2=$$(witness-node --generate-key)
+        PRIV2=$$(echo "$$OUT2" | grep "Private key:" | awk '{print $$3}')
+        PUB2=$$(echo "$$OUT2" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-2\", \"private_key\": \"$$PRIV2\", \"port\": 4002, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness2.json
+
+        # Generate witness-3
+        OUT3=$$(witness-node --generate-key)
+        PRIV3=$$(echo "$$OUT3" | grep "Private key:" | awk '{print $$3}')
+        PUB3=$$(echo "$$OUT3" | grep "Public key:" | awk '{print $$3}')
+        echo "{\"id\": \"witness-3\", \"private_key\": \"$$PRIV3\", \"port\": 4003, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness3.json
+
+        echo "📝 Creating network.json..."
+        cat > /data/network.json <<EOF
+        {
+          "id": "docker-net",
+          "threshold": 2,
+          "witnesses": [
+            { "id": "witness-1", "pubkey": "$$PUB1", "endpoint": "http://witness-1:4001" },
+            { "id": "witness-2", "pubkey": "$$PUB2", "endpoint": "http://witness-2:4002" },
+            { "id": "witness-3", "pubkey": "$$PUB3", "endpoint": "http://witness-3:4003" }
+          ],
+          "federation_peers": [],
+          "external_anchors": { "enabled": false, "providers": [] }
+        }
+        EOF
+
+        echo "✅ Setup complete."
+
+  witness-1:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness1.json"]
+    networks:
+      - clout-net
+
+  witness-2:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness2.json"]
+    networks:
+      - clout-net
+
+  witness-3:
+    build:
+      context: https://github.com/flammafex/witness.git
+      target: witness-node
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+    volumes:
+      - witness-config:/data
+    command: ["witness-node", "--config", "/data/witness3.json"]
+    networks:
+      - clout-net
+
+  witness-gateway:
+    build:
+      context: https://github.com/flammafex/witness.git
+    image: witness-gateway:latest
+    container_name: witness-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      witness-setup:
+        condition: service_completed_successfully
+      witness-1:
+        condition: service_started
+      witness-2:
+        condition: service_started
+      witness-3:
+        condition: service_started
+    volumes:
+      - witness-config:/config
+    environment:
+      - RUST_LOG=info
+    command: ["witness-gateway", "--config", "/config/network.json", "--database", ":memory:"]
+    networks:
+      - clout-net
+  # ============================================================================
+  # HYPERTOKEN RELAY
+  # ============================================================================
+  hypertoken-relay:
+    build:
+      context: https://github.com/flammafex/hypertoken.git
+    image: hypertoken-relay:latest
+    container_name: hypertoken-relay
+    command: ["node", "start-relay.js", "3000"]
+    ports:
+      - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
+    networks:
+      - clout-net
+    restart: unless-stopped
+    
+
+# ----------------------------------------
+# Networks
+# ----------------------------------------
+networks:
+  clout-net:
+    driver: bridge
+
+# ----------------------------------------
+# Volumes
+# ----------------------------------------
+volumes:
+  clout-data:
+    name: clout-data
+  freebird-issuer-data:
+    name: freebird-issuer-data
+  redis-data:
+    name: freebird-verifier-data
+  witness-config:
+    name: witness-config
+  witness-gateway-data:
+    name: witness-gateway-data
