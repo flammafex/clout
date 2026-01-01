@@ -26,7 +26,7 @@ Modern social platforms share the same fundamental flaws:
 Get running in one command:
 
 ```bash
-git clone https://github.com/flammafex/clout && cd clout
+git clone https://git.carpocratian.org/sibyl/clout && cd clout
 docker compose up --build
 ```
 
@@ -699,7 +699,7 @@ await clout.sendSlide(aliceKey, 'Private message');
 
 ## Architecture
 
-Clout inverts [Scarcity](https://github.com/flammafex/Scarcity)'s money protocol into a reputation protocol:
+Clout inverts [Scarcity](https://git.carpocratian.org/sibyl/Scarcity)'s money protocol into a reputation protocol:
 
 | Component | Scarcity (Money) | Clout (Reputation) |
 |-----------|------------------|-------------------|
@@ -756,7 +756,7 @@ Apache-2.0
 
 ## Credits
 
-Built by refactoring [Scarcity](https://github.com/flammafex/Scarcity), with:
-- [Freebird](https://github.com/flammafex/Freebird) | [Witness](https://github.com/flammafex/Witness) | [HyperToken](https://github.com/flammafex/Hypertoken)
+Built by refactoring [Scarcity](https://git.carpocratian.org/sibyl/Scarcity), with:
+- [Freebird](https://git.carpocratian.org/sibyl/Freebird) | [Witness](https://git.carpocratian.org/sibyl/Witness) | [HyperToken](https://git.carpocratian.org/sibyl/Hypertoken)
 
 *The architecture inverts Scarcity's "Conservation of Value" into Clout's "Propagation of Signal."*
