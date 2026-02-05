@@ -151,7 +151,11 @@ export class CloutMedia {
    * 2. If not found, check contentTypeFilters for media hop distance
    * 3. If author is within allowed hop distance, fetch from P2P network
    */
-  async resolvePostMedia(post: PostPackage, fetchFromNetwork = true): Promise<Uint8Array | null> {
+  async resolvePostMedia(
+    post: PostPackage,
+    fetchFromNetwork = true,
+    allowSelf = false
+  ): Promise<Uint8Array | null> {
     // Get CID from post
     const cid = post.media?.cid || StorageManager.extractMediaCid(post.content);
     if (!cid) {
@@ -175,11 +179,13 @@ export class CloutMedia {
     const contentTypeFilter = this.getMediaHopLimit(mimeType);
 
     // Step 4: Check author's hop distance
-    const authorReputation = this.reputationValidator.computeReputation(post.author);
-    if (authorReputation.distance > contentTypeFilter) {
-      // Author is beyond allowed hop distance for this media type
-      console.log(`[Clout] 🔒 Media from ${post.author.slice(0, 8)} at hop ${authorReputation.distance} exceeds limit ${contentTypeFilter} for ${mimeType}`);
-      return null;
+    if (!allowSelf) {
+      const authorReputation = this.reputationValidator.computeReputation(post.author);
+      if (authorReputation.distance > contentTypeFilter) {
+        // Author is beyond allowed hop distance for this media type
+        console.log(`[Clout] 🔒 Media from ${post.author.slice(0, 8)} at hop ${authorReputation.distance} exceeds limit ${contentTypeFilter} for ${mimeType}`);
+        return null;
+      }
     }
 
     // Step 5: Request media from the author's node
