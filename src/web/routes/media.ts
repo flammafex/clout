@@ -164,7 +164,7 @@ export function createMediaRoutes(getClout: () => Clout | undefined, isInitializ
         });
       }
 
-      const requesterKey = getBrowserUserPublicKey(req);
+      const requesterKey = req.headers['x-user-publickey'] as string | undefined;
       const isRequesterAuthor = !!requesterKey
         && requesterKey.toLowerCase() === post.author.toLowerCase();
 
