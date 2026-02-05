@@ -214,16 +214,20 @@ export async function recalculateTrustForPosts(posts) {
   }
 
   const { browserPublicKey, trustedKeys, nicknames, bookmarkSet, myProfile } = trustData;
+  const normalizeKey = (key) => (typeof key === 'string' ? key.toLowerCase() : key);
+  const normalizedBrowserKey = normalizeKey(browserPublicKey);
+  const normalizedTrustedKeys = new Set(Array.from(trustedKeys).map(key => normalizeKey(key)));
 
   posts.forEach(post => {
+    const normalizedAuthor = normalizeKey(post.author);
     // Recalculate isAuthor based on browser identity
-    post.isAuthor = post.author === browserPublicKey;
+    post.isAuthor = normalizedAuthor === normalizedBrowserKey;
 
     // Recalculate isDirectlyTrusted based on browser's trust graph
-    post.isDirectlyTrusted = trustedKeys.has(post.author) && post.author !== browserPublicKey;
+    post.isDirectlyTrusted = normalizedTrustedKeys.has(normalizedAuthor) && normalizedAuthor !== normalizedBrowserKey;
 
     // Recalculate trust distance (reputation.distance)
-    if (post.author === browserPublicKey) {
+    if (normalizedAuthor === normalizedBrowserKey) {
       post.reputation = { ...post.reputation, distance: 0, score: 1.0 };
       // Override avatar and display name with browser user's profile
       if (myProfile?.avatar) {
@@ -232,7 +236,7 @@ export async function recalculateTrustForPosts(posts) {
       if (myProfile?.displayName) {
         post.authorDisplayName = myProfile.displayName;
       }
-    } else if (trustedKeys.has(post.author)) {
+    } else if (normalizedTrustedKeys.has(normalizedAuthor)) {
       post.reputation = { ...post.reputation, distance: 1, score: 0.8 };
     } else {
       post.reputation = { ...post.reputation, distance: 3, score: 0.2 };
@@ -284,6 +288,7 @@ export async function loadFeed(append = false) {
 
     // Get browser identity for trust-based filtering
     let browserPublicKey = null;
+    const normalizeKey = (key) => (typeof key === 'string' ? key.toLowerCase() : key);
     let trustedKeys = new Set();
 
     if (window.CloutIdentity) {
@@ -299,11 +304,14 @@ export async function loadFeed(append = false) {
       try {
         const trustGraph = await window.CloutUserData.getTrustGraph();
         console.log('[Feed] Trust graph from IndexedDB:', trustGraph);
-        trustedKeys = new Set(trustGraph.map(t => t.trustedKey));
-        trustedKeys.add(browserPublicKey);
+        const normalizedBrowserKey = normalizeKey(browserPublicKey);
+        trustedKeys = new Set(trustGraph.map(t => normalizeKey(t.trustedKey)));
+        if (normalizedBrowserKey) {
+          trustedKeys.add(normalizedBrowserKey);
+        }
 
         filteredPosts = filteredPosts.filter(post =>
-          trustedKeys.has(post.author) || post.author === browserPublicKey
+          trustedKeys.has(normalizeKey(post.author)) || normalizeKey(post.author) === normalizeKey(browserPublicKey)
         );
         console.log(`[Feed] Filtered ${data.posts?.length || 0} posts to ${filteredPosts.length} from ${trustedKeys.size} trusted users`);
 
