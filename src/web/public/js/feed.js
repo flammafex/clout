@@ -979,7 +979,10 @@ export function renderPostContent(post) {
       return content.trim() + `<div class="post-media-placeholder"><span class="media-placeholder-icon">&#x1F512;</span><span class="media-placeholder-text">Media available to members</span></div>`;
     }
 
-    const mediaUrl = `${API_BASE}/media/post/${post.id}`;
+    const userKey = window.userPublicKey ? encodeURIComponent(window.userPublicKey) : null;
+    const mediaUrl = userKey
+      ? `${API_BASE}/media/post/${post.id}?userPublicKey=${userKey}`
+      : `${API_BASE}/media/post/${post.id}`;
     const mimeType = post.media.mimeType || '';
 
     let mediaHtml = '';

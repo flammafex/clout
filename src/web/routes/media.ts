@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { Clout } from '../../clout.js';
+import { getBrowserUserPublicKey } from './validation.js';
 
 // Allowed content types for upload (SVG excluded - XSS vector)
 const ALLOWED_CONTENT_TYPES = new Set([
