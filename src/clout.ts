@@ -601,8 +601,12 @@ export class Clout {
     return this.media.resolveMedia(cid);
   }
 
-  async resolvePostMedia(post: PostPackage, fetchFromNetwork = true): Promise<Uint8Array | null> {
-    return this.media.resolvePostMedia(post, fetchFromNetwork);
+  async resolvePostMedia(
+    post: PostPackage,
+    fetchFromNetwork = true,
+    allowSelf = false
+  ): Promise<Uint8Array | null> {
+    return this.media.resolvePostMedia(post, fetchFromNetwork, allowSelf);
   }
 
   getMediaMetadata(cid: string): MediaMetadata | null {

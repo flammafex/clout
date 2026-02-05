@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { Clout } from '../../clout.js';
+import { getBrowserUserPublicKey } from './validation.js';
 
 // Allowed content types for upload (SVG excluded - XSS vector)
 const ALLOWED_CONTENT_TYPES = new Set([
@@ -163,8 +164,12 @@ export function createMediaRoutes(getClout: () => Clout | undefined, isInitializ
         });
       }
 
+      const requesterKey = getBrowserUserPublicKey(req);
+      const isRequesterAuthor = !!requesterKey
+        && requesterKey.toLowerCase() === post.author.toLowerCase();
+
       // Resolve media (will try local first, then P2P if allowed by contentTypeFilters)
-      const data = await clout.resolvePostMedia(post, true);
+      const data = await clout.resolvePostMedia(post, true, isRequesterAuthor);
 
       if (!data) {
         // Media not available - could be beyond hop distance or author offline
@@ -174,9 +179,11 @@ export function createMediaRoutes(getClout: () => Clout | undefined, isInitializ
         return res.status(403).json({
           success: false,
           error: 'Media not available',
-          reason: authorReputation.distance > 1
-            ? `Author is ${authorReputation.distance} hops away. Adjust Media Trust Settings to fetch from further.`
-            : 'Author is offline or media not found'
+          reason: isRequesterAuthor
+            ? 'Media not found or author is offline'
+            : (authorReputation.distance > 1
+              ? `Author is ${authorReputation.distance} hops away. Adjust Media Trust Settings to fetch from further.`
+              : 'Author is offline or media not found')
         });
       }
 
