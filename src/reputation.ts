@@ -44,13 +44,39 @@ export class ReputationValidator {
   private readonly trustSignals = new Map<string, TrustSignal>(); // Observed trust signals
 
   constructor(config: ReputationConfig) {
-    this.selfPublicKey = config.selfPublicKey;
+    this.selfPublicKey = this.normalizeKey(config.selfPublicKey);
     this.trustGraph = config.trustGraph;
     this.witness = config.witness;
     this.maxHops = config.maxHops ?? 3;
     this.minReputation = config.minReputation ?? 0.3;
     this.trustDecayDays = config.trustDecayDays ?? 365; // Default: 1 year half-life
     this.contentTypeFilters = config.contentTypeFilters ?? {};
+
+    this.normalizeTrustGraph();
+  }
+
+  private normalizeKey(publicKey: string): string {
+    return publicKey.toLowerCase();
+  }
+
+  private normalizeTrustGraph(): void {
+    for (const key of Array.from(this.trustGraph)) {
+      const normalized = this.normalizeKey(key);
+      if (normalized !== key) {
+        this.trustGraph.delete(key);
+        this.trustGraph.add(normalized);
+      }
+    }
+  }
+
+  private hasTrustedKey(publicKey: string): boolean {
+    const normalized = this.normalizeKey(publicKey);
+    for (const key of this.trustGraph) {
+      if (this.normalizeKey(key) === normalized) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -140,8 +166,9 @@ export class ReputationValidator {
    * - Path diversity bonus (multiple paths increase trust)
    */
   computeReputation(publicKey: string): ReputationScore {
+    const normalizedKey = this.normalizeKey(publicKey);
     // Self always has distance 0 and perfect score
-    if (publicKey === this.selfPublicKey) {
+    if (normalizedKey === this.selfPublicKey) {
       return {
         distance: 0,
         pathCount: 1,
@@ -151,7 +178,7 @@ export class ReputationValidator {
     }
 
     // Find all paths to this user
-    const paths = this.findTrustPaths(publicKey);
+    const paths = this.findTrustPaths(normalizedKey);
 
     if (paths.length === 0) {
       // Not reachable
@@ -193,6 +220,7 @@ export class ReputationValidator {
    * Returns all paths within maxHops distance.
    */
   private findTrustPaths(targetKey: string, maxDepth = this.maxHops): TrustPath[] {
+    const normalizedTarget = this.normalizeKey(targetKey);
     const paths: TrustPath[] = [];
     const visited = new Set<string>();
 
@@ -203,7 +231,7 @@ export class ReputationValidator {
       const [currentKey, path, depth] = queue.shift()!;
 
       // Found target
-      if (currentKey === targetKey) {
+      if (currentKey === normalizedTarget) {
         paths.push({
           hops: path,
           weight: this.calculatePathWeight(path)
@@ -240,13 +268,15 @@ export class ReputationValidator {
       return Array.from(this.trustGraph);
     }
 
+    const normalizedKey = this.normalizeKey(publicKey);
+
     // In production, we'd query the trust signals to build the full graph
     // For now, we only have direct follows from local trust graph
     const neighbors: string[] = [];
 
     for (const [key, signal] of this.trustSignals.entries()) {
       const [truster, trustee] = key.split(':');
-      if (truster === publicKey && !signal.revoked) {
+      if (truster === normalizedKey && !signal.revoked) {
         neighbors.push(trustee);
       }
     }
@@ -348,7 +378,7 @@ export class ReputationValidator {
   updateTrustGraph(newTrustGraph: Set<string>): void {
     this.trustGraph.clear();
     for (const key of newTrustGraph) {
-      this.trustGraph.add(key);
+      this.trustGraph.add(this.normalizeKey(key));
     }
   }
 
@@ -358,12 +388,17 @@ export class ReputationValidator {
    * This allows us to compute 2+ hop distances.
    */
   addTrustSignal(signal: TrustSignal): void {
-    const key = `${signal.truster}:${signal.trustee}`;
+    const normalizedSignal = {
+      ...signal,
+      truster: this.normalizeKey(signal.truster),
+      trustee: this.normalizeKey(signal.trustee)
+    };
+    const key = `${normalizedSignal.truster}:${normalizedSignal.trustee}`;
 
-    if (signal.revoked) {
+    if (normalizedSignal.revoked) {
       this.trustSignals.delete(key);
     } else {
-      this.trustSignals.set(key, signal);
+      this.trustSignals.set(key, normalizedSignal);
     }
   }
 
@@ -381,7 +416,7 @@ export class ReputationValidator {
    * Useful for quick filtering.
    */
   fastValidate(post: PostPackage): boolean {
-    return this.trustGraph.has(post.author);
+    return this.hasTrustedKey(post.author);
   }
 
   /**
@@ -411,7 +446,7 @@ export class ReputationValidator {
     // Add 2-hop connections
     for (const [signalKey] of this.trustSignals.entries()) {
       const [truster, trustee] = signalKey.split(':');
-      if (this.trustGraph.has(truster)) {
+      if (this.hasTrustedKey(truster)) {
         visible.push(trustee);
       }
     }
@@ -439,7 +474,7 @@ export class ReputationValidator {
    * Useful for displaying "Via Alice → Bob" in the UI.
    */
   getTrustPath(publicKey: string): { path: string[]; distance: number } | null {
-    const paths = this.findTrustPaths(publicKey);
+    const paths = this.findTrustPaths(this.normalizeKey(publicKey));
 
     if (paths.length === 0) {
       return null;
@@ -462,7 +497,7 @@ export class ReputationValidator {
    * Check if a user is directly trusted (1 hop)
    */
   isDirectlyTrusted(publicKey: string): boolean {
-    return this.trustGraph.has(publicKey);
+    return this.hasTrustedKey(publicKey);
   }
 
   /**
