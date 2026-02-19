@@ -10,6 +10,7 @@
 
 import { CloutPost, type PostConfig, type ContentGossip } from '../post.js';
 import { Crypto } from '../crypto.js';
+import { buildPostSignatureMessage } from '../post-canonical.js';
 import { StorageManager, type MediaMetadata } from '../storage/wnfs-manager.js';
 import type { CloutStateManager } from '../chronicle/clout-state.js';
 import type { CloutTicket } from '../ticket-booth.js';
@@ -149,22 +150,29 @@ export class CloutContent {
     // 3. Derive ephemeral key for forward secrecy (optional)
     let ephemeralPublicKey: Uint8Array | undefined;
     let ephemeralKeyProof: Uint8Array | undefined;
-    let signingKey = this.privateKey;
 
     if (useEphemeralKey) {
       // Derive ephemeral key from master key (rotates daily)
-      const { ephemeralSecret, ephemeralPublic } = Crypto.deriveEphemeralKey(this.privateKey);
+      const { ephemeralPublic } = Crypto.deriveEphemeralKey(this.privateKey);
       ephemeralPublicKey = ephemeralPublic;
 
       // Create proof linking ephemeral key to master key
       ephemeralKeyProof = Crypto.createEphemeralKeyProof(ephemeralPublic, this.privateKey);
 
-      // Sign with ephemeral key instead of master key
-      signingKey = ephemeralSecret;
     }
 
-    // 4. Sign Content (Placeholder using Hash + Key for MVP)
-    const signature = Crypto.hash(finalContent, signingKey);
+    // 4. Sign canonical post payload with author's master key
+    const signatureTimestamp = Date.now();
+    const signatureMessage = buildPostSignatureMessage({
+      content: finalContent,
+      author: this.publicKeyHex,
+      timestamp: signatureTimestamp,
+      replyTo,
+      mediaCid: mediaMetadata?.cid,
+      nsfw,
+      contentWarning
+    });
+    const signature = Crypto.sign(new TextEncoder().encode(signatureMessage), this.privateKey);
 
     // Get author's profile for embedding in post
     const profile = this.getProfile();
@@ -173,6 +181,7 @@ export class CloutContent {
       author: this.publicKeyHex,
       content: finalContent,
       signature,
+      signatureTimestamp,
       freebird: this.freebird,
       witness: this.witness,
       replyTo,
@@ -343,22 +352,30 @@ export class CloutContent {
     // Derive ephemeral key for forward secrecy
     let ephemeralPublicKey: Uint8Array | undefined;
     let ephemeralKeyProof: Uint8Array | undefined;
-    let signingKey = this.privateKey;
 
     if (useEphemeralKey) {
-      const { ephemeralSecret, ephemeralPublic } = Crypto.deriveEphemeralKey(this.privateKey);
+      const { ephemeralPublic } = Crypto.deriveEphemeralKey(this.privateKey);
       ephemeralPublicKey = ephemeralPublic;
       ephemeralKeyProof = Crypto.createEphemeralKeyProof(ephemeralPublic, this.privateKey);
-      signingKey = ephemeralSecret;
     }
 
-    // Sign content
-    const signature = Crypto.hash(finalContent, signingKey);
+    const signatureTimestamp = Date.now();
+    const signatureMessage = buildPostSignatureMessage({
+      content: finalContent,
+      author: this.publicKeyHex,
+      timestamp: signatureTimestamp,
+      replyTo,
+      mediaCid: mediaMetadata?.cid,
+      nsfw,
+      contentWarning
+    });
+    const signature = Crypto.sign(new TextEncoder().encode(signatureMessage), this.privateKey);
 
     const config: PostConfig = {
       author: this.publicKeyHex,
       content: finalContent,
       signature,
+      signatureTimestamp,
       freebird: this.freebird,
       witness: this.witness,
       replyTo,

@@ -6,7 +6,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { randomBytes, timingSafeEqual, createHash } from 'crypto';
 
 /**
  * Session token store
@@ -195,7 +195,6 @@ export class AuthManager {
    * Hash a token using simple hash (not for password storage, just for lookup)
    */
   private hashToken(token: string): Uint8Array {
-    const { createHash } = require('crypto');
     return createHash('sha256').update(token).digest();
   }
 

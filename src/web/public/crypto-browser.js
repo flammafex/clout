@@ -388,6 +388,22 @@ export class Crypto {
   // =================================================================
 
   /**
+   * Build canonical payload for post signature binding
+   */
+  static buildPostSignaturePayload(post) {
+    return {
+      content: post.content,
+      author: post.author,
+      timestamp: post.timestamp,
+      replyTo: post.replyTo ?? null,
+      mediaCid: post.mediaCid ?? null,
+      link: post.link ?? null,
+      nsfw: post.nsfw === true,
+      contentWarning: post.contentWarning ?? null
+    };
+  }
+
+  /**
    * Sign a post for submission to the server
    *
    * @param content - Post content
@@ -401,11 +417,23 @@ export class Crypto {
     const timestamp = Date.now();
 
     // Create content hash as post ID
-    const id = this.hashString(content + authorPublicKeyHex + timestamp);
+    const id = this.hashString(content);
 
-    // Sign the content
-    const contentBytes = new TextEncoder().encode(content);
-    const signature = this.sign(contentBytes, authorPrivateKey);
+    const unsignedPost = {
+      id,
+      content,
+      author: authorPublicKeyHex,
+      timestamp,
+      replyTo: options.replyTo,
+      mediaCid: options.mediaCid,
+      link: options.link,
+      nsfw: options.nsfw,
+      contentWarning: options.contentWarning
+    };
+    const signaturePayload = this.buildPostSignaturePayload(unsignedPost);
+    const signatureMessage = `CLOUT_POST_V2:${this.hashObject(signaturePayload)}`;
+    const signatureBytes = new TextEncoder().encode(signatureMessage);
+    const signature = this.sign(signatureBytes, authorPrivateKey);
 
     // Derive ephemeral key for forward secrecy
     const { ephemeralSecret, ephemeralPublic } = this.deriveEphemeralKey(authorPrivateKey);
@@ -426,9 +454,23 @@ export class Crypto {
   /**
    * Verify a post's signature
    */
-  static verifyPostSignature(content, signature, authorPublicKey) {
+  static verifyPostSignature(content, signature, authorPublicKey, options = {}) {
     try {
-      const contentBytes = new TextEncoder().encode(content);
+      if (typeof options.timestamp !== 'number') {
+        return false;
+      }
+      const signaturePayload = this.buildPostSignaturePayload({
+        content,
+        author: typeof authorPublicKey === 'string' ? authorPublicKey : this.toHex(authorPublicKey),
+        timestamp: options.timestamp,
+        replyTo: options.replyTo,
+        mediaCid: options.mediaCid,
+        link: options.link,
+        nsfw: options.nsfw,
+        contentWarning: options.contentWarning
+      });
+      const signatureMessage = `CLOUT_POST_V2:${this.hashObject(signaturePayload)}`;
+      const contentBytes = new TextEncoder().encode(signatureMessage);
       const sigBytes = typeof signature === 'string' ? this.fromHex(signature) : signature;
       const pubBytes = typeof authorPublicKey === 'string' ? this.fromHex(authorPublicKey) : authorPublicKey;
       return this.verify(contentBytes, sigBytes, pubBytes);

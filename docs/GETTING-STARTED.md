@@ -613,6 +613,13 @@ const clout = new Clout({
 });
 ```
 
+**Plaintext trust signal format (canonical):**
+- Payload hash: `hashObject({ truster, trustee, weight, timestamp, revoked? })`
+- Witness proof: `proof.hash` MUST equal that payload hash
+- Signature: Ed25519 over `CLOUT_TRUST_SIGNAL_V1:{payloadHash}`
+
+If you generate plaintext trust signals in custom integrations, use this exact format.
+
 **Cryptographic construction:**
 - Commitment: `H(trustee || nonce)` - prevents duplicate detection attacks
 - Encryption: X25519 ECDH + XChaCha20-Poly1305 AEAD

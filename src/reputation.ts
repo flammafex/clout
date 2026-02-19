@@ -11,6 +11,7 @@
 
 import type { WitnessClient } from './types.js';
 import type { PostPackage, ReputationScore, TrustSignal } from './clout-types.js';
+import { findTrustPaths, type TrustPath } from './trust/path-math.js';
 
 export interface ReputationConfig {
   readonly selfPublicKey: string; // User's own public key (for distance 0)
@@ -20,11 +21,6 @@ export interface ReputationConfig {
   readonly minReputation?: number; // Minimum reputation score (0-1, default: 0.3)
   readonly trustDecayDays?: number; // Days until trust weight decays to 50% (default: 365, 0 = no decay)
   readonly contentTypeFilters?: Record<string, { maxHops: number; minReputation: number }>; // Per-content-type filters
-}
-
-interface TrustPath {
-  readonly hops: string[]; // Chain of public keys
-  readonly weight: number; // Accumulated trust weight
 }
 
 /**
@@ -188,48 +184,17 @@ export class ReputationValidator {
   }
 
   /**
-   * Find all trust paths to a user (BFS)
+   * Find all trust paths to a user using shared trust path traversal logic.
    *
    * Returns all paths within maxHops distance.
    */
   private findTrustPaths(targetKey: string, maxDepth = this.maxHops): TrustPath[] {
-    const paths: TrustPath[] = [];
-    const visited = new Set<string>();
-
-    // BFS queue: [currentKey, path, depth]
-    const queue: Array<[string, string[], number]> = [['self', [], 0]];
-
-    while (queue.length > 0) {
-      const [currentKey, path, depth] = queue.shift()!;
-
-      // Found target
-      if (currentKey === targetKey) {
-        paths.push({
-          hops: path,
-          weight: this.calculatePathWeight(path)
-        });
-        continue;
-      }
-
-      // Max depth reached
-      if (depth >= maxDepth) {
-        continue;
-      }
-
-      // Avoid cycles
-      if (visited.has(currentKey)) {
-        continue;
-      }
-      visited.add(currentKey);
-
-      // Explore neighbors
-      const neighbors = this.getTrustedNeighbors(currentKey);
-      for (const neighbor of neighbors) {
-        queue.push([neighbor, [...path, neighbor], depth + 1]);
-      }
-    }
-
-    return paths;
+    return findTrustPaths({
+      targetKey,
+      maxDepth,
+      getNeighbors: (node) => this.getTrustedNeighbors(node),
+      calculatePathWeight: (path) => this.calculatePathWeight(path)
+    });
   }
 
   /**
@@ -240,8 +205,7 @@ export class ReputationValidator {
       return Array.from(this.trustGraph);
     }
 
-    // In production, we'd query the trust signals to build the full graph
-    // For now, we only have direct follows from local trust graph
+    // Build neighbors from observed trust signals for non-self nodes.
     const neighbors: string[] = [];
 
     for (const [key, signal] of this.trustSignals.entries()) {
@@ -313,7 +277,8 @@ export class ReputationValidator {
     let oldestTimestamp: number | null = null;
 
     for (const currentKey of path) {
-      const signalKey = `${previousKey}:${currentKey}`;
+      const trusterKey = previousKey === 'self' ? this.selfPublicKey : previousKey;
+      const signalKey = `${trusterKey}:${currentKey}`;
       const signal = this.trustSignals.get(signalKey);
 
       if (signal) {

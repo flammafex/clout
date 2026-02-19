@@ -23,6 +23,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { Clout } from '../../clout.js';
 import { Crypto } from '../../crypto.js';
+import { buildPostSignatureMessage } from '../../post-canonical.js';
 import { validatePublicKey, validateSignature, getErrorMessage } from './validation.js';
 
 export interface SubmitRoutesConfig {
@@ -32,10 +33,16 @@ export interface SubmitRoutesConfig {
   getUserTicket?: (publicKey: string) => Promise<any>;
   /** Store Day Pass ticket for a user */
   setUserTicket?: (publicKey: string, ticket: any) => Promise<void>;
+  /** Clear Day Pass ticket for rollback safety */
+  clearUserTicket?: (publicKey: string) => Promise<void>;
   /** Check if user is registered with Freebird (can renew Day Pass without invitation) */
   isUserRegistered?: (publicKey: string) => Promise<boolean>;
+  /** Mark user as registered with Freebird after successful invitation-backed mint */
+  setUserRegistered?: (publicKey: string, registered: boolean) => Promise<void>;
   /** Get instance owner public key (gets 7-day passes) */
   getOwnerPublicKey?: () => string | undefined;
+  /** Mark invitation code as consumed after successful Day Pass mint */
+  consumeInvitationCode?: (code: string, publicKey: string) => Promise<boolean>;
 }
 
 // In-memory storage for browser-encrypted slides
@@ -51,9 +58,49 @@ interface EncryptedSlide {
 }
 
 const slideStore: Map<string, EncryptedSlide[]> = new Map();
+const usedPostSignatures: Map<string, number> = new Map();
+const usedMutationSignatures: Map<string, number> = new Map();
+const usedMintTokenHashes: Map<string, { publicKey: string; usedAt: number }> = new Map();
+const POST_SIGNATURE_WINDOW_MS = 5 * 60 * 1000;
+const POST_SIGNATURE_REPLAY_TTL_MS = 10 * 60 * 1000;
+const DAYPASS_TOKEN_REPLAY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function cleanupExpiredPostSignatures(now: number): void {
+  for (const [sig, expiresAt] of usedPostSignatures.entries()) {
+    if (expiresAt <= now) {
+      usedPostSignatures.delete(sig);
+    }
+  }
+}
+
+function cleanupExpiredMutationSignatures(now: number): void {
+  for (const [sig, expiresAt] of usedMutationSignatures.entries()) {
+    if (expiresAt <= now) {
+      usedMutationSignatures.delete(sig);
+    }
+  }
+}
+
+function cleanupExpiredMintTokens(now: number): void {
+  for (const [tokenHash, record] of usedMintTokenHashes.entries()) {
+    if (now - record.usedAt > DAYPASS_TOKEN_REPLAY_TTL_MS) {
+      usedMintTokenHashes.delete(tokenHash);
+    }
+  }
+}
 
 export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
-  const { getClout, isInitialized, getUserTicket, setUserTicket, isUserRegistered, getOwnerPublicKey } = config;
+  const {
+    getClout,
+    isInitialized,
+    getUserTicket,
+    setUserTicket,
+    clearUserTicket,
+    isUserRegistered,
+    setUserRegistered,
+    getOwnerPublicKey,
+    consumeInvitationCode
+  } = config;
   const router = Router();
 
   /**
@@ -81,9 +128,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         nsfw,
         contentWarning,
         ephemeralPublicKey,
-        ephemeralKeyProof,
-        authorDisplayName,
-        authorAvatar
+        ephemeralKeyProof
       } = req.body;
 
       // Validate required fields
@@ -96,15 +141,45 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
 
       const authorKey = validatePublicKey(author, 'author');
       const signatureBytes = validateSignature(signature);
+      const signatureKey = Crypto.toHex(signatureBytes);
 
-      // Verify the content signature
-      const contentBytes = new TextEncoder().encode(content);
-      const authorKeyBytes = Crypto.fromHex(authorKey);
+      if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
+        throw new Error('timestamp is required and must be a number');
+      }
 
-      if (!Crypto.verify(contentBytes, signatureBytes, authorKeyBytes)) {
+      const now = Date.now();
+      if (Math.abs(now - timestamp) > POST_SIGNATURE_WINDOW_MS) {
         return res.status(401).json({
           success: false,
-          error: 'Invalid signature - content was not signed by the claimed author'
+          error: 'Post signature timestamp is outside the allowed window'
+        });
+      }
+
+      cleanupExpiredPostSignatures(now);
+      if (usedPostSignatures.has(signatureKey)) {
+        return res.status(409).json({
+          success: false,
+          error: 'Duplicate signed post submission detected'
+        });
+      }
+
+      const signatureMessage = buildPostSignatureMessage({
+        content,
+        author: authorKey,
+        timestamp,
+        replyTo,
+        mediaCid,
+        link,
+        nsfw,
+        contentWarning
+      });
+      const messageBytes = new TextEncoder().encode(signatureMessage);
+      const authorKeyBytes = Crypto.fromHex(authorKey);
+
+      if (!Crypto.verify(messageBytes, signatureBytes, authorKeyBytes)) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid signature - post payload was not signed by the claimed author'
         });
       }
 
@@ -137,7 +212,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       }
 
       // Create post ID from content hash
-      const id = Crypto.hashString(content + authorKey + (timestamp || Date.now()));
+      const id = Crypto.hashString(content);
 
       // Validate media/link mutual exclusivity
       if (mediaCid && link) {
@@ -153,6 +228,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         content,
         author: authorKey,
         signature: signatureBytes,
+        signatureTimestamp: timestamp,
         ephemeralPublicKey: ephemeralPublicKey ? Crypto.fromHex(ephemeralPublicKey) : undefined,
         ephemeralKeyProof: ephemeralKeyProof ? Crypto.fromHex(ephemeralKeyProof) : undefined,
         replyTo,
@@ -161,9 +237,6 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         media: mediaCid ? { cid: mediaCid } : undefined,
         // OpenGraph link preview (mutually exclusive with media)
         link: link || undefined,
-        // Include author's chosen display name and avatar (from browser profile)
-        authorDisplayName: authorDisplayName || undefined,
-        authorAvatar: authorAvatar || undefined,
         // Include Day Pass as authorship proof
         authorshipProof: ticket.proof
       };
@@ -171,6 +244,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       // Get witness proof and broadcast via gossip
       // The clout instance handles this as a relay
       const proof = await clout.relayPost(postPackage);
+      usedPostSignatures.set(signatureKey, now + POST_SIGNATURE_REPLAY_TTL_MS);
 
       res.json({
         success: true,
@@ -326,9 +400,15 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       }
 
       const clout = getClout()!;
-      const { publicKey, token } = req.body;
+      const { publicKey, token, invitationCode } = req.body;
 
       const userKey = validatePublicKey(publicKey);
+      const now = Date.now();
+      const ownerKey = getOwnerPublicKey?.();
+      const isOwner = !!ownerKey && userKey.toLowerCase() === ownerKey.toLowerCase();
+      const registered = isUserRegistered ? await isUserRegistered(userKey) : false;
+      const requiresInvitation = !registered && !isOwner;
+      let invitationToConsume: string | undefined;
 
       if (!token || typeof token !== 'string') {
         throw new Error('token is required (base64/base64url encoded Freebird token)');
@@ -336,8 +416,29 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
 
       // Decode the token from base64 or base64url
       // Base64url uses -_ instead of +/ and no padding
-      const normalizedToken = token.replace(/-/g, '+').replace(/_/g, '/');
-      const tokenBytes = Uint8Array.from(atob(normalizedToken), c => c.charCodeAt(0));
+      let tokenBytes: Uint8Array;
+      try {
+        const normalizedToken = token.replace(/-/g, '+').replace(/_/g, '/');
+        tokenBytes = Uint8Array.from(atob(normalizedToken), c => c.charCodeAt(0));
+      } catch {
+        return res.status(400).json({
+          success: false,
+          error: 'token is not valid base64/base64url'
+        });
+      }
+
+      // One-time token replay protection to prevent cross-identity mint replay.
+      const tokenHash = Crypto.hashObject({ tokenHex: Crypto.toHex(tokenBytes) });
+      cleanupExpiredMintTokens(now);
+      const previousUse = usedMintTokenHashes.get(tokenHash);
+      if (previousUse) {
+        return res.status(409).json({
+          success: false,
+          error: previousUse.publicKey === userKey
+            ? 'This Freebird token has already been used to mint a Day Pass'
+            : 'This Freebird token was already used by another identity'
+        });
+      }
 
       // Verify the token with Freebird
       const isValid = await clout.verifyFreebirdToken(tokenBytes);
@@ -348,11 +449,24 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         });
       }
 
+      if (requiresInvitation) {
+        if (typeof invitationCode !== 'string' || invitationCode.trim().length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invitation code is required for unregistered users'
+          });
+        }
+        if (!consumeInvitationCode) {
+          throw new Error('Invitation consumption callback is not configured');
+        }
+        invitationToConsume = invitationCode.trim();
+        if (setUserTicket && !clearUserTicket) {
+          throw new Error('Ticket rollback callback is not configured');
+        }
+      }
+
       // Mint Day Pass for this user
       // Instance owners get 7-day passes, new users get 24-hour passes
-      const now = Date.now();
-      const ownerKey = getOwnerPublicKey?.();
-      const isOwner = ownerKey && userKey.toLowerCase() === ownerKey.toLowerCase();
       const durationHours = isOwner ? 168 : 24; // 7 days for owner, 1 day for others
       const expiry = now + (durationHours * 60 * 60 * 1000);
 
@@ -381,6 +495,28 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       // Store the ticket for this user
       if (setUserTicket) {
         await setUserTicket(userKey, ticketWithProof);
+      }
+
+      // Finalize invitation redemption only after ticket persistence succeeds.
+      if (invitationToConsume) {
+        const consumed = await consumeInvitationCode!(invitationToConsume, userKey);
+        if (!consumed) {
+          // Roll back persisted ticket so a failed invitation finalize never grants posting rights.
+          if (setUserTicket && clearUserTicket) {
+            await clearUserTicket(userKey);
+          }
+          return res.status(400).json({
+            success: false,
+            error: 'Invitation code is invalid, already used, or reserved by another user'
+          });
+        }
+      }
+
+      usedMintTokenHashes.set(tokenHash, { publicKey: userKey, usedAt: now });
+
+      // Mark newly onboarded invitation users as registered only after successful mint.
+      if (requiresInvitation && setUserRegistered) {
+        await setUserRegistered(userKey, true);
       }
 
       res.json({
@@ -589,8 +725,28 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
 
       const authorKey = validatePublicKey(author, 'author');
       const signatureBytes = validateSignature(signature);
-      const retractionTimestamp = timestamp || Date.now();
+      const signatureKey = Crypto.toHex(signatureBytes);
+      if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
+        throw new Error('timestamp is required and must be a number');
+      }
+      const retractionTimestamp = timestamp;
       const retractionReason = reason || 'retracted';
+      const now = Date.now();
+
+      if (Math.abs(now - retractionTimestamp) > POST_SIGNATURE_WINDOW_MS) {
+        return res.status(401).json({
+          success: false,
+          error: 'Retraction signature timestamp is outside the allowed window'
+        });
+      }
+
+      cleanupExpiredMutationSignatures(now);
+      if (usedMutationSignatures.has(`retract:${signatureKey}`)) {
+        return res.status(409).json({
+          success: false,
+          error: 'Duplicate signed retraction submission detected'
+        });
+      }
 
       // Verify the retraction signature
       // The browser signs: "retract:{postId}:{author}:{timestamp}"
@@ -647,6 +803,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       if ('addDeletion' in store) {
         await (store as any).addDeletion(retraction);
       }
+      usedMutationSignatures.set(`retract:${signatureKey}`, now + POST_SIGNATURE_REPLAY_TTL_MS);
 
       console.log(`[Retract] Post ${postId.slice(0, 12)}... retracted by ${authorKey.slice(0, 12)}...`);
 
@@ -701,18 +858,25 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
 
       const authorKey = validatePublicKey(author, 'author');
       const signatureBytes = validateSignature(signature);
-      const editTimestamp = timestamp || Date.now();
+      const signatureKey = Crypto.toHex(signatureBytes);
+      if (typeof timestamp !== 'number' || !Number.isFinite(timestamp)) {
+        throw new Error('timestamp is required and must be a number');
+      }
+      const editTimestamp = timestamp;
+      const now = Date.now();
 
-      // Verify the edit signature
-      // The browser signs: "edit:{originalPostId}:{content}:{author}:{timestamp}"
-      const signaturePayload = `edit:${originalPostId}:${content}:${authorKey}:${editTimestamp}`;
-      const authorKeyBytes = Crypto.fromHex(authorKey);
-      const payloadBytes = new TextEncoder().encode(signaturePayload);
-
-      if (!Crypto.verify(payloadBytes, signatureBytes, authorKeyBytes)) {
+      if (Math.abs(now - editTimestamp) > POST_SIGNATURE_WINDOW_MS) {
         return res.status(401).json({
           success: false,
-          error: 'Invalid signature - edit was not signed by the claimed author'
+          error: 'Edit signature timestamp is outside the allowed window'
+        });
+      }
+
+      cleanupExpiredMutationSignatures(now);
+      if (usedMutationSignatures.has(`edit:${signatureKey}`)) {
+        return res.status(409).json({
+          success: false,
+          error: 'Duplicate signed edit submission detected'
         });
       }
 
@@ -739,6 +903,31 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         });
       }
 
+      const finalNsfw = nsfw ?? originalPost.nsfw;
+      const finalContentWarning = contentWarning ?? originalPost.contentWarning;
+
+      // Verify the canonical post signature for the edited content.
+      // This binds signature to the exact payload we will relay.
+      const signatureMessage = buildPostSignatureMessage({
+        content,
+        author: authorKey,
+        timestamp: editTimestamp,
+        replyTo: originalPost.replyTo,
+        mediaCid: undefined,
+        link: undefined,
+        nsfw: finalNsfw,
+        contentWarning: finalContentWarning
+      });
+      const authorKeyBytes = Crypto.fromHex(authorKey);
+      const payloadBytes = new TextEncoder().encode(signatureMessage);
+
+      if (!Crypto.verify(payloadBytes, signatureBytes, authorKeyBytes)) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid signature - edit was not signed by the claimed author'
+        });
+      }
+
       // Check for valid Day Pass
       let ticket = null;
       if (getUserTicket) {
@@ -754,12 +943,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       }
 
       // Create new post ID
-      const newPostId = Crypto.hashString(content + authorKey + editTimestamp);
-
-      // Sign the new content
-      const contentBytes = new TextEncoder().encode(content);
-      // Note: We use the signature provided by the browser for the edit request
-      // The new post's content signature is derived from the edit signature
+      const newPostId = Crypto.hashString(content);
 
       // Build new post package
       const newPostPackage = {
@@ -767,10 +951,11 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         content,
         author: authorKey,
         signature: signatureBytes,
+        signatureTimestamp: editTimestamp,
         replyTo: originalPost.replyTo,
         editOf: originalPostId,
-        nsfw: nsfw ?? originalPost.nsfw,
-        contentWarning: contentWarning ?? originalPost.contentWarning,
+        nsfw: finalNsfw,
+        contentWarning: finalContentWarning,
         authorshipProof: ticket.proof
       };
 
@@ -795,6 +980,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
       if ('addDeletion' in store) {
         await (store as any).addDeletion(retraction);
       }
+      usedMutationSignatures.set(`edit:${signatureKey}`, now + POST_SIGNATURE_REPLAY_TTL_MS);
 
       console.log(`[Edit] Post ${originalPostId.slice(0, 12)}... edited by ${authorKey.slice(0, 12)}... -> ${newPostId.slice(0, 12)}...`);
 

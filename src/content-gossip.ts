@@ -11,6 +11,8 @@
  */
 
 import { Crypto } from './crypto.js';
+import { buildPostSignatureMessage, hashPostAttestationPayload } from './post-canonical.js';
+import { buildCanonicalPlaintextTrust, getPlaintextTrustTimestamp, verifyCanonicalPlaintextTrustSignal } from './trust/plaintext-signal.js';
 import { GossipMessageSigner } from './gossip/message-signer.js';
 import { PeerRateLimiter } from './gossip/rate-limiter.js';
 import { TrustGraphCache } from './gossip/trust-graph-cache.js';
@@ -164,6 +166,7 @@ export class ContentGossip {
   private readonly seenTrustSignals = new Map<string, TrustRecord>();
   private readonly seenEncryptedTrustSignals = new Map<string, EncryptedTrustRecord>();
   private readonly seenSlides = new Map<string, SlideRecord>();
+  private readonly latestDecryptedEncryptedTrustEdgeTimestamps = new Map<string, number>();
   private readonly peerStates = new Map<string, PeerStateRecord>();
   private readonly peerConnections: PeerConnection[] = [];
   private readonly witness: WitnessClient;
@@ -258,8 +261,10 @@ export class ContentGossip {
       }
     } else if (message.type === 'trust' && message.trustSignal) {
       const key = `${message.trustSignal.truster}:${message.trustSignal.trustee}`;
+      const incomingTimestamp = getPlaintextTrustTimestamp(message.trustSignal);
+      const existing = this.seenTrustSignals.get(key);
 
-      if (this.seenTrustSignals.has(key)) {
+      if (existing && getPlaintextTrustTimestamp(existing.signal) >= incomingTimestamp) {
         console.log(`[ContentGossip] Trust signal ${key} already published`);
         return;
       }
@@ -268,6 +273,7 @@ export class ContentGossip {
         signal: message.trustSignal,
         firstSeen: Date.now()
       });
+      this.rebuildTrustGraphCacheFromSeenSignals();
 
       await this.broadcast(message);
 
@@ -316,6 +322,27 @@ export class ContentGossip {
         await this.receiveHandler(message);
       }
     }
+  }
+
+  private rebuildTrustGraphCacheFromSeenSignals(): void {
+    const activeSignals = new Map<string, { truster: string; trustee: string }>();
+    for (const [key, record] of this.seenTrustSignals.entries()) {
+      const canonical = buildCanonicalPlaintextTrust({
+        truster: record.signal.truster,
+        trustee: record.signal.trustee,
+        timestamp: getPlaintextTrustTimestamp(record.signal),
+        weight: record.signal.weight,
+        revoked: record.signal.revoked
+      });
+      if (!canonical || canonical.isRevocation) {
+        continue;
+      }
+      activeSignals.set(key, {
+        truster: record.signal.truster,
+        trustee: record.signal.trustee
+      });
+    }
+    this.trustGraphCache.rebuildFromSignals(activeSignals);
   }
 
   /**
@@ -405,6 +432,14 @@ export class ContentGossip {
       return;
     }
 
+    // LAYER 3.5: WITNESS PROOF BINDING
+    // Ensure the timestamp proof is bound to the exact canonical post payload.
+    const expectedProofHash = hashPostAttestationPayload(post);
+    if (post.proof.hash !== expectedProofHash) {
+      console.warn('[ContentGossip] Post proof hash mismatch, ignoring');
+      return;
+    }
+
     // LAYER 4: CONTENT HASH VERIFICATION
     const contentHash = Crypto.hashString(post.content);
     if (contentHash !== post.id) {
@@ -412,7 +447,39 @@ export class ContentGossip {
       return;
     }
 
-    // LAYER 5: OPTIONAL AUTHORSHIP PROOF
+    // LAYER 5: AUTHOR SIGNATURE VERIFICATION
+    let signatureValid = false;
+    try {
+      const authorKeyBytes = Crypto.fromHex(post.author);
+
+      if (typeof post.signatureTimestamp === 'number') {
+        const signatureMessage = buildPostSignatureMessage({
+          content: post.content,
+          author: post.author,
+          timestamp: post.signatureTimestamp,
+          replyTo: post.replyTo,
+          mediaCid: post.media?.cid,
+          link: post.link,
+          nsfw: post.nsfw,
+          contentWarning: post.contentWarning
+        });
+        const signatureBytes = new TextEncoder().encode(signatureMessage);
+        signatureValid = Crypto.verify(signatureBytes, post.signature, authorKeyBytes);
+      } else {
+        // Legacy fallback for older posts that signed raw content only.
+        const legacyBytes = new TextEncoder().encode(post.content);
+        signatureValid = Crypto.verify(legacyBytes, post.signature, authorKeyBytes);
+      }
+    } catch {
+      signatureValid = false;
+    }
+
+    if (!signatureValid) {
+      console.warn('[ContentGossip] Invalid post signature, ignoring');
+      return;
+    }
+
+    // LAYER 6: OPTIONAL AUTHORSHIP PROOF
     if (post.authorshipProof) {
       const authorshipValid = await this.freebird.verifyToken(post.authorshipProof);
       if (!authorshipValid) {
@@ -447,8 +514,10 @@ export class ContentGossip {
    */
   private async handleTrustMessage(signal: TrustSignal, peerId?: string): Promise<void> {
     const key = `${signal.truster}:${signal.trustee}`;
+    const incomingTimestamp = getPlaintextTrustTimestamp(signal);
+    const existing = this.seenTrustSignals.get(key);
 
-    if (this.seenTrustSignals.has(key)) {
+    if (existing && getPlaintextTrustTimestamp(existing.signal) >= incomingTimestamp) {
       return;
     }
 
@@ -459,14 +528,19 @@ export class ContentGossip {
       return;
     }
 
+    if (!verifyCanonicalPlaintextTrustSignal(signal)) {
+      console.warn('[ContentGossip] Invalid plaintext trust signal signature/hash');
+      return;
+    }
+
     // Add to trust signals
     this.seenTrustSignals.set(key, {
       signal,
       firstSeen: Date.now()
     });
 
-    // OPTIMIZATION: Incrementally update adjacency list and hop distance cache
-    this.trustGraphCache.updateCaches(signal.truster, signal.trustee);
+    // Rebuild from latest active trust edges to handle updates and revocations safely.
+    this.rebuildTrustGraphCacheFromSeenSignals();
 
     // Propagate
     await this.broadcast({ type: 'trust', trustSignal: signal, timestamp: Date.now() }, true);
@@ -522,6 +596,11 @@ export class ContentGossip {
       return;
     }
 
+    if (signal.proof.hash !== signal.trusteeCommitment) {
+      console.warn('[ContentGossip] Encrypted trust proof hash mismatch');
+      return;
+    }
+
     // Verify truster's signature (anyone can do this)
     const signatureValid = Crypto.verifyEncryptedTrustSignature(
       signal.trusteeCommitment,
@@ -553,10 +632,26 @@ export class ContentGossip {
       if (decrypted && decrypted.trustee === this.ourPublicKey) {
         // We are the trustee! Someone trusts us.
         decryptedTrustee = decrypted.trustee;
-        console.log(`[ContentGossip] 🔐 Decrypted trust signal: ${signal.truster.slice(0, 8)} trusts us!`);
+        const edgeKey = `${signal.truster}:${decryptedTrustee}`;
+        const signalTimestamp = signal.proof.timestamp;
+        const latestTimestamp = this.latestDecryptedEncryptedTrustEdgeTimestamps.get(edgeKey);
 
-        // Update our trust graph caches
-        this.trustGraphCache.updateCaches(signal.truster, decryptedTrustee);
+        if (latestTimestamp !== undefined && latestTimestamp >= signalTimestamp) {
+          console.log(
+            `[ContentGossip] Ignoring stale encrypted trust update for ${signal.truster.slice(0, 8)} ` +
+            `(ts=${signalTimestamp}, latest=${latestTimestamp})`
+          );
+        } else {
+          const isRevocation = signal.revoked === true || (signal.weight ?? 1.0) === 0;
+          if (isRevocation) {
+            console.log(`[ContentGossip] 🔐 Decrypted revocation from ${signal.truster.slice(0, 8)}`);
+            this.trustGraphCache.removeEdge(signal.truster, decryptedTrustee);
+          } else {
+            console.log(`[ContentGossip] 🔐 Decrypted trust signal: ${signal.truster.slice(0, 8)} trusts us!`);
+            this.trustGraphCache.updateCaches(signal.truster, decryptedTrustee);
+          }
+          this.latestDecryptedEncryptedTrustEdgeTimestamps.set(edgeKey, signalTimestamp);
+        }
       }
     }
 
@@ -743,13 +838,8 @@ export class ContentGossip {
     // Update the trust graph cache
     this.trustGraphCache.updateDirectTrustGraph(newTrustGraph);
 
-    // Rebuild extended network cache from existing trust signals
-    const signals = new Map<string, { truster: string; trustee: string }>();
-    for (const [key] of this.seenTrustSignals.entries()) {
-      const [truster, trustee] = key.split(':');
-      signals.set(key, { truster, trustee });
-    }
-    this.trustGraphCache.rebuildFromSignals(signals);
+    // Rebuild extended network cache from latest active trust signals
+    this.rebuildTrustGraphCacheFromSeenSignals();
   }
 
   /**

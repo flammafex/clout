@@ -18,6 +18,18 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 
 export type SybilMode = 'none' | 'pow' | 'invitation' | 'registered' | 'federated_trust';
+export type FreebirdSybilProof =
+  | { type: 'none' }
+  | { type: 'pow'; challenge: string; nonce: number; hash: string }
+  | { type: 'invitation'; code: string; signature: string }
+  | { type: 'registered_user'; user_id: string }
+  | {
+      type: 'federated_trust';
+      source_issuer_id: string;
+      source_token_b64: string;
+      token_exp: number;
+      token_issued_at?: number;
+    };
 
 /**
  * A token from a federated (trusted) Freebird issuer
@@ -369,7 +381,7 @@ export class FreebirdAdapter implements FreebirdClient {
   /**
    * Build the sybil_proof object based on the configured mode
    */
-  private async buildSybilProof(metadata: any): Promise<{ type: string; [key: string]: any }> {
+  private async buildSybilProof(metadata: any): Promise<FreebirdSybilProof> {
     switch (this.sybilMode) {
       case 'none':
         return { type: 'none' };
@@ -397,7 +409,7 @@ export class FreebirdAdapter implements FreebirdClient {
         // Even the instance owner must use an invitation code (one of the bootstrap codes)
         if (this.invitationCode && this.invitationSignature) {
           console.log(`[Freebird] Using invitation code: ${this.invitationCode.slice(0, 8)}... with signature`);
-          const result = {
+          const result: FreebirdSybilProof = {
             type: 'invitation',
             code: this.invitationCode,
             signature: this.invitationSignature
@@ -577,6 +589,24 @@ export class FreebirdAdapter implements FreebirdClient {
    * Backward compatible: single issuer works as before
    */
   async issueToken(blindedValue: Uint8Array): Promise<Uint8Array> {
+    return this.issueTokenInternal(blindedValue);
+  }
+
+  /**
+   * Issue token with an explicit per-request sybil proof.
+   * This avoids mutating adapter-global sybil mode/state across concurrent users.
+   */
+  async issueTokenWithSybilProof(
+    blindedValue: Uint8Array,
+    sybilProof: FreebirdSybilProof
+  ): Promise<Uint8Array> {
+    return this.issueTokenInternal(blindedValue, sybilProof);
+  }
+
+  private async issueTokenInternal(
+    blindedValue: Uint8Array,
+    sybilProofOverride?: FreebirdSybilProof
+  ): Promise<Uint8Array> {
     await this.init();
 
     // Retrieve blind state for finalization (may not exist in proxy mode)
@@ -589,7 +619,7 @@ export class FreebirdAdapter implements FreebirdClient {
       try {
         // Build sybil proof once (uses first available issuer's metadata for PoW challenge)
         const firstMetadata = Array.from(this.metadata.values())[0];
-        const sybilProof = await this.buildSybilProof(firstMetadata);
+        const sybilProof = sybilProofOverride ?? await this.buildSybilProof(firstMetadata);
 
         // Broadcast to all issuers in parallel
         const issuePromises = this.issuerEndpoints.map(async (url, index) => {

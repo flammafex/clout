@@ -86,7 +86,8 @@ export async function requestDayPass(publicKeyBytes, options = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       publicKey: publicKeyHex,
-      token: tokenB64  // Already base64url encoded
+      token: tokenB64,  // Already base64url encoded
+      invitationCode: invitationCode || undefined
     })
   });
 

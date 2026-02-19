@@ -40,6 +40,18 @@ async function signAdminRequest(operation) {
   };
 }
 
+/**
+ * Perform a signed admin GET request.
+ */
+async function adminGet(endpoint, operation) {
+  const authParams = await signAdminRequest(operation);
+  return apiCall(endpoint, 'GET', null, {
+    'X-User-PublicKey': authParams.userPublicKey,
+    'X-Admin-Signature': authParams.adminSignature,
+    'X-Admin-Timestamp': String(authParams.adminTimestamp)
+  });
+}
+
 // =========================================================================
 // Member Invitation Functions
 // =========================================================================
@@ -184,7 +196,7 @@ export async function loadAdminMembers() {
   try {
     listEl.innerHTML = '<p class="loading">Loading members...</p>';
 
-    const data = await apiCall('/admin/members');
+    const data = await adminGet('/admin/members', 'members/list');
 
     if (!data || data.count === 0) {
       listEl.innerHTML = '<p class="empty-state">No members with quota yet.</p>';
@@ -359,7 +371,7 @@ export async function loadAdminInvitations() {
   try {
     listEl.innerHTML = '<p class="loading">Loading invitations...</p>';
 
-    const data = await apiCall('/admin/invitations');
+    const data = await adminGet('/admin/invitations', 'invitations/list');
 
     if (!data || data.count === 0) {
       listEl.innerHTML = '<p class="empty-state">No invitations created yet.</p>';
@@ -418,7 +430,7 @@ export async function lookupUser() {
     resultEl.textContent = 'Looking up user...';
     resultEl.className = 'result-message';
 
-    const data = await apiCall(`/admin/user-lookup?publicKey=${publicKey}`);
+    const data = await adminGet(`/admin/user-lookup?publicKey=${publicKey}`, 'users/lookup');
 
     if (!data) {
       resultEl.textContent = 'Lookup failed';

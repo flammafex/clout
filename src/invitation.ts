@@ -17,6 +17,7 @@
  */
 
 import { Crypto } from './crypto.js';
+import { buildCanonicalPlaintextTrust, buildPlaintextTrustSignatureMessage } from './trust/plaintext-signal.js';
 import type { PublicKey, FreebirdClient, WitnessClient, Attestation } from './types.js';
 import type { TrustSignal } from './clout-types.js';
 
@@ -186,19 +187,27 @@ export class InvitationManager {
     // Store accepted invitation
     this.acceptedInvitations.set(code, invitation);
 
-    // Create trust signal for inviter
-    // (This will trigger auto-trust based on settings)
-    const signaturePayload = `trust:${this.myPublicKey}:${invitation.inviter}:${Date.now()}`;
-    const signatureMessage = new TextEncoder().encode(signaturePayload);
-    const signature = this.sign(signatureMessage);
+    // Create canonical plaintext trust signal for inviter.
+    const signalTimestamp = Date.now();
+    const canonical = buildCanonicalPlaintextTrust({
+      truster: this.myPublicKey,
+      trustee: invitation.inviter,
+      weight: 1.0,
+      timestamp: signalTimestamp
+    });
+    if (!canonical) {
+      throw new Error('Failed to build canonical invitation trust signal');
+    }
+    const signature = this.sign(buildPlaintextTrustSignatureMessage(canonical.payloadHash));
 
     const trustSignal: TrustSignal = {
       truster: this.myPublicKey,
       trustee: invitation.inviter,
       signature,
-      proof: await this.witness.timestamp(
-        Crypto.hashString(`${this.myPublicKey}:ACCEPT:${invitation.inviter}`)
-      )
+      timestamp: signalTimestamp,
+      proof: await this.witness.timestamp(canonical.payloadHash),
+      weight: canonical.canonicalWeight,
+      revoked: canonical.isRevocation ? true : undefined
     };
 
     console.log(

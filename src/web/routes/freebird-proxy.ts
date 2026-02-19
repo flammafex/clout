@@ -17,7 +17,10 @@
  */
 
 import { Router } from 'express';
-import type { FreebirdAdapter } from '../../integrations/freebird.js';
+import type { Request } from 'express';
+import { Crypto } from '../../crypto.js';
+import type { FreebirdAdapter, FreebirdSybilProof } from '../../integrations/freebird.js';
+import { getBrowserUserPublicKey, validateSignature } from './validation.js';
 
 export interface FreebirdProxyConfig {
   /** Get the FreebirdAdapter instance */
@@ -34,13 +37,69 @@ export interface FreebirdProxyConfig {
    * Called after successful token issuance
    */
   setUserRegistered?: (publicKey: string, registered: boolean) => Promise<void>;
+  /**
+   * Resolve invitation signature for a reserved invitation claim.
+   * Must only return a signature for the same (code, publicKey) claim.
+   */
+  getReservedInvitationSignature?: (code: string, publicKey: string) => Promise<string | null>;
+  /** Get instance owner public key for privileged federation mutation routes */
+  getOwnerPublicKey?: () => string | undefined;
+}
+
+const FEDERATION_ADMIN_SIGNATURE_WINDOW_MS = 5 * 60 * 1000;
+
+function verifyOwnerFederationMutation(
+  req: Request,
+  operation: string,
+  ownerPublicKey: string | undefined
+): { ok: true } | { ok: false; error: string } {
+  const publicKey = getBrowserUserPublicKey(req);
+  if (!publicKey || !ownerPublicKey || publicKey !== ownerPublicKey) {
+    return { ok: false, error: 'Only the instance owner can perform this operation' };
+  }
+
+  const signatureHex = req.body?.adminSignature || req.headers['x-admin-signature'];
+  const timestampRaw = req.body?.adminTimestamp || req.headers['x-admin-timestamp'];
+  if (!signatureHex || typeof signatureHex !== 'string') {
+    return { ok: false, error: 'Missing admin signature' };
+  }
+
+  const timestamp = parseInt(String(timestampRaw), 10);
+  if (!Number.isFinite(timestamp)) {
+    return { ok: false, error: 'Missing or invalid admin timestamp' };
+  }
+
+  if (Math.abs(Date.now() - timestamp) > FEDERATION_ADMIN_SIGNATURE_WINDOW_MS) {
+    return { ok: false, error: 'Admin signature timestamp is outside the allowed window' };
+  }
+
+  try {
+    const payload = `admin:${operation}:${publicKey}:${timestamp}`;
+    const payloadBytes = new TextEncoder().encode(payload);
+    const signatureBytes = validateSignature(signatureHex, 'adminSignature');
+    const publicKeyBytes = Crypto.fromHex(publicKey);
+    if (!Crypto.verify(payloadBytes, signatureBytes, publicKeyBytes)) {
+      return { ok: false, error: 'Invalid admin signature' };
+    }
+  } catch (error: any) {
+    return { ok: false, error: `Admin signature verification failed: ${error.message}` };
+  }
+
+  return { ok: true };
 }
 
 /**
  * Create Freebird proxy routes
  */
 export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
-  const { getFreebirdAdapter, isInitialized, isUserRegistered, setUserRegistered } = config;
+  const {
+    getFreebirdAdapter,
+    isInitialized,
+    isUserRegistered,
+    setUserRegistered,
+    getReservedInvitationSignature,
+    getOwnerPublicKey
+  } = config;
   const router = Router();
 
   /**
@@ -134,32 +193,7 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
         });
       }
 
-      // Check if user is already registered with Freebird (can renew without invitation)
-      // Only switch to registered mode if:
-      // 1. User provided their public key
-      // 2. User is registered (persisted state)
-      // 3. Current mode is invitation (we're in invitation mode)
-      // 4. No invitation code was just set (not a fresh redemption)
-      let wasInvitationMode = false;
       const currentMode = adapter.getSybilMode();
-
-      if (user_public_key && isUserRegistered && currentMode === 'invitation') {
-        const registered = await isUserRegistered(user_public_key);
-        if (registered && !invitation_code) {
-          console.log(`[FreebirdProxy] User ${user_public_key.slice(0, 8)}... is registered, using registered mode`);
-          wasInvitationMode = true;
-          adapter.setSybilMode('registered');
-        }
-      }
-
-      // Note: invitation code and signature should already be set by /api/invitation/redeem
-      // We don't set it here because we don't have the signature.
-      // If invitation_code is provided but not already set, warn about it.
-      if (invitation_code && typeof invitation_code === 'string') {
-        // The adapter should already have the code+signature from /api/invitation/redeem
-        // Just log for debugging
-        console.log(`[FreebirdProxy] Invitation code provided: ${invitation_code.slice(0, 8)}...`);
-      }
 
       // Convert base64url to bytes
       const blindedBytes = base64UrlToBytes(blinded_element_b64);
@@ -167,49 +201,70 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
       // Get issuer metadata for public key
       const metadata = await adapter.getIssuerMetadata();
       if (!metadata || !metadata.voprf?.pubkey) {
-        // Restore sybil mode if we changed it
-        if (wasInvitationMode) {
-          adapter.setSybilMode('invitation');
-        }
         return res.status(503).json({
           success: false,
           error: 'Freebird issuer not available or missing public key'
         });
       }
 
-      try {
-        // Issue the token via Freebird
-        const tokenBytes = await adapter.issueToken(blindedBytes);
+      let sybilProof: FreebirdSybilProof | undefined;
 
-        // After successful token issuance, mark user as registered for future renewals
-        if (user_public_key && setUserRegistered && currentMode === 'invitation') {
-          // User successfully issued a token with invitation mode - they're now registered
-          await setUserRegistered(user_public_key, true);
-          console.log(`[FreebirdProxy] Marked user ${user_public_key.slice(0, 8)}... as registered`);
+      // Request-scoped proof selection to avoid global adapter state mutation.
+      if (invitation_code && typeof invitation_code === 'string') {
+        if (!user_public_key || typeof user_public_key !== 'string') {
+          return res.status(400).json({
+            success: false,
+            error: 'user_public_key is required when invitation_code is provided'
+          });
         }
-
-        // Restore sybil mode if we changed it
-        if (wasInvitationMode) {
-          adapter.setSybilMode('invitation');
+        if (!getReservedInvitationSignature) {
+          return res.status(500).json({
+            success: false,
+            error: 'Invitation signature resolver is not configured'
+          });
         }
-
-        // Convert to base64url
-        const token_b64 = bytesToBase64Url(tokenBytes);
-
-        res.json({
-          success: true,
-          data: {
-            token: token_b64,
-            issuer_pubkey: metadata.voprf.pubkey
-          }
-        });
-      } catch (issueError) {
-        // Restore sybil mode if we changed it
-        if (wasInvitationMode) {
-          adapter.setSybilMode('invitation');
+        const signature = await getReservedInvitationSignature(invitation_code, user_public_key);
+        if (!signature) {
+          return res.status(401).json({
+            success: false,
+            error: 'Invitation code not reserved for this user or signature unavailable',
+            code: 'INVITATION_REQUIRED'
+          });
         }
-        throw issueError;
+        sybilProof = {
+          type: 'invitation',
+          code: invitation_code,
+          signature
+        };
+      } else if (user_public_key && isUserRegistered && currentMode === 'invitation') {
+        const registered = await isUserRegistered(user_public_key);
+        if (registered) {
+          console.log(`[FreebirdProxy] User ${user_public_key.slice(0, 8)}... is registered, using registered mode`);
+          sybilProof = {
+            type: 'registered_user',
+            user_id: user_public_key
+          };
+        }
       }
+
+      // Issue the token via Freebird
+      const tokenBytes = sybilProof
+        ? await adapter.issueTokenWithSybilProof(blindedBytes, sybilProof)
+        : await adapter.issueToken(blindedBytes);
+
+      // Registration is finalized only after successful /daypass/mint.
+      // Do not mark users as registered at token issuance time.
+
+      // Convert to base64url
+      const token_b64 = bytesToBase64Url(tokenBytes);
+
+      res.json({
+        success: true,
+        data: {
+          token: token_b64,
+          issuer_pubkey: metadata.voprf.pubkey
+        }
+      });
     } catch (error: any) {
       console.error('[FreebirdProxy] Error issuing token:', error.message);
 
@@ -440,6 +495,14 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
         return res.status(503).json({
           success: false,
           error: 'Server not initialized'
+        });
+      }
+
+      const authz = verifyOwnerFederationMutation(req, 'federation/import-token', getOwnerPublicKey?.());
+      if (!authz.ok) {
+        return res.status(403).json({
+          success: false,
+          error: authz.error
         });
       }
 

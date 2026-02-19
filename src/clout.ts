@@ -1096,6 +1096,7 @@ export class Clout {
     content: string;
     author: string;
     signature: Uint8Array;
+    signatureTimestamp?: number;
     ephemeralPublicKey?: Uint8Array;
     ephemeralKeyProof?: Uint8Array;
     replyTo?: string;

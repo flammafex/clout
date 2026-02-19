@@ -103,6 +103,19 @@ export function createMediaRoutes(getClout: () => Clout | undefined, isInitializ
     }
   });
 
+  // Get Media Stats
+  // Must be registered before '/:cid' to avoid shadowing.
+  router.get('/stats', async (req, res) => {
+    try {
+      if (!isInitialized()) throw new Error('Not initialized');
+
+      const stats = await getClout()!.getMediaStats();
+      res.json({ success: true, data: stats });
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // Get Media by CID (local storage only)
   router.get('/:cid', async (req, res) => {
     try {
@@ -215,18 +228,6 @@ export function createMediaRoutes(getClout: () => Clout | undefined, isInitializ
       }
 
       res.json({ success: true, data: metadata });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
-
-  // Get Media Stats (note: must come before /:cid to avoid matching)
-  router.get('/stats', async (req, res) => {
-    try {
-      if (!isInitialized()) throw new Error('Not initialized');
-
-      const stats = await getClout()!.getMediaStats();
-      res.json({ success: true, data: stats });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }

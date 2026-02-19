@@ -139,14 +139,24 @@ export class CloutStateManager extends Emitter {
 
   addTrustSignal(signal: TrustSignal): void {
     this.chronicle.change("add trust signal", (doc: any) => {
+      if (!doc.myTrustSignals) doc.myTrustSignals = [];
       const idx = doc.myTrustSignals.findIndex(
         (s: any) => s.truster === signal.truster && s.trustee === signal.trustee
       );
-      if (idx !== -1) doc.myTrustSignals.splice(idx, 1);
-
-      // Sanitize signal while preserving Uint8Array (signature)
       const cleanSignal = sanitizeForAutomerge(signal);
-      doc.myTrustSignals.push(cleanSignal);
+      if (idx === -1) {
+        doc.myTrustSignals.push(cleanSignal);
+        return;
+      }
+
+      const existing = doc.myTrustSignals[idx];
+      const existingTs = existing?.proof?.timestamp ?? 0;
+      const incomingTs = signal.proof?.timestamp ?? 0;
+
+      // Last-write-wins by attestation timestamp for same logical trust edge.
+      if (incomingTs >= existingTs) {
+        doc.myTrustSignals[idx] = cleanSignal;
+      }
     });
   }
 
@@ -155,16 +165,32 @@ export class CloutStateManager extends Emitter {
       // Ensure myReactions exists
       if (!doc.myReactions) doc.myReactions = [];
 
-      // Check for existing reaction to same post with same emoji
+      // Check for existing reaction with same logical key (reactor+post+emoji).
       const idx = doc.myReactions.findIndex(
-        (r: any) => r.postId === reaction.postId && r.emoji === reaction.emoji
+        (r: any) => r.id === reaction.id || (
+          r.reactor === reaction.reactor &&
+          r.postId === reaction.postId &&
+          r.emoji === reaction.emoji
+        )
       );
-      if (idx !== -1) doc.myReactions.splice(idx, 1);
 
-      // Only add if not removed
-      if (!reaction.removed) {
-        const cleanReaction = sanitizeForAutomerge(reaction);
+      const cleanReaction = sanitizeForAutomerge(reaction);
+      if (idx === -1) {
         doc.myReactions.push(cleanReaction);
+        return;
+      }
+
+      const existing = doc.myReactions[idx];
+      const existingTs = existing?.proof?.timestamp ?? 0;
+      const incomingTs = reaction.proof?.timestamp ?? 0;
+
+      // Last-write-wins by attestation timestamp.
+      // On equal timestamps, prefer removed=true to avoid accidental resurrection.
+      if (
+        incomingTs > existingTs ||
+        (incomingTs === existingTs && reaction.removed === true && existing?.removed !== true)
+      ) {
+        doc.myReactions[idx] = cleanReaction;
       }
     });
   }
@@ -179,13 +205,23 @@ export class CloutStateManager extends Emitter {
       if (!doc.myPostDeletions) doc.myPostDeletions = [];
 
       // Check if retraction already exists for this post
-      const exists = doc.myPostDeletions.some(
+      const idx = doc.myPostDeletions.findIndex(
         (d: any) => d.postId === retraction.postId
       );
+      const cleanRetraction = sanitizeForAutomerge(retraction);
 
-      if (!exists) {
-        const cleanRetraction = sanitizeForAutomerge(retraction);
+      if (idx === -1) {
         doc.myPostDeletions.push(cleanRetraction);
+        return;
+      }
+
+      const existing = doc.myPostDeletions[idx];
+      const existingTs = existing?.deletedAt ?? existing?.proof?.timestamp ?? 0;
+      const incomingTs = retraction.deletedAt ?? retraction.proof?.timestamp ?? 0;
+
+      // Keep the newest retraction update for this post.
+      if (incomingTs >= existingTs) {
+        doc.myPostDeletions[idx] = cleanRetraction;
       }
     });
   }
@@ -215,12 +251,46 @@ export class CloutStateManager extends Emitter {
 
   updateProfile(profile: CloutProfile): void {
     this.chronicle.change("update profile", (doc: any) => {
-      // Sanitize profile and convert Set to Array
+      // Sanitize profile and convert Set to Array.
+      // Apply as field-level updates to preserve concurrent edits on sibling keys.
       const cleanProfile = sanitizeForAutomerge({
-          ...profile,
-          trustGraph: Array.from(profile.trustGraph)
-      });
-      doc.profile = cleanProfile;
+        ...profile,
+        trustGraph: Array.from(profile.trustGraph)
+      }) as any;
+
+      if (!doc.profile || typeof doc.profile !== 'object') {
+        doc.profile = {};
+      }
+
+      if (typeof cleanProfile.publicKey === 'string') {
+        doc.profile.publicKey = cleanProfile.publicKey;
+      }
+
+      if (Array.isArray(cleanProfile.trustGraph)) {
+        doc.profile.trustGraph = cleanProfile.trustGraph;
+      }
+
+      if (cleanProfile.metadata && typeof cleanProfile.metadata === 'object') {
+        if (!doc.profile.metadata || typeof doc.profile.metadata !== 'object') {
+          doc.profile.metadata = {};
+        }
+        for (const [key, value] of Object.entries(cleanProfile.metadata)) {
+          if (value !== undefined) {
+            doc.profile.metadata[key] = value;
+          }
+        }
+      }
+
+      if (cleanProfile.trustSettings && typeof cleanProfile.trustSettings === 'object') {
+        if (!doc.profile.trustSettings || typeof doc.profile.trustSettings !== 'object') {
+          doc.profile.trustSettings = {};
+        }
+        for (const [key, value] of Object.entries(cleanProfile.trustSettings)) {
+          if (value !== undefined) {
+            doc.profile.trustSettings[key] = value;
+          }
+        }
+      }
     });
   }
 
@@ -228,6 +298,8 @@ export class CloutStateManager extends Emitter {
    * Sync with a peer using WASM binary format
    */
   merge(remoteBinary: Uint8Array): void {
+    const preMergeDecayedAt = this.captureDecayedAtMap(this.getState());
+
     // 1. Load binary into an Automerge Doc
     // This is necessary because Chronicle.merge() expects a Doc object
     const remoteDoc = A.load<CloutState>(remoteBinary);
@@ -237,7 +309,11 @@ export class CloutStateManager extends Emitter {
 
     // 3. Enforce monotonic decay - if any post was decayed on either side,
     // ensure it stays decayed (prevents resurrection from conservative peers)
-    this.enforceMonotonicDecay(remoteDoc);
+    this.enforceMonotonicDecay(preMergeDecayedAt, remoteDoc);
+
+    // 4. Deterministically compact keyed collections to resolve duplicate
+    // logical records that can arise from concurrent array edits.
+    this.compactMergedKeyedCollections();
   }
 
   /**
@@ -249,18 +325,18 @@ export class CloutStateManager extends Emitter {
    *
    * The rule: decay can only happen, never un-happen.
    */
-  private enforceMonotonicDecay(remoteDoc: A.Doc<CloutState>): void {
-    const localState = this.getState();
+  private enforceMonotonicDecay(
+    preMergeDecayedAt: Map<string, number>,
+    remoteDoc: A.Doc<CloutState>
+  ): void {
     const remotePosts = (remoteDoc as any).myPosts || [];
 
     // Build set of decayed post IDs from both sides
     const decayedIds = new Map<string, number>(); // postId -> earliest decayedAt
 
-    // Collect decay timestamps from local state
-    for (const post of localState.myPosts || []) {
-      if (post.decayedAt) {
-        decayedIds.set(post.id, post.decayedAt);
-      }
+    // Collect decay timestamps from local PRE-MERGE state
+    for (const [postId, decayedAt] of preMergeDecayedAt.entries()) {
+      decayedIds.set(postId, decayedAt);
     }
 
     // Collect decay timestamps from remote state (take earliest)
@@ -290,6 +366,97 @@ export class CloutStateManager extends Emitter {
         });
       }
     }
+  }
+
+  private captureDecayedAtMap(state: Readonly<CloutState>): Map<string, number> {
+    const decayed = new Map<string, number>();
+    for (const post of state.myPosts || []) {
+      if (typeof post.decayedAt === 'number') {
+        decayed.set(post.id, post.decayedAt);
+      }
+    }
+    return decayed;
+  }
+
+  private compactMergedKeyedCollections(): void {
+    this.chronicle.change("compact merged keyed collections", (doc: any) => {
+      // Trust signals: one logical edge per (truster, trustee), newest attestation wins.
+      if (Array.isArray(doc.myTrustSignals)) {
+        const byKey = new Map<string, any>();
+        for (const signal of doc.myTrustSignals) {
+          const key = `${signal.truster}:${signal.trustee}`;
+          const existing = byKey.get(key);
+          if (!existing || this.compareTrustSignals(signal, existing) > 0) {
+            byKey.set(key, signal);
+          }
+        }
+        doc.myTrustSignals = Array.from(byKey.values());
+      }
+
+      // Reactions: one logical reaction per (reactor, postId, emoji), newest wins.
+      if (Array.isArray(doc.myReactions)) {
+        const byKey = new Map<string, any>();
+        for (const reaction of doc.myReactions) {
+          const key = reaction.id || `${reaction.reactor}:${reaction.postId}:${reaction.emoji}`;
+          const existing = byKey.get(key);
+          if (!existing || this.compareReactions(reaction, existing) > 0) {
+            byKey.set(key, reaction);
+          }
+        }
+        doc.myReactions = Array.from(byKey.values());
+      }
+
+      // Retractions: one logical entry per postId, newest deletedAt/proof timestamp wins.
+      if (Array.isArray(doc.myPostDeletions)) {
+        const byKey = new Map<string, any>();
+        for (const deletion of doc.myPostDeletions) {
+          const key = deletion.postId;
+          const existing = byKey.get(key);
+          if (!existing || this.comparePostDeletions(deletion, existing) > 0) {
+            byKey.set(key, deletion);
+          }
+        }
+        doc.myPostDeletions = Array.from(byKey.values());
+      }
+    });
+  }
+
+  private compareTrustSignals(a: any, b: any): number {
+    const ats = a?.proof?.timestamp ?? 0;
+    const bts = b?.proof?.timestamp ?? 0;
+    if (ats !== bts) return ats - bts;
+    return this.compareSignatureTieBreak(a?.signature, b?.signature);
+  }
+
+  private compareReactions(a: any, b: any): number {
+    const ats = a?.proof?.timestamp ?? 0;
+    const bts = b?.proof?.timestamp ?? 0;
+    if (ats !== bts) return ats - bts;
+
+    // On same timestamp, tombstone (removed=true) wins to prevent resurrection.
+    const aRemoved = a?.removed === true;
+    const bRemoved = b?.removed === true;
+    if (aRemoved !== bRemoved) return aRemoved ? 1 : -1;
+
+    return this.compareSignatureTieBreak(a?.signature, b?.signature);
+  }
+
+  private comparePostDeletions(a: any, b: any): number {
+    const ats = a?.deletedAt ?? a?.proof?.timestamp ?? 0;
+    const bts = b?.deletedAt ?? b?.proof?.timestamp ?? 0;
+    if (ats !== bts) return ats - bts;
+    return this.compareSignatureTieBreak(a?.signature, b?.signature);
+  }
+
+  private compareSignatureTieBreak(aSig: unknown, bSig: unknown): number {
+    const aHex = aSig instanceof Uint8Array ? this.bytesToHex(aSig) : '';
+    const bHex = bSig instanceof Uint8Array ? this.bytesToHex(bSig) : '';
+    if (aHex === bHex) return 0;
+    return aHex > bHex ? 1 : -1;
+  }
+
+  private bytesToHex(bytes: Uint8Array): string {
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   }
 
   exportSync(): Uint8Array {

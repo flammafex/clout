@@ -1,4 +1,5 @@
 import { Crypto } from './crypto.js';
+import { hashPostAttestationPayload } from './post-canonical.js';
 import type { FreebirdClient, WitnessClient, Attestation } from './types.js';
 import type { PostPackage, ContentGossipMessage, MediaMetadata } from './clout-types.js';
 import type { CloutTicket } from './ticket-booth.js';
@@ -7,6 +8,7 @@ export interface PostConfig {
   readonly author: string;
   readonly content: string;
   readonly signature: Uint8Array;
+  readonly signatureTimestamp?: number;
   readonly freebird: FreebirdClient;
   readonly witness: WitnessClient;
   readonly replyTo?: string;
@@ -78,6 +80,7 @@ export class CloutPost {
       content: config.content,
       author: config.author,
       signature: config.signature,
+      signatureTimestamp: config.signatureTimestamp,
       authorshipProof,
       replyTo: config.replyTo,
       contentType: config.contentType || 'text/plain',
@@ -92,7 +95,7 @@ export class CloutPost {
     };
 
     // 7. Hash package for timestamping (deterministic)
-    const pkgHash = Crypto.hashObject(pkg);
+    const pkgHash = hashPostAttestationPayload(pkg);
 
     // 8. Timestamp the post
     const proof = await config.witness.timestamp(pkgHash);

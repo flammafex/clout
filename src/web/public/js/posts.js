@@ -217,9 +217,19 @@ async function saveEdit(requireMembership) {
     const timestamp = Date.now();
     const originalPostId = state.editingPost.id;
 
-    // Create signature payload: "edit:{originalPostId}:{content}:{author}:{timestamp}"
-    const signaturePayload = `edit:${originalPostId}:${content}:${identity.publicKeyHex}:${timestamp}`;
-    const payloadBytes = new TextEncoder().encode(signaturePayload);
+    // Sign edited content using the canonical post signature domain.
+    const signaturePayload = window.CloutCrypto.buildPostSignaturePayload({
+      content,
+      author: identity.publicKeyHex,
+      timestamp,
+      replyTo: state.editingPost.replyTo ?? null,
+      mediaCid: null,
+      link: null,
+      nsfw,
+      contentWarning
+    });
+    const signatureMessage = `CLOUT_POST_V2:${window.CloutCrypto.hashObject(signaturePayload)}`;
+    const payloadBytes = new TextEncoder().encode(signatureMessage);
 
     // Sign with private key
     const signature = Crypto.sign(payloadBytes, identity.privateKey);

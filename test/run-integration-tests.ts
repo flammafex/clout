@@ -14,7 +14,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const tests = [
-  'integration/01-clout-gossip.test.js'
+  'integration/01-clout-gossip.test.js',
+  'integration/02-encrypted-trust-signal.test.js',
+  'integration/03-web-route-hardening.test.js',
+  'integration/04-trust-graph-hardening.test.js'
 ];
 
 async function runTest(testPath: string): Promise<boolean> {

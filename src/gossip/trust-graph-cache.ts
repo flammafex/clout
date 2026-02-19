@@ -46,49 +46,71 @@ export class TrustGraphCache {
     }
   }
 
+  private rebuildHopDistanceCache(): void {
+    this.hopDistanceCache.clear();
+
+    const queue: Array<[string, number]> = [];
+    for (const trustedKey of this.trustGraph) {
+      this.hopDistanceCache.set(trustedKey, 1);
+      queue.push([trustedKey, 1]);
+    }
+
+    while (queue.length > 0) {
+      const [current, distance] = queue.shift()!;
+      if (distance >= this.maxHops) {
+        continue;
+      }
+
+      const neighbors = this.trustAdjacencyList.get(current);
+      if (!neighbors) {
+        continue;
+      }
+
+      for (const neighbor of neighbors) {
+        const newDistance = distance + 1;
+        const existingDistance = this.hopDistanceCache.get(neighbor);
+        if (existingDistance === undefined || newDistance < existingDistance) {
+          this.hopDistanceCache.set(neighbor, newDistance);
+          queue.push([neighbor, newDistance]);
+        }
+      }
+    }
+  }
+
   /**
-   * Incrementally update graph caches when trust signals arrive
-   *
-   * This updates the adjacency list and recalculates hop distances
-   * for affected nodes, avoiding the need to traverse the entire graph
-   * on every message.
+   * Incrementally update graph caches when trust signals arrive.
    */
   updateCaches(truster: string, trustee: string): void {
-    // Update adjacency list
     if (!this.trustAdjacencyList.has(truster)) {
       this.trustAdjacencyList.set(truster, new Set());
     }
 
-    const isNewEdge = !this.trustAdjacencyList.get(truster)!.has(trustee);
-    this.trustAdjacencyList.get(truster)!.add(trustee);
+    const neighbors = this.trustAdjacencyList.get(truster)!;
+    const isNewEdge = !neighbors.has(trustee);
+    neighbors.add(trustee);
 
-    // Persist new trust edge
     if (isNewEdge && this.onTrustEdge) {
       this.onTrustEdge(truster, trustee);
     }
 
-    // Calculate hop distance for trustee based on truster's distance
-    const trusterDistance = this.hopDistanceCache.get(truster);
+    this.rebuildHopDistanceCache();
+  }
 
-    if (trusterDistance !== undefined) {
-      const newDistance = trusterDistance + 1;
-      const existingDistance = this.hopDistanceCache.get(trustee);
-
-      // Update if this is a shorter path or first path
-      if (existingDistance === undefined || newDistance < existingDistance) {
-        this.hopDistanceCache.set(trustee, newDistance);
-
-        // Recursively update neighbors of trustee (if within maxHops)
-        if (newDistance < this.maxHops) {
-          const neighbors = this.trustAdjacencyList.get(trustee);
-          if (neighbors) {
-            for (const neighbor of neighbors) {
-              this.updateCaches(trustee, neighbor);
-            }
-          }
-        }
-      }
+  /**
+   * Remove an edge from the adjacency list and recalculate hop distances.
+   */
+  removeEdge(truster: string, trustee: string): void {
+    const neighbors = this.trustAdjacencyList.get(truster);
+    if (!neighbors) {
+      return;
     }
+
+    neighbors.delete(trustee);
+    if (neighbors.size === 0) {
+      this.trustAdjacencyList.delete(truster);
+    }
+
+    this.rebuildHopDistanceCache();
   }
 
   /**
@@ -134,18 +156,22 @@ export class TrustGraphCache {
     this.trustGraph.clear();
     for (const key of newTrustGraph) {
       this.trustGraph.add(key);
-      // Update cache: all directly trusted nodes are at distance 1
-      this.hopDistanceCache.set(key, 1);
     }
+    this.rebuildHopDistanceCache();
   }
 
   /**
    * Rebuild extended network cache from trust signals
    */
   rebuildFromSignals(trustSignals: Map<string, { truster: string; trustee: string }>): void {
+    this.trustAdjacencyList.clear();
     for (const [_key, signal] of trustSignals.entries()) {
-      this.updateCaches(signal.truster, signal.trustee);
+      if (!this.trustAdjacencyList.has(signal.truster)) {
+        this.trustAdjacencyList.set(signal.truster, new Set());
+      }
+      this.trustAdjacencyList.get(signal.truster)!.add(signal.trustee);
     }
+    this.rebuildHopDistanceCache();
   }
 
   /**

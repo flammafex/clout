@@ -12,13 +12,17 @@ export const API_BASE = '/api';
  * @param {string} endpoint - API endpoint (e.g., '/feed')
  * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
  * @param {object} body - Request body for POST/PUT
+ * @param {object} extraHeaders - Additional request headers
  * @returns {Promise<any>} Response data
  */
-export async function apiCall(endpoint, method = 'GET', body = null) {
+export async function apiCall(endpoint, method = 'GET', body = null, extraHeaders = {}) {
   try {
     const options = {
       method,
-      headers: { 'Content-Type': 'application/json' }
+      headers: {
+        'Content-Type': 'application/json',
+        ...extraHeaders
+      }
     };
 
     // Include browser user's public key for authenticated requests (admin routes)

@@ -168,6 +168,9 @@ export interface PostPackage {
   /** Author's signature over content */
   readonly signature: Uint8Array;
 
+  /** Timestamp used in the canonical post signature payload (CLOUT_POST_V2) */
+  readonly signatureTimestamp?: number;
+
   /** Witness timestamp proof (proves when it was posted) */
   readonly proof: Attestation;
 
@@ -302,6 +305,13 @@ export interface TrustSignal {
 
   /** Signature from truster */
   readonly signature: Uint8Array;
+
+  /**
+   * Canonical trust payload timestamp.
+   * If present, this is the timestamp used in the signed/hash payload.
+   * If absent, receivers fall back to proof.timestamp for legacy compatibility.
+   */
+  readonly timestamp?: number;
 
   /** Timestamp proof */
   readonly proof: Attestation;

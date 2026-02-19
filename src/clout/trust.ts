@@ -9,6 +9,7 @@
  */
 
 import { Crypto } from '../crypto.js';
+import { buildCanonicalPlaintextTrust, signPlaintextTrustPayloadHash } from '../trust/plaintext-signal.js';
 import type { CloutStateManager } from '../chronicle/clout-state.js';
 import type { CloutNode } from '../network/clout-node.js';
 import type { ReputationValidator } from '../reputation.js';
@@ -185,23 +186,26 @@ export class CloutTrust {
         console.log(`[Clout] 🔐 Trusted ${trusteeKey.slice(0, 8)} (encrypted signal)`);
       } else {
         // Plaintext trust signal (public social graph)
-        const signalPayload = {
+        const canonical = buildCanonicalPlaintextTrust({
           truster: this.publicKeyHex,
           trustee: trusteeKey,
           weight,
           timestamp
-        };
-
-        const payloadHash = Crypto.hashObject(signalPayload);
-        const signature = Crypto.hash(payloadHash, this.privateKey);
-        const proof = await this.witness.timestamp(payloadHash);
+        });
+        if (!canonical) {
+          throw new Error('Invalid plaintext trust signal payload');
+        }
+        const signature = signPlaintextTrustPayloadHash(canonical.payloadHash, this.privateKey);
+        const proof = await this.witness.timestamp(canonical.payloadHash);
 
         const signal: TrustSignal = {
           truster: this.publicKeyHex,
           trustee: trusteeKey,
           signature,
+          timestamp,
           proof,
-          weight
+          weight: canonical.canonicalWeight,
+          revoked: canonical.isRevocation ? true : undefined
         };
 
         await this.gossip.publish({
@@ -289,25 +293,27 @@ export class CloutTrust {
         console.log(`[Clout] 🔓 Revoked trust for ${trusteeKey.slice(0, 8)} (encrypted signal)`);
       } else {
         // Plaintext revocation signal (public social graph)
-        const signalPayload = {
+        const canonical = buildCanonicalPlaintextTrust({
           truster: this.publicKeyHex,
           trustee: trusteeKey,
           weight: 0,
           revoked: true,
           timestamp
-        };
-
-        const payloadHash = Crypto.hashObject(signalPayload);
-        const signature = Crypto.hash(payloadHash, this.privateKey);
-        const proof = await this.witness.timestamp(payloadHash);
+        });
+        if (!canonical) {
+          throw new Error('Invalid plaintext trust revocation payload');
+        }
+        const signature = signPlaintextTrustPayloadHash(canonical.payloadHash, this.privateKey);
+        const proof = await this.witness.timestamp(canonical.payloadHash);
 
         const signal: TrustSignal = {
           truster: this.publicKeyHex,
           trustee: trusteeKey,
           signature,
+          timestamp,
           proof,
-          weight: 0,
-          revoked: true
+          weight: canonical.canonicalWeight,
+          revoked: canonical.isRevocation ? true : undefined
         };
 
         await this.gossip.publish({

@@ -13,7 +13,7 @@
  * - GET  /invitations/mine    - List invitations I've created
  * - POST /invitations/create  - Create invitation using my quota
  *
- * Security: Admin operations require cryptographic proof of ownership via signature.
+ * Security: All owner admin operations require cryptographic proof of ownership via signature.
  * The browser must sign a challenge payload to prove they control the private key.
  */
 
@@ -100,10 +100,7 @@ function verifyAdminSignature(
 }
 
 /**
- * Check if the requesting browser user is the instance owner (for non-sensitive read operations)
- * This checks the browser user's public key (from request header/body), NOT the server identity
- *
- * Note: For sensitive operations (POST), use verifyAdminSignature instead.
+ * Check if the requesting browser user is the instance owner.
  */
 function isOwner(browserUserPublicKey: string | undefined, ownerPublicKey: string | undefined): boolean {
   if (!browserUserPublicKey || !ownerPublicKey) {
@@ -137,14 +134,14 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      // Only owner can list all members
-      if (!isOwner(browserUserKey, ownerKey)) {
+      // Require signed proof for owner read operations
+      const verification = verifyAdminSignature(req, 'members/list', ownerKey);
+      if (!verification.verified) {
         return res.status(403).json({
           success: false,
-          error: 'Only the instance owner can list members. Send your public key via X-User-PublicKey header.'
+          error: verification.error
         });
       }
 
@@ -281,13 +278,13 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(browserUserKey, ownerKey)) {
+      const verification = verifyAdminSignature(req, 'invitations/list', ownerKey);
+      if (!verification.verified) {
         return res.status(403).json({
           success: false,
-          error: 'Only the instance owner can list all invitations'
+          error: verification.error
         });
       }
 
@@ -398,13 +395,13 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
     try {
       if (!isInitialized()) throw new Error('Not initialized');
 
-      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(browserUserKey, ownerKey)) {
+      const verification = verifyAdminSignature(req, 'stats/read', ownerKey);
+      if (!verification.verified) {
         return res.status(403).json({
           success: false,
-          error: 'Only the instance owner can view admin stats'
+          error: verification.error
         });
       }
 
@@ -440,13 +437,13 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!isInitialized()) throw new Error('Not initialized');
 
       const clout = getClout()!;
-      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(browserUserKey, ownerKey)) {
+      const verification = verifyAdminSignature(req, 'users/list', ownerKey);
+      if (!verification.verified) {
         return res.status(403).json({
           success: false,
-          error: 'Only the instance owner can list users'
+          error: verification.error
         });
       }
 
@@ -550,13 +547,13 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
       if (!store) throw new Error('Store not available');
 
       const clout = getClout()!;
-      const browserUserKey = getBrowserUserPublicKey(req);
       const ownerKey = getOwnerPublicKey();
 
-      if (!isOwner(browserUserKey, ownerKey)) {
+      const verification = verifyAdminSignature(req, 'users/lookup', ownerKey);
+      if (!verification.verified) {
         return res.status(403).json({
           success: false,
-          error: 'Only the instance owner can lookup users'
+          error: verification.error
         });
       }
 

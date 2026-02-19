@@ -1,6 +1,6 @@
 {
   "name": "clout-social",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Uncensorable reputation protocol - P2P content propagation with trust-based filtering",
   "type": "module",
   "main": "dist/index.js",

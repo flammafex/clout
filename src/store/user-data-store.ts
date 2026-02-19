@@ -233,6 +233,15 @@ export class UserDataStore {
   }
 
   /**
+   * Clear user's Day Pass ticket
+   */
+  async clearTicket(publicKey: string): Promise<void> {
+    const userData = await this.loadUserData(publicKey);
+    userData.ticket = null;
+    await this.saveUserData(publicKey, userData);
+  }
+
+  /**
    * Check if user has valid (non-expired) ticket
    */
   async hasValidTicket(publicKey: string): Promise<boolean> {

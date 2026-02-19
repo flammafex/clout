@@ -5,6 +5,7 @@
  * Manages periodic broadcasts and state merging.
  */
 
+import { createHash } from 'node:crypto';
 import type { CloutStateManager } from '../chronicle/clout-state.js';
 
 export interface StateSyncConfig {
@@ -24,6 +25,8 @@ export class CloutStateSync {
   private readonly stateManager: CloutStateManager;
   private readonly gossip?: StateSyncConfig['gossip'];
   private readonly syncInterval: number;
+  private readonly duplicateStateTtlMs: number = 5 * 60 * 1000;
+  private readonly lastStateDigestByPeer = new Map<string, { digest: string; receivedAt: number }>();
   private syncTimer?: NodeJS.Timeout;
 
   constructor(config: StateSyncConfig) {
@@ -67,6 +70,27 @@ export class CloutStateSync {
    */
   private async handleIncomingState(publicKey: string, stateBinary: Uint8Array): Promise<void> {
     try {
+      // Ignore self-originated state payloads.
+      if (publicKey === this.publicKeyHex) {
+        return;
+      }
+
+      if (!(stateBinary instanceof Uint8Array) || stateBinary.length === 0) {
+        console.warn(`[StateSync] ⚠️ Ignoring empty/invalid state payload from ${publicKey.slice(0, 8)}`);
+        return;
+      }
+
+      const now = Date.now();
+      const digest = this.digestStateBinary(stateBinary);
+      const previous = this.lastStateDigestByPeer.get(publicKey);
+
+      // Drop duplicate payloads from same peer within TTL to avoid merge churn.
+      if (previous && previous.digest === digest && (now - previous.receivedAt) <= this.duplicateStateTtlMs) {
+        return;
+      }
+      this.lastStateDigestByPeer.set(publicKey, { digest, receivedAt: now });
+      this.cleanupStateDigestCache(now);
+
       console.log(`[StateSync] 📦 Merging state from ${publicKey.slice(0, 8)}`);
 
       // Merge the remote state into our Chronicle
@@ -87,6 +111,10 @@ export class CloutStateSync {
    */
   private async handleStateRequest(publicKey: string): Promise<Uint8Array | null> {
     try {
+      if (publicKey === this.publicKeyHex) {
+        return null;
+      }
+
       console.log(`[StateSync] 📤 Sending state to ${publicKey.slice(0, 8)}`);
       return this.stateManager.exportSync();
     } catch (error: any) {
@@ -174,5 +202,17 @@ export class CloutStateSync {
       syncInterval: this.syncInterval,
       isActive: this.isActive()
     };
+  }
+
+  private digestStateBinary(stateBinary: Uint8Array): string {
+    return createHash('sha256').update(stateBinary).digest('hex');
+  }
+
+  private cleanupStateDigestCache(now: number): void {
+    for (const [peerKey, record] of this.lastStateDigestByPeer.entries()) {
+      if (now - record.receivedAt > this.duplicateStateTtlMs) {
+        this.lastStateDigestByPeer.delete(peerKey);
+      }
+    }
   }
 }

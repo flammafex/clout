@@ -9,6 +9,7 @@
  */
 
 import { Crypto } from '../crypto.js';
+import { hashPostAttestationPayload } from '../post-canonical.js';
 import type { CloutStateManager } from '../chronicle/clout-state.js';
 import type { ContentGossip } from '../post.js';
 import type { FreebirdClient, WitnessClient, Attestation } from '../types.js';
@@ -54,6 +55,7 @@ export class CloutRelay {
     content: string;
     author: string;
     signature: Uint8Array;
+    signatureTimestamp?: number;
     ephemeralPublicKey?: Uint8Array;
     ephemeralKeyProof?: Uint8Array;
     replyTo?: string;
@@ -66,12 +68,7 @@ export class CloutRelay {
     authorAvatar?: string;
   }): Promise<Attestation> {
     // Get witness proof for the post
-    const postHash = Crypto.hashObject({
-      id: postPackage.id,
-      content: postPackage.content,
-      author: postPackage.author,
-      signature: Crypto.toHex(postPackage.signature)
-    });
+    const postHash = hashPostAttestationPayload(postPackage);
 
     const proof = await this.witness.timestamp(postHash);
 
@@ -81,6 +78,7 @@ export class CloutRelay {
       content: postPackage.content,
       author: postPackage.author,
       signature: postPackage.signature,
+      signatureTimestamp: postPackage.signatureTimestamp,
       proof,
       ephemeralPublicKey: postPackage.ephemeralPublicKey,
       ephemeralKeyProof: postPackage.ephemeralKeyProof,

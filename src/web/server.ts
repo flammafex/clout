@@ -63,6 +63,8 @@ export class CloutWebServer {
   private invitationCodeToSignature: Map<string, string> = new Map();
   // Track invitation codes that have been used (prevent double-spending)
   private usedInvitationCodes: Set<string> = new Set();
+  // Pending claims reserved during /invitation/redeem, consumed on successful /daypass/mint
+  private pendingInvitationClaims: Map<string, { publicKey: string; signature: string; claimedAt: number }> = new Map();
   // Freebird adapter for browser VOPRF proxy
   private freebirdAdapter?: FreebirdAdapter;
   // File system store for quota tracking
@@ -205,6 +207,9 @@ export class CloutWebServer {
   };
   private setUserTicket = async (publicKey: string, ticket: any): Promise<void> => {
     await this.userDataStore.setTicket(publicKey, ticket);
+  };
+  private clearUserTicket = async (publicKey: string): Promise<void> => {
+    await this.userDataStore.clearTicket(publicKey);
   };
 
   /**
@@ -472,12 +477,29 @@ export class CloutWebServer {
           });
         }
 
+        if (!publicKey || typeof publicKey !== 'string' || !Crypto.isValidPublicKeyHex(publicKey)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Valid publicKey is required'
+          });
+        }
+
         // Check if this invitation code has already been used
         if (this.usedInvitationCodes.has(code)) {
           console.warn(`[Server] Invitation ${code.slice(0, 8)}... already used, rejecting`);
           return res.status(400).json({
             success: false,
             error: 'This invitation code has already been used'
+          });
+        }
+
+        // Enforce a single pending claimant per invitation code
+        this.cleanupExpiredPendingInvitationClaims();
+        const existingClaim = this.pendingInvitationClaims.get(code);
+        if (existingClaim && existingClaim.publicKey !== publicKey) {
+          return res.status(409).json({
+            success: false,
+            error: 'This invitation code is currently being redeemed by another user'
           });
         }
 
@@ -496,49 +518,27 @@ export class CloutWebServer {
           console.warn(`[Server] No signature found for invitation code ${code.slice(0, 8)}...`);
         }
 
-        // Mark the invitation as used BEFORE sending to Freebird (prevent race conditions)
-        this.usedInvitationCodes.add(code);
-        this.saveUsedInvitationCode(code, publicKey);
-        console.log(`[Server] Invitation ${code.slice(0, 8)}... claimed by ${publicKey?.slice(0, 16) || 'unknown'}...`);
+        if (!signature) {
+          return res.status(400).json({
+            success: false,
+            error: 'Invitation signature is missing for this code'
+          });
+        }
 
-        // Store the invitation code and signature in the Freebird adapter
-        infra.freebird.setInvitationCode(code, signature);
+        this.pendingInvitationClaims.set(code, {
+          publicKey,
+          signature,
+          claimedAt: Date.now()
+        });
+        console.log(`[Server] Invitation ${code.slice(0, 8)}... reserved by ${publicKey.slice(0, 16)}...`);
 
         // Get the inviter for this code (for response)
         const inviterKey = this.invitationCodeToInviter.get(code);
 
-        // Mark the invitation as redeemed in persistent store if we have the public key
-        if (publicKey && this.store) {
-          this.store.markInvitationRedeemed(code, publicKey);
-        }
-
-        // If no owner is set yet and this is a bootstrap invitation, set the redeemer as owner
-        // Bootstrap invitations are the ones stored in invitationCodeToInviter (from invitations.json)
-        const isBootstrapInvitation = this.invitationCodeToInviter.has(code);
-        if (isBootstrapInvitation && publicKey && !this.ownerPublicKey) {
-          this.setOwnerPublicKey(publicKey);
-        }
-
-        // Auto-trust: Add the inviter to the new user's trust graph
-        // This creates an initial social connection and lets the new user see their inviter's posts
-        // Skip for bootstrap invitations where inviter is the server's Self identity (not a real user)
-        const serverIdentity = this.identityManager.getIdentity()?.publicKey;
-        const isBootstrapInviter = inviterKey === serverIdentity;
-
-        if (publicKey && inviterKey && publicKey !== inviterKey && !isBootstrapInviter) {
-          try {
-            await this.userDataStore.trust(publicKey, inviterKey);
-            console.log(`[Server] 🤝 Auto-trusted inviter ${inviterKey.slice(0, 8)}... for new user ${publicKey.slice(0, 8)}...`);
-          } catch (trustError: any) {
-            // Non-fatal: log but don't fail the redemption
-            console.warn(`[Server] Failed to auto-trust inviter: ${trustError.message}`);
-          }
-        }
-
         res.json({
           success: true,
           data: {
-            message: 'Invitation code set successfully',
+            message: 'Invitation code accepted. Complete Day Pass mint to finalize redemption.',
             inviter: inviterKey || null
           }
         });
@@ -622,11 +622,18 @@ export class CloutWebServer {
       isInitialized: this.isInitialized,
       getUserTicket: this.getUserTicket,
       setUserTicket: this.setUserTicket,
+      clearUserTicket: this.clearUserTicket,
       // Check if user is registered with Freebird (can renew Day Pass without invitation)
       isUserRegistered: async (publicKey: string) => {
         return this.userDataStore.isFreebirdRegistered(publicKey);
       },
-      getOwnerPublicKey: this.getOwnerPublicKey
+      setUserRegistered: async (publicKey: string, registered: boolean) => {
+        await this.userDataStore.setFreebirdRegistered(publicKey, registered);
+      },
+      getOwnerPublicKey: this.getOwnerPublicKey,
+      consumeInvitationCode: async (code: string, publicKey: string) => {
+        return this.consumeInvitationCode(code, publicKey);
+      }
     }));
 
     // Mount Freebird proxy routes (for browser VOPRF blinding)
@@ -641,7 +648,11 @@ export class CloutWebServer {
       // Mark user as registered with Freebird after successful token issuance
       setUserRegistered: async (publicKey: string, registered: boolean) => {
         await this.userDataStore.setFreebirdRegistered(publicKey, registered);
-      }
+      },
+      getReservedInvitationSignature: async (code: string, publicKey: string) => {
+        return this.getReservedInvitationSignature(code, publicKey);
+      },
+      getOwnerPublicKey: this.getOwnerPublicKey
     }));
 
     // Mount admin routes for invitation quota management
@@ -878,6 +889,83 @@ export class CloutWebServer {
     } catch (error: any) {
       console.error(`[Bootstrap] Error loading invitations.json: ${error.message}`);
     }
+  }
+
+  /**
+   * Remove stale pending invitation claims
+   */
+  private cleanupExpiredPendingInvitationClaims(): void {
+    const now = Date.now();
+    const maxPendingMs = 15 * 60 * 1000; // 15 minutes
+
+    for (const [code, claim] of this.pendingInvitationClaims.entries()) {
+      if (now - claim.claimedAt > maxPendingMs) {
+        this.pendingInvitationClaims.delete(code);
+      }
+    }
+  }
+
+  /**
+   * Get invitation signature only if the code is reserved for this user.
+   */
+  private getReservedInvitationSignature(code: string, publicKey: string): string | null {
+    this.cleanupExpiredPendingInvitationClaims();
+    const claim = this.pendingInvitationClaims.get(code);
+    if (!claim || claim.publicKey !== publicKey) {
+      return null;
+    }
+    return claim.signature;
+  }
+
+  /**
+   * Consume an invitation code after successful token issuance + Day Pass mint.
+   * This is the final redemption step that prevents code burn on failed onboarding.
+   */
+  private async consumeInvitationCode(code: string, redeemerPublicKey: string): Promise<boolean> {
+    if (!code || !redeemerPublicKey) {
+      return false;
+    }
+
+    if (this.usedInvitationCodes.has(code)) {
+      return false;
+    }
+
+    this.cleanupExpiredPendingInvitationClaims();
+    const claim = this.pendingInvitationClaims.get(code);
+    if (!claim || claim.publicKey !== redeemerPublicKey) {
+      return false;
+    }
+
+    this.usedInvitationCodes.add(code);
+    this.pendingInvitationClaims.delete(code);
+    this.saveUsedInvitationCode(code, redeemerPublicKey);
+    console.log(`[Server] Invitation ${code.slice(0, 8)}... finalized by ${redeemerPublicKey.slice(0, 16)}...`);
+
+    if (this.store) {
+      this.store.markInvitationRedeemed(code, redeemerPublicKey);
+    }
+
+    // If no owner is set yet and this is a bootstrap invitation, set the redeemer as owner
+    const isBootstrapInvitation = this.invitationCodeToInviter.has(code);
+    if (isBootstrapInvitation && !this.ownerPublicKey) {
+      this.setOwnerPublicKey(redeemerPublicKey);
+    }
+
+    // Auto-trust inviter after successful redemption
+    const inviterKey = this.invitationCodeToInviter.get(code);
+    const serverIdentity = this.identityManager.getIdentity()?.publicKey;
+    const isBootstrapInviter = inviterKey === serverIdentity;
+
+    if (inviterKey && redeemerPublicKey !== inviterKey && !isBootstrapInviter) {
+      try {
+        await this.userDataStore.trust(redeemerPublicKey, inviterKey);
+        console.log(`[Server] 🤝 Auto-trusted inviter ${inviterKey.slice(0, 8)}... for new user ${redeemerPublicKey.slice(0, 8)}...`);
+      } catch (trustError: any) {
+        console.warn(`[Server] Failed to auto-trust inviter: ${trustError.message}`);
+      }
+    }
+
+    return true;
   }
 
   /**
