@@ -20,6 +20,7 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import { Crypto } from '../../crypto.js';
 import type { FreebirdAdapter, FreebirdSybilProof } from '../../integrations/freebird.js';
+import { createFreebirdAdminFromEnv } from '../../integrations/freebird-admin.js';
 import { getBrowserUserPublicKey, validateSignature } from './validation.js';
 
 export interface FreebirdProxyConfig {
@@ -37,6 +38,18 @@ export interface FreebirdProxyConfig {
    * Called after successful token issuance
    */
   setUserRegistered?: (publicKey: string, registered: boolean) => Promise<void>;
+  /**
+   * Get stored Freebird user ID (invitee_id) for a Clout public key.
+   */
+  getFreebirdUserId?: (publicKey: string) => Promise<string | undefined>;
+  /**
+   * Persist Freebird user ID (invitee_id) for a Clout public key.
+   */
+  setFreebirdUserId?: (publicKey: string, freebirdUserId: string) => Promise<void>;
+  /**
+   * Resolve a user's redeemed invitation code for legacy backfill.
+   */
+  getRedeemedInvitationCode?: (publicKey: string) => Promise<string | null>;
   /**
    * Resolve invitation signature for a reserved invitation claim.
    * Must only return a signature for the same (code, publicKey) claim.
@@ -97,6 +110,9 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
     isInitialized,
     isUserRegistered,
     setUserRegistered,
+    getFreebirdUserId,
+    setFreebirdUserId,
+    getRedeemedInvitationCode,
     getReservedInvitationSignature,
     getOwnerPublicKey
   } = config;
@@ -140,7 +156,6 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
         data: {
           issuer_id: metadata.issuer_id,
           pubkey: metadata.voprf?.pubkey,
-          epoch: metadata.epoch,
           sybil_mode: metadata.sybil?.mode || 'unknown'
         }
       });
@@ -208,6 +223,8 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
       }
 
       let sybilProof: FreebirdSybilProof | undefined;
+      let invitationCodeUsed: string | undefined;
+      let issuedForPublicKey: string | undefined;
 
       // Request-scoped proof selection to avoid global adapter state mutation.
       if (invitation_code && typeof invitation_code === 'string') {
@@ -236,13 +253,97 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
           code: invitation_code,
           signature
         };
+        invitationCodeUsed = invitation_code;
+        issuedForPublicKey = user_public_key;
       } else if (user_public_key && isUserRegistered && currentMode === 'invitation') {
         const registered = await isUserRegistered(user_public_key);
         if (registered) {
-          console.log(`[FreebirdProxy] User ${user_public_key.slice(0, 8)}... is registered, using registered mode`);
+          let freebirdUserId = getFreebirdUserId
+            ? await getFreebirdUserId(user_public_key)
+            : undefined;
+          const freebirdAdmin = createFreebirdAdminFromEnv();
+
+          // Backfill/repair missing mapping for legacy users.
+          if (!freebirdUserId && freebirdAdmin) {
+            try {
+              // Owner path: owner user_id equals public key in Freebird.
+              const ownerUser = await freebirdAdmin.getUser(user_public_key);
+              if (ownerUser) {
+                freebirdUserId = user_public_key;
+              }
+
+              // Legacy invitee path: recover invitee_id via redeemed invitation code.
+              if (!freebirdUserId && getRedeemedInvitationCode) {
+                const redeemedCode = await getRedeemedInvitationCode(user_public_key);
+                if (redeemedCode) {
+                  const details = await freebirdAdmin.getInvitationByCode(redeemedCode);
+                  if (details?.invitee_id) {
+                    freebirdUserId = details.invitee_id;
+                  }
+                }
+              }
+            } catch (syncError: any) {
+              console.warn(`[FreebirdProxy] Failed to backfill Freebird user ID: ${syncError.message}`);
+            }
+          }
+
+          // Owner mapping fallback: owner user_id is the owner public key.
+          if (!freebirdUserId) {
+            const ownerKey = getOwnerPublicKey?.();
+            if (ownerKey && ownerKey === user_public_key) {
+              freebirdUserId = user_public_key;
+            }
+          }
+
+          if (freebirdUserId && setFreebirdUserId) {
+            await setFreebirdUserId(user_public_key, freebirdUserId);
+          }
+
+          if (!freebirdUserId) {
+            console.warn(
+              `[FreebirdProxy] Registered flag set but no Freebird user mapping for ${user_public_key.slice(0, 8)}...`
+            );
+            if (setUserRegistered) {
+              await setUserRegistered(user_public_key, false);
+            }
+            return res.status(401).json({
+              success: false,
+              error: 'Invitation required: missing Freebird user mapping',
+              code: 'INVITATION_REQUIRED'
+            });
+          }
+
+          // Local "registered" state can drift from Freebird's users table if
+          // data was restored/reset. Confirm mapped user exists.
+          if (freebirdAdmin) {
+            try {
+              const freebirdUser = await freebirdAdmin.getUser(freebirdUserId);
+              if (!freebirdUser) {
+                console.warn(
+                  `[FreebirdProxy] Freebird user ${freebirdUserId.slice(0, 12)}... not found for ` +
+                  `${user_public_key.slice(0, 8)}...; requiring invitation proof`
+                );
+                if (setUserRegistered) {
+                  await setUserRegistered(user_public_key, false);
+                }
+                return res.status(401).json({
+                  success: false,
+                  error: 'Invitation required: user is not registered in Freebird',
+                  code: 'INVITATION_REQUIRED'
+                });
+              }
+            } catch (syncError: any) {
+              console.warn(`[FreebirdProxy] Failed to confirm Freebird registered user state: ${syncError.message}`);
+            }
+          }
+
+          console.log(
+            `[FreebirdProxy] User ${user_public_key.slice(0, 8)}... is registered, ` +
+            `using Freebird user ${freebirdUserId.slice(0, 12)}...`
+          );
           sybilProof = {
             type: 'registered_user',
-            user_id: user_public_key
+            user_id: freebirdUserId
           };
         }
       }
@@ -251,6 +352,22 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
       const tokenBytes = sybilProof
         ? await adapter.issueTokenWithSybilProof(blindedBytes, sybilProof)
         : await adapter.issueToken(blindedBytes);
+
+      // Best-effort mapping capture: after invitation-backed issuance succeeds,
+      // resolve invitee_id and persist it for future registered renewals.
+      if (invitationCodeUsed && issuedForPublicKey && setFreebirdUserId) {
+        const freebirdAdmin = createFreebirdAdminFromEnv();
+        if (freebirdAdmin) {
+          try {
+            const details = await freebirdAdmin.getInvitationByCode(invitationCodeUsed);
+            if (details?.invitee_id) {
+              await setFreebirdUserId(issuedForPublicKey, details.invitee_id);
+            }
+          } catch (mapError: any) {
+            console.warn(`[FreebirdProxy] Failed to persist Freebird user mapping: ${mapError.message}`);
+          }
+        }
+      }
 
       // Registration is finalized only after successful /daypass/mint.
       // Do not mark users as registered at token issuance time.

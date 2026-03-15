@@ -11,9 +11,8 @@
 import { Crypto } from '../crypto.js';
 import type { FreebirdClient, PublicKey, TorConfig, FreebirdToken } from '../types.js';
 import * as voprf from '../vendor/freebird/voprf.js';
-import type { BlindState, PartialEvaluation } from '../vendor/freebird/voprf.js';
+import type { BlindState } from '../vendor/freebird/voprf.js';
 import { TorProxy } from '../tor.js';
-import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 
@@ -625,7 +624,7 @@ export class FreebirdAdapter implements FreebirdClient {
         const issuePromises = this.issuerEndpoints.map(async (url, index) => {
           const metadata = this.metadata.get(url);
           if (!metadata) {
-            return { success: false, url, index };
+            return { success: false as const, url, index };
           }
 
           try {
@@ -641,110 +640,58 @@ export class FreebirdAdapter implements FreebirdClient {
             if (!response.ok) {
               const errorText = await response.text();
               console.warn(`[Freebird] Token issuance failed from ${url}: ${response.status} - ${errorText}`);
-              return { success: false, url, index };
+              return { success: false as const, url, index };
             }
 
             const data = await response.json();
 
-            // Extract evaluated point from token response
-            // Token format v1: [ Version (1) | A (65 uncompressed) | B (65 uncompressed) | Proof (64) ] = 195 bytes
-            // Token format v0: [ A (33 compressed) | B (33 compressed) | Proof (64) ] = 130 bytes
+            // For single-issuer with state: use voprf.finalize() directly
+            // For MPC: need per-partial DLEQ verification + aggregation
             const tokenBytes = this.base64UrlToBytes(data.token);
 
-            let A_bytes: Uint8Array;
+            // Parse evaluated point for MPC aggregation
             let B_bytes: Uint8Array;
-            let proofBytes: Uint8Array;
-
             if (tokenBytes.length === 195 && tokenBytes[0] === 0x01) {
-              // V1 format: version byte + points + proof
-              // Check if points are compressed (0x02/0x03) or uncompressed (0x04)
               const pointPrefix = tokenBytes[1];
-              if (pointPrefix === 0x04) {
-                // Uncompressed points (65 bytes each)
-                A_bytes = tokenBytes.slice(1, 66);
-                B_bytes = tokenBytes.slice(66, 131);
-                proofBytes = tokenBytes.slice(131);
-              } else if (pointPrefix === 0x02 || pointPrefix === 0x03) {
-                // Compressed points (33 bytes each) with extra data
-                // Format: version(1) + A(33) + B(33) + proof(64) + extra(64) = 195
-                A_bytes = tokenBytes.slice(1, 34);
+              if (pointPrefix === 0x02 || pointPrefix === 0x03) {
                 B_bytes = tokenBytes.slice(34, 67);
-                proofBytes = tokenBytes.slice(67, 131);
-                // Ignore extra 64 bytes at end (might be key ID or epoch data)
+              } else if (pointPrefix === 0x04) {
+                B_bytes = tokenBytes.slice(66, 131);
               } else {
                 console.warn(`[Freebird] Unknown point prefix: 0x${pointPrefix.toString(16)}`);
-                return { success: false, url, index };
+                return { success: false as const, url, index };
               }
+            } else if (tokenBytes.length === 131 && tokenBytes[0] === 0x01) {
+              B_bytes = tokenBytes.slice(34, 67);
             } else if (tokenBytes.length === 130) {
-              // Legacy format: compressed points
-              A_bytes = tokenBytes.slice(0, 33);
               B_bytes = tokenBytes.slice(33, 66);
-              proofBytes = tokenBytes.slice(66);
             } else {
-              console.warn(`[Freebird] Invalid token length from ${url}: got ${tokenBytes.length}, expected 130 or 195`);
-              console.warn(`[Freebird] Response data:`, JSON.stringify(data, null, 2));
-              return { success: false, url, index };
+              console.warn(`[Freebird] Invalid token length from ${url}: got ${tokenBytes.length}`);
+              return { success: false as const, url, index };
             }
 
-            // Verify DLEQ proof
-            const G = p256.ProjectivePoint.BASE;
-            const Q = this.decodePublicKey(metadata.voprf.pubkey);
-            const A = this.decodePoint(A_bytes);
-            const B = this.decodePoint(B_bytes);
-
-            // Verify DLEQ proof if provided (some issuers may skip proof in dev mode)
-            const isAllZeros = proofBytes.every(b => b === 0);
-            if (isAllZeros) {
-              console.warn(`[Freebird] No DLEQ proof from ${url} (dev mode?), skipping verification`);
-            } else {
-              const isValid = voprf.verifyDleq(G, Q, A, B, proofBytes, this.context);
-              if (!isValid) {
-                console.warn(`[Freebird] Invalid DLEQ proof from ${url}`);
-                return { success: false, url, index };
-              }
-            }
-
-            // Use server's index if provided, otherwise use endpoint index (1-based)
             const serverIndex = data.index ?? (index + 1);
 
-            // Determine if points are compressed based on prefix
-            const isCompressed = A_bytes.length === 33;
-
             return {
-              success: true,
+              success: true as const,
               url,
               index: serverIndex,
               evaluatedPoint: B_bytes,
-              blindedElement: A_bytes,
-              fullToken: tokenBytes,
-              isV1Format: tokenBytes.length === 195,
-              isCompressed,
-              // Capture metadata for Witness integration
-              exp: data.exp as number,
-              issuerId: metadata.issuer_id as string,
-              epoch: metadata.epoch ?? Math.floor(Date.now() / 1000 / 86400) // Days since epoch
+              tokenB64: data.token as string,
+              sig: data.sig as string | undefined,
+              kid: (data.kid ?? metadata.voprf.kid) as string,
+              exp: (data.exp ?? Math.floor(Date.now() / 1000) + 3600) as number,
+              issuerId: (data.issuer_id ?? metadata.issuer_id ?? '') as string,
+              pubkey: metadata.voprf.pubkey as string,
             };
           } catch (error) {
             console.warn(`[Freebird] Request to ${url} failed:`, error);
-            return { success: false, url, index };
+            return { success: false as const, url, index };
           }
         });
 
         const results = await Promise.all(issuePromises);
-        type ValidResponse = {
-          success: true;
-          url: string;
-          index: number;
-          evaluatedPoint: Uint8Array;
-          blindedElement: Uint8Array;
-          fullToken: Uint8Array;
-          isV1Format: boolean;
-          isCompressed: boolean;
-          exp: number;
-          issuerId: string;
-          epoch: number;
-        };
-        const validResponses = results.filter(r => r.success) as ValidResponse[];
+        const validResponses = results.filter(r => r.success === true);
 
         if (validResponses.length === 0) {
           throw new Error('No valid responses from any issuer');
@@ -770,73 +717,89 @@ export class FreebirdAdapter implements FreebirdClient {
           this.blindStates.delete(blindedHex);
         }
 
-        // Single issuer: return token directly (backward compatibility)
+        const firstResp = validResponses[0];
+
+        // Single issuer: use voprf.finalize() for DLEQ verification + unblinding
         if (this.issuerEndpoints.length === 1 && validResponses.length === 1) {
           const resp = validResponses[0];
-          // Store token info for Witness integration
-          this.lastTokenInfo = {
-            token_b64: voprf.bytesToBase64Url(resp.fullToken),
-            issuer_id: resp.issuerId,
-            exp: resp.exp,
-            epoch: resp.epoch
-          };
-          console.log('[Freebird] ✅ VOPRF token issued and verified (single issuer)');
-          return resp.fullToken;
+
+          if (state) {
+            // Full flow: verify DLEQ, unblind, build V3 redemption token
+            let output: Uint8Array;
+            try {
+              output = voprf.finalize(state, resp.tokenB64, resp.pubkey, this.context);
+            } catch (e) {
+              throw new Error(`[Freebird] DLEQ verification/unblinding failed: ${e}`);
+            }
+
+            const sig = resp.sig ? this.base64UrlToBytes(resp.sig) : new Uint8Array(64);
+            const redemptionToken = voprf.buildRedemptionToken(
+              output, resp.kid, BigInt(resp.exp), resp.issuerId, sig
+            );
+
+            this.lastTokenInfo = {
+              token_b64: voprf.bytesToBase64Url(redemptionToken),
+              issuer_id: resp.issuerId,
+              exp: resp.exp,
+            };
+            console.log('[Freebird] ✅ VOPRF token issued, verified, and unblinded (single issuer)');
+            return redemptionToken;
+          } else {
+            // Proxy mode: return raw token (browser handles finalization)
+            const tokenBytes = this.base64UrlToBytes(resp.tokenB64);
+            this.lastTokenInfo = {
+              token_b64: resp.tokenB64,
+              issuer_id: resp.issuerId,
+              exp: resp.exp,
+            };
+            console.log('[Freebird] ✅ VOPRF token issued (proxy mode, single issuer)');
+            return tokenBytes;
+          }
         }
 
         // Multiple issuers: aggregate partial evaluations
-        const partials: PartialEvaluation[] = validResponses.map(r => ({
+        const partials = validResponses.map(r => ({
           index: r.index,
           value: r.evaluatedPoint
         }));
 
         const aggregatedPoint = voprf.aggregate(partials);
-        const zeroProof = new Uint8Array(64); // Placeholder proof
 
-        // Reconstruct token with aggregated evaluation using same format as received
-        const isV1 = validResponses[0].isV1Format;
-        const isCompressed = validResponses[0].isCompressed;
-        const A_bytes = validResponses[0].blindedElement;
+        if (state) {
+          // Full flow: unblind aggregated point, build V3 redemption token
+          const output = voprf.computePrfOutput(state, aggregatedPoint, this.context);
+          const sig = firstResp.sig ? this.base64UrlToBytes(firstResp.sig) : new Uint8Array(64);
+          const redemptionToken = voprf.buildRedemptionToken(
+            output, firstResp.kid, BigInt(firstResp.exp), firstResp.issuerId, sig
+          );
 
-        let aggregatedToken: Uint8Array;
-        if (isV1 && isCompressed) {
-          // V1 Format with compressed points: [ Version (1) | A (33) | B (33) | Proof (64) | Extra (64) ] = 195 bytes
-          aggregatedToken = new Uint8Array(195);
-          aggregatedToken[0] = 0x01;
-          aggregatedToken.set(A_bytes, 1);
-          aggregatedToken.set(aggregatedPoint, 34);
-          aggregatedToken.set(zeroProof, 67);
-          // Extra 64 bytes remain zeros
-        } else if (isV1) {
-          // V1 Format with uncompressed: [ Version (1) | A (65) | B (65) | Proof (64) ] = 195 bytes
-          aggregatedToken = new Uint8Array(195);
-          aggregatedToken[0] = 0x01;
-          aggregatedToken.set(A_bytes, 1);
-          aggregatedToken.set(aggregatedPoint, 66);
-          aggregatedToken.set(zeroProof, 131);
+          this.lastTokenInfo = {
+            token_b64: voprf.bytesToBase64Url(redemptionToken),
+            issuer_id: firstResp.issuerId,
+            exp: firstResp.exp,
+          };
+
+          console.log(
+            `[Freebird] ✅ MPC token issued, aggregated, and unblinded ` +
+            `(${validResponses.length}/${this.issuerEndpoints.length} issuers)`
+          );
+
+          return redemptionToken;
         } else {
-          // Legacy Format: [ A (33) | B (33) | Proof (64) ] = 130 bytes
-          aggregatedToken = new Uint8Array(130);
-          aggregatedToken.set(A_bytes, 0);
-          aggregatedToken.set(aggregatedPoint, 33);
-          aggregatedToken.set(zeroProof, 66);
+          // Proxy mode: return aggregated raw token (browser handles finalization)
+          this.lastTokenInfo = {
+            token_b64: voprf.bytesToBase64Url(aggregatedPoint),
+            issuer_id: firstResp.issuerId,
+            exp: firstResp.exp,
+          };
+
+          console.log(
+            `[Freebird] ✅ MPC token aggregated ` +
+            `(${validResponses.length}/${this.issuerEndpoints.length} issuers, proxy mode)`
+          );
+
+          return aggregatedPoint;
         }
-
-        // Store token info for Witness integration (use first valid response's metadata)
-        const firstResp = validResponses[0];
-        this.lastTokenInfo = {
-          token_b64: voprf.bytesToBase64Url(aggregatedToken),
-          issuer_id: firstResp.issuerId,
-          exp: firstResp.exp,
-          epoch: firstResp.epoch
-        };
-
-        console.log(
-          `[Freebird] ✅ MPC token issued and aggregated ` +
-          `(${validResponses.length}/${this.issuerEndpoints.length} issuers)`
-        );
-
-        return aggregatedToken;
       } catch (error) {
         // Re-throw errors from threshold check or other security failures
         if (state) {
@@ -863,20 +826,6 @@ export class FreebirdAdapter implements FreebirdClient {
   }
 
   /**
-   * Helper to decode a point from compressed bytes
-   */
-  private decodePoint(bytes: Uint8Array): any {
-    return p256.ProjectivePoint.fromHex(bytesToHex(bytes));
-  }
-
-  /**
-   * Helper to decode public key from base64url
-   */
-  private decodePublicKey(pubkeyB64: string): any {
-    return this.decodePoint(this.base64UrlToBytes(pubkeyB64));
-  }
-
-  /**
    * Verify an authorization token
    *
    * Current: Basic validation
@@ -887,19 +836,13 @@ export class FreebirdAdapter implements FreebirdClient {
 
     // Attempt real verification if verifier is available
     if (this.metadata.size > 0 && this.verifierUrl) {
-      // Use first issuer's metadata for verification
-      const firstMetadata = Array.from(this.metadata.values())[0];
-
       try {
+        // V3 tokens are self-contained — verifier only needs the token itself
         const response = await this.fetch(`${this.verifierUrl}/v1/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             token_b64: voprf.bytesToBase64Url(token),
-            issuer_id: firstMetadata.issuer_id,
-            exp: Math.floor(Date.now() / 1000) + 3600,
-            // Epoch is days since Unix epoch (matches Freebird's epoch_duration_sec = 86400)
-            epoch: firstMetadata.epoch ?? Math.floor(Date.now() / 1000 / 86400)
           })
         });
 
@@ -915,7 +858,13 @@ export class FreebirdAdapter implements FreebirdClient {
 
     // Local verification based on token format
     if (token.length === 195 && token[0] === 0x01) {
-      // V1 VOPRF token format (uncompressed points)
+      // V2 signed VOPRF token format
+      console.warn('[Freebird] Using local format validation (server unavailable)');
+      return true;
+    }
+
+    if (token.length === 131 && token[0] === 0x01) {
+      // V1 raw VOPRF token format (versioned, compressed points)
       console.warn('[Freebird] Using local format validation (server unavailable)');
       return true;
     }
@@ -944,7 +893,7 @@ export class FreebirdAdapter implements FreebirdClient {
     }
 
     // Unknown token format
-    console.error(`[Freebird] Invalid token length: ${token.length} (expected 195, 130, or 32)`);
+    console.error(`[Freebird] Invalid token length: ${token.length} (expected 195, 131, 130, or 32)`);
     return false;
   }
 

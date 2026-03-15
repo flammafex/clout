@@ -160,14 +160,12 @@ export interface FreebirdClient {
  * Freebird token for Sybil resistance in Witness requests
  */
 export interface FreebirdToken {
-  /** Base64url-encoded VOPRF token */
+  /** Base64url-encoded V3 redemption token (self-contained) */
   token_b64: string;
   /** Issuer ID that created this token */
   issuer_id: string;
   /** Token expiration (Unix timestamp in seconds) */
   exp: number;
-  /** Epoch used for MAC key derivation */
-  epoch: number;
 }
 
 export interface WitnessClient {

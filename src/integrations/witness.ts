@@ -287,11 +287,9 @@ export class WitnessAdapter implements WitnessClient {
       }
       if (freebirdToken) {
         // Include Freebird token for Sybil resistance
+        // V3 tokens are self-contained — verifier only needs the token itself
         requestBody.freebird_token = {
           token_b64: freebirdToken.token_b64,
-          issuer_id: freebirdToken.issuer_id,
-          exp: freebirdToken.exp,
-          epoch: freebirdToken.epoch,
         };
       }
 
