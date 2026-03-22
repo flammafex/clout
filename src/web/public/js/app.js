@@ -123,15 +123,7 @@ function setupMobileMoreSheet() {
 }
 
 function setupMobileHeaderBehavior() {
-  const instanceInfo = $('instance-info');
-  if (instanceInfo) {
-    instanceInfo.addEventListener('click', () => {
-      if (window.innerWidth <= 768) {
-        instanceInfo.classList.toggle('expanded');
-      }
-    });
-  }
-
+  // instance-info click handler removed (header gone)
   let lastY = window.scrollY;
   window.addEventListener('scroll', () => {
     if (window.innerWidth > 768) return;
@@ -229,10 +221,7 @@ async function updateBrowserDayPassTimer() {
 async function loadInstanceInfo() {
   try {
     const result = await apiCall('/instance');
-    if (result.operator) {
-      $('instance-operator-text').textContent = `This instance is run by ${result.operator}`;
-      $('instance-info').style.display = 'block';
-    }
+    // Instance info stored for internal use; header is removed
   } catch (error) {
     console.warn('[App] Could not load instance info:', error.message);
   }
@@ -526,27 +515,22 @@ function updateTabVisibility(isVisitor) {
 
   memberOnlyTabs.forEach(tabName => {
     const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
-    if (tabBtn) {
-      tabBtn.style.display = isVisitor ? 'none' : '';
-    }
+    if (tabBtn) tabBtn.style.display = isVisitor ? 'none' : '';
   });
 
-  // Owner tab is always visible
-  const ownerBtn = document.querySelector('.tab-btn[data-tab="owner"]');
-  if (ownerBtn) {
-    ownerBtn.style.display = '';
-  }
+  // Hide compose elements for visitors
+  const composeFab = $('compose-fab-btn');
+  if (composeFab) composeFab.style.display = isVisitor ? 'none' : '';
 
-  // Hide feed filters and search bar for visitors
-  const feedFilters = $('feed-filters-container');
-  const searchBar = $('search-bar-container');
+  const inlineCompose = $('inline-compose');
+  if (inlineCompose) inlineCompose.style.display = isVisitor ? 'none' : '';
 
-  if (feedFilters) {
-    feedFilters.style.display = isVisitor ? 'none' : '';
-  }
-  if (searchBar) {
-    searchBar.style.display = isVisitor ? 'none' : '';
-  }
+  // Hide sidebar search and inline search fallback for visitors
+  const sidebarSearch = document.querySelector('.sidebar-search');
+  if (sidebarSearch) sidebarSearch.style.display = isVisitor ? 'none' : '';
+
+  const inlineSearchFallback = document.querySelector('.inline-search-fallback');
+  if (inlineSearchFallback) inlineSearchFallback.style.display = isVisitor ? 'none' : '';
 }
 
 /**
