@@ -921,6 +921,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Inline search fallback (visible at 769-1200px)
+  $('inline-search-fallback')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      const query = $('inline-search-fallback').value;
+      $('sidebar-search').value = query;
+      switchToTab('feed');
+      searchPosts();
+    }
+  });
+
   // Inline compose
   const inlineInput = $('inline-compose-input');
   const inlineExpanded = $('inline-compose-expanded');

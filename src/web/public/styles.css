@@ -4405,13 +4405,57 @@ body.offline .btn-action::after {
   display: none;
 }
 
-@media (max-width: 1200px) {
-  .rail-logo {
-    width: min(150px, 100%);
+@media (max-width: 1200px) and (min-width: 769px) {
+  .app-shell {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .app-rail-right {
+    display: none;
+  }
+
+  .inline-search-fallback {
+    display: flex !important;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .inline-search-fallback .input {
+    flex: 1;
+    font-size: 0.85rem;
+    border-radius: 999px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 0.4rem 0.75rem;
   }
 }
 
 @media (max-width: 768px) {
+  .app-rail-right {
+    display: none;
+  }
+
+  .inline-compose {
+    display: none;
+  }
+
+  .compose-fab {
+    display: none; /* mobile uses existing mobile-compose-fab */
+  }
+
+  .feed-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .feed-sort-row {
+    flex-wrap: wrap;
+  }
+
+  .inline-search-fallback {
+    display: none !important;
+  }
+
   .app-header {
     margin-bottom: 1rem;
     padding-bottom: 0.8rem;

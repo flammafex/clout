@@ -872,6 +872,7 @@ export async function searchPosts() {
 export function clearSearch() {
   state.setCurrentSearchQuery('');
   $('sidebar-search').value = '';
+  if ($('inline-search-fallback')) $('inline-search-fallback').value = '';
   loadFeed();
 }
 
