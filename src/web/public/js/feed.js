@@ -397,7 +397,7 @@ export async function loadFeed(append = false) {
           <p>Posts from people in your trust circle will appear here.</p>
           <div class="empty-actions">
             <button class="btn btn-primary" onclick="window.cloutApp.switchToTab('trust')">Add Someone to Trust</button>
-            <button class="btn btn-secondary" onclick="window.cloutApp.switchToTab('post')">Write Your First Post</button>
+            <button class="btn btn-secondary" onclick="window.cloutApp.openComposeModal()">Write Your First Post</button>
           </div>
         </div>
       `;
@@ -570,7 +570,7 @@ export async function loadVisitorFeed() {
           <p>Posts from people in your trust circle will appear here.</p>
           <div class="empty-actions">
             <button class="btn btn-primary" onclick="window.cloutApp.switchToTab('trust')">Add Someone to Trust</button>
-            <button class="btn btn-secondary" onclick="window.cloutApp.switchToTab('post')">Write Your First Post</button>
+            <button class="btn btn-secondary" onclick="window.cloutApp.openComposeModal()">Write Your First Post</button>
           </div>
         </div>
       `;

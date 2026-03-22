@@ -682,6 +682,40 @@ function waitForModules() {
 }
 
 // =========================================================================
+// Compose Modal
+// =========================================================================
+
+function openComposeModal(draftText = '') {
+  if (!requireMembership()) return;
+  const modal = $('compose-modal');
+  const body = $('compose-modal-body');
+  const postTabSection = $('post-tab').querySelector('.section');
+
+  // MOVE (not clone) the post-tab section into the modal to avoid duplicate IDs
+  body.appendChild(postTabSection);
+
+  if (draftText) {
+    const textarea = $('post-content');
+    if (textarea) textarea.value = draftText;
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeComposeModal() {
+  const modal = $('compose-modal');
+  const body = $('compose-modal-body');
+  const postTabSection = body.querySelector('.section');
+
+  // Move the section back to #post-tab
+  if (postTabSection) {
+    $('post-tab').appendChild(postTabSection);
+  }
+
+  modal.style.display = 'none';
+}
+
+// =========================================================================
 // Export global API for onclick handlers
 // =========================================================================
 
@@ -796,7 +830,10 @@ window.cloutApp = {
   loadAdminInvitations,
 
   // Notifications
-  loadNewPosts
+  loadNewPosts,
+
+  // Compose Modal
+  openComposeModal
 };
 
 // Also export for legacy window.function() calls
@@ -925,6 +962,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (e) {
       showResult('feed-result', e.message, false);
     }
+  });
+
+  // Compose modal
+  $('compose-fab-btn')?.addEventListener('click', () => openComposeModal());
+  $('compose-modal-close')?.addEventListener('click', closeComposeModal);
+  $('compose-modal')?.addEventListener('click', (e) => {
+    if (e.target === $('compose-modal')) closeComposeModal();
+  });
+
+  // Inline compose expand button opens modal with draft
+  $('inline-compose-expand')?.addEventListener('click', () => {
+    const draft = $('inline-compose-text')?.value || '';
+    openComposeModal(draft);
   });
 
   // Auto-initialize

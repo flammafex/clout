@@ -1010,7 +1010,7 @@
 
       </div>
 
-      <button id="mobile-compose-fab" class="mobile-compose-fab" onclick="window.cloutApp.switchToTab('post')" title="Create post">+</button>
+      <button id="mobile-compose-fab" class="mobile-compose-fab" onclick="window.cloutApp.openComposeModal()" title="Create post">+</button>
 
       <div id="mobile-more-sheet" class="mobile-more-sheet" style="display: none;">
         <div id="mobile-more-backdrop" class="mobile-more-backdrop"></div>
@@ -1019,6 +1019,19 @@
           <button id="mobile-more-settings" class="btn btn-small mobile-more-action" type="button">Settings</button>
           <button id="mobile-more-close" class="btn btn-small mobile-more-close" type="button">Close</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Compose Modal -->
+  <div id="compose-modal" class="compose-modal-overlay" style="display: none;">
+    <div class="compose-modal">
+      <div class="compose-modal-header">
+        <h3>New Post</h3>
+        <button class="compose-modal-close" id="compose-modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="compose-modal-body" id="compose-modal-body">
+        <!-- #post-tab content moved here on open, moved back on close -->
       </div>
     </div>
   </div>
