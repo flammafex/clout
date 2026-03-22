@@ -55,6 +55,22 @@ export function escapeHtml(text) {
 }
 
 /**
+ * Escape text for use inside inline JS single-quoted string arguments
+ * that are embedded in HTML attributes (e.g. onclick="fn('...')").
+ */
+export function escapeInlineJsString(text) {
+  const normalized = String(text ?? '');
+  const jsEscaped = normalized
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  return escapeHtml(jsEscaped);
+}
+
+/**
  * Format relative time (e.g., "2 hours ago")
  */
 export function formatRelativeTime(timestamp) {
@@ -166,7 +182,7 @@ export function startDayPassTimer(expiryTimestamp) {
   }
 
   state.setDayPassEndTime(expiryTimestamp);
-  $('day-pass-timer').style.display = 'flex';
+  $('day-pass-timer').style.display = 'block';
   updateDayPassCountdown();
 
   state.clearDayPassInterval();
