@@ -178,13 +178,6 @@
             </div>
           </div>
 
-          <!-- Search Bar (hidden for visitors) -->
-          <div id="search-bar-container" class="search-bar">
-            <input type="text" id="feed-search" class="input" placeholder="Search posts, authors...">
-            <button id="search-btn" class="btn btn-small">Search</button>
-            <button id="clear-search-btn" class="btn btn-small" style="display: none;">Clear</button>
-          </div>
-
           <!-- Sort Options -->
           <div id="feed-sort-container" class="feed-sort">
             <span class="sort-label">Sort:</span>
@@ -965,6 +958,46 @@
       </div>
 
         </main>
+
+      <aside class="app-rail-right">
+        <div class="sidebar-widget sidebar-search">
+          <div class="sidebar-search-input">
+            <input type="text" id="sidebar-search" class="input" placeholder="Search posts, authors...">
+            <button id="sidebar-search-btn" class="sidebar-search-icon" aria-label="Search">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="sidebar-widget sidebar-feed-legend">
+          <h4>Feed Legend</h4>
+          <div class="legend-levels">
+            <div class="legend-item"><span class="legend-icon">&#x1FA9E;</span><div class="legend-text"><strong>Self</strong><span class="legend-desc">Your own posts</span></div></div>
+            <div class="legend-item"><span class="legend-icon">&#x1F464;</span><div class="legend-text"><strong>Direct (1 hop)</strong><span class="legend-desc">People you personally trust</span></div></div>
+            <div class="legend-item"><span class="legend-icon">&#x1F465;</span><div class="legend-text"><strong>Friends of Friends (2 hops)</strong><span class="legend-desc">Vouched for by someone you trust</span></div></div>
+            <div class="legend-item"><span class="legend-icon">&#x1F310;</span><div class="legend-text"><strong>Extended Network (3 hops)</strong><span class="legend-desc">Within your wider web of trust</span></div></div>
+          </div>
+        </div>
+
+        <div class="sidebar-widget sidebar-stats">
+          <h4>Network</h4>
+          <div class="sidebar-stats-grid">
+            <div class="sidebar-stat"><span class="sidebar-stat-value" id="clout-posts">-</span><span class="sidebar-stat-label">posts</span></div>
+            <div class="sidebar-stat"><span class="sidebar-stat-value" id="clout-authors">-</span><span class="sidebar-stat-label">authors</span></div>
+            <div class="sidebar-stat"><span class="sidebar-stat-value" id="clout-reactions">-</span><span class="sidebar-stat-label">reactions</span></div>
+            <div class="sidebar-stat"><span class="sidebar-stat-value" id="clout-peers">-</span><span class="sidebar-stat-label">peers</span></div>
+          </div>
+        </div>
+
+        <div id="day-pass-timer" class="sidebar-widget sidebar-daypass" style="display: none;">
+          <h4>Day Pass</h4>
+          <div class="daypass-row">
+            <span class="daypass-icon">&#x1F54A;&#xFE0F;</span>
+            <span id="day-pass-countdown" class="daypass-countdown">--:--:--</span>
+            <span class="daypass-label">remaining</span>
+          </div>
+        </div>
+      </aside>
 
       </div>
 
