@@ -156,50 +156,59 @@
 
       <!-- Feed Tab -->
       <div id="feed-tab" class="tab-content active">
-        <div class="section">
-          <div class="section-header">
-            <h2>📰 Your Feed</h2>
-            <div class="header-actions">
-              <div id="feed-filters-container" class="feed-filters">
-                <button class="filter-btn active" data-filter="all" title="All Posts">All</button>
-                <button class="filter-btn" data-filter="bookmarks" title="Bookmarked Posts">🔖</button>
-                <button class="filter-btn" data-filter="replies" title="Replies to Your Posts">💬</button>
-                <button class="filter-btn" data-filter="mentions" title="Mentions">@</button>
-              </div>
-              <button id="refresh-feed-btn" class="btn btn-small">Refresh</button>
+        <!-- Inline Quick Compose -->
+        <div id="inline-compose" class="inline-compose">
+          <div class="inline-compose-row">
+            <div class="inline-compose-avatar">&#x1F464;</div>
+            <input type="text" id="inline-compose-input" class="inline-compose-field" placeholder="What's on your mind?">
+          </div>
+          <div id="inline-compose-expanded" class="inline-compose-expanded" style="display: none;">
+            <textarea id="inline-compose-text" class="inline-compose-textarea" rows="3" maxlength="5000"></textarea>
+            <div class="inline-compose-actions">
+              <button class="btn btn-small btn-primary" id="inline-post-btn">Post</button>
+              <button class="btn btn-small" id="inline-compose-expand" title="Full editor">&#x2026;</button>
             </div>
-          </div>
-
-          <!-- Tag Filter (populated dynamically) -->
-          <div id="tag-filters" class="tag-filters" style="display: none;">
-            <span class="tag-filter-label">Tags:</span>
-            <div id="tag-filter-pills" class="tag-filter-pills">
-              <!-- Tag pills added by JS -->
-            </div>
-          </div>
-
-          <!-- Sort Options -->
-          <div id="feed-sort-container" class="feed-sort">
-            <span class="sort-label">Sort:</span>
-            <div class="feed-sort-buttons">
-              <button class="feed-sort-btn active" data-sort="newest" onclick="window.cloutApp.setFeedSort('newest')">Newest</button>
-              <button class="feed-sort-btn" data-sort="hot" onclick="window.cloutApp.setFeedSort('hot')">Hot</button>
-              <button class="feed-sort-btn" data-sort="reactions" onclick="window.cloutApp.setFeedSort('reactions')">Top</button>
-              <button class="feed-sort-btn" data-sort="replies" onclick="window.cloutApp.setFeedSort('replies')">Discussed</button>
-            </div>
-          </div>
-
-          <!-- New Posts Banner (for live updates) -->
-          <div id="new-posts-banner" class="new-posts-banner" style="display: none;">
-            <button onclick="window.cloutApp.loadNewPosts()">⬆️ <span id="new-posts-count">0</span> new posts - Click to load</button>
-          </div>
-
-          <div id="feed-result" class="result-message"></div>
-
-          <div id="feed-list" class="feed-list">
-            <!-- Empty state shown by JS when no posts -->
           </div>
         </div>
+
+        <!-- Hop Filter Tabs -->
+        <div class="feed-tabs" id="feed-hop-tabs">
+          <button class="feed-tab-btn active" data-hop="all">All</button>
+          <button class="feed-tab-btn" data-hop="1">1st Hop</button>
+          <button class="feed-tab-btn" data-hop="2">2nd Hop</button>
+          <button class="feed-tab-btn" data-hop="3">3rd Hop</button>
+        </div>
+
+        <!-- Sort Row + Content-Type Filters -->
+        <div class="feed-sort-row">
+          <div class="feed-sort-pills">
+            <button class="sort-pill active" data-sort="newest">Newest</button>
+            <button class="sort-pill" data-sort="hot">Hot</button>
+            <button class="sort-pill" data-sort="reactions">Top</button>
+            <button class="sort-pill" data-sort="replies">Discussed</button>
+          </div>
+          <div class="sort-separator"></div>
+          <div id="feed-filters-container" class="feed-filter-icons">
+            <button class="filter-icon-btn active" data-filter="all" title="All Posts">All</button>
+            <button class="filter-icon-btn" data-filter="bookmarks" title="Bookmarks">&#x1F516;</button>
+            <button class="filter-icon-btn" data-filter="replies" title="Replies">&#x1F4AC;</button>
+            <button class="filter-icon-btn" data-filter="mentions" title="Mentions">@</button>
+          </div>
+        </div>
+
+        <!-- Tag Filter -->
+        <div id="tag-filters" class="tag-filters" style="display: none;">
+          <span class="tag-filter-label">Tags:</span>
+          <div id="tag-filter-pills" class="tag-filter-pills"></div>
+        </div>
+
+        <!-- New Posts Banner -->
+        <div id="new-posts-banner" class="new-posts-banner" style="display: none;">
+          <button onclick="window.cloutApp.loadNewPosts()">&#x2B06;&#xFE0F; <span id="new-posts-count">0</span> new posts - Click to load</button>
+        </div>
+
+        <div id="feed-result" class="result-message"></div>
+        <div id="feed-list" class="feed-list"></div>
       </div>
 
       <!-- Post Tab -->

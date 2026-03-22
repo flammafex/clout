@@ -2679,18 +2679,8 @@ h2 {
 }
 
 /* =========================================================================
-   SEARCH BAR
+   SEARCH BAR (legacy removed — search is now in sidebar)
    ========================================================================= */
-
-.search-bar {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.search-bar .input {
-  flex: 1;
-}
 
 .search-results-header {
   padding: 0.75rem 1rem;
@@ -2740,49 +2730,7 @@ h2 {
   color: white;
 }
 
-/* Feed Sort */
-.feed-sort {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  padding: 0.5rem 0;
-}
-
-.sort-label {
-  color: var(--text-dim);
-  font-size: 0.85rem;
-  font-weight: 500;
-}
-
-.feed-sort-buttons {
-  display: flex;
-  gap: 0.25rem;
-  background: var(--bg-card);
-  padding: 0.25rem;
-  border-radius: 0.5rem;
-}
-
-.feed-sort-btn {
-  padding: 0.35rem 0.75rem;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 0.8rem;
-  border-radius: 0.35rem;
-  transition: all 0.2s;
-}
-
-.feed-sort-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-
-.feed-sort-btn.active {
-  background: var(--primary);
-  color: white;
-}
+/* Feed Sort (legacy .feed-sort removed — replaced by .feed-sort-row) */
 
 /* Load More Button */
 .load-more-container {
@@ -4640,4 +4588,140 @@ body.offline .btn-action::after {
     flex: 1;
     min-height: 42px;
   }
+}
+
+/* =========================================================================
+   HOP FILTER TABS
+   ========================================================================= */
+
+.feed-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.feed-tab-btn {
+  flex: 1;
+  padding: 0.7rem 0.5rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.feed-tab-btn:hover { color: var(--text); }
+.feed-tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* =========================================================================
+   SORT ROW
+   ========================================================================= */
+
+.feed-sort-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.feed-sort-pills { display: flex; gap: 0.35rem; }
+
+.sort-pill {
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sort-pill:hover { color: var(--text); }
+.sort-pill.active { background: var(--primary); color: white; }
+
+.sort-separator {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 0.25rem;
+}
+
+.feed-filter-icons { display: flex; gap: 0.35rem; }
+
+.filter-icon-btn {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  border-radius: 999px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.filter-icon-btn:hover { color: var(--text); }
+.filter-icon-btn.active { background: rgba(99, 102, 241, 0.2); color: var(--primary); }
+
+/* =========================================================================
+   INLINE COMPOSE
+   ========================================================================= */
+
+.inline-compose {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.inline-compose-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.inline-compose-avatar {
+  font-size: 1.5rem;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.inline-compose-field {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.inline-compose-field:focus { outline: none; border-color: var(--primary); }
+
+.inline-compose-expanded {
+  margin-top: 0.5rem;
+  padding-left: calc(36px + 0.75rem);
+}
+
+.inline-compose-textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.9rem;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.inline-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
 }

@@ -16,7 +16,7 @@ import {
 import {
   loadFeed, loadVisitorFeed, loadFeedWithCurrentFilter, setFeedFilter,
   filterByTag, searchPosts, clearSearch, renderFeedItem, handleMediaError,
-  loadMorePosts, setFeedSort, setupMediaErrorHandling
+  loadMorePosts, setFeedSort, setHopFilter, setupMediaErrorHandling
 } from './feed.js';
 import {
   createPost, startReply, cancelReply, startEditPost, cancelEdit,
@@ -44,7 +44,7 @@ import {
   loadDelegationStatus, delegatePass, acceptDelegation
 } from './profile.js';
 import {
-  connectLiveUpdates, loadNewPosts, updateNotificationCounts
+  connectLiveUpdates, loadNewPosts, updateNotificationCounts, startNotificationPolling
 } from './notifications.js';
 import {
   showInvitePopover, closeInvitePopover, redeemInvite, promptIdentityBackup,
@@ -94,6 +94,54 @@ function setupTabs() {
   });
 }
 
+function setupMobileMoreSheet() {
+  const trigger = $('mobile-more-trigger');
+  const sheet = $('mobile-more-sheet');
+  const closeBtn = $('mobile-more-close');
+  const backdrop = $('mobile-more-backdrop');
+  const ownerBtn = $('mobile-more-owner');
+  const settingsBtn = $('mobile-more-settings');
+  if (!trigger || !sheet) return;
+
+  const closeSheet = () => {
+    sheet.style.display = 'none';
+  };
+
+  trigger.addEventListener('click', () => {
+    sheet.style.display = 'block';
+  });
+  closeBtn?.addEventListener('click', closeSheet);
+  backdrop?.addEventListener('click', closeSheet);
+  ownerBtn?.addEventListener('click', () => {
+    closeSheet();
+    switchToTab('owner');
+  });
+  settingsBtn?.addEventListener('click', () => {
+    closeSheet();
+    switchToTab('settings');
+  });
+}
+
+function setupMobileHeaderBehavior() {
+  const instanceInfo = $('instance-info');
+  if (instanceInfo) {
+    instanceInfo.addEventListener('click', () => {
+      if (window.innerWidth <= 768) {
+        instanceInfo.classList.toggle('expanded');
+      }
+    });
+  }
+
+  let lastY = window.scrollY;
+  window.addEventListener('scroll', () => {
+    if (window.innerWidth > 768) return;
+    const currentY = window.scrollY;
+    const scrollingDown = currentY > lastY && currentY > 100;
+    document.body.classList.toggle('nav-scroll-down', scrollingDown);
+    lastY = currentY;
+  }, { passive: true });
+}
+
 // =========================================================================
 // Initialization
 // =========================================================================
@@ -134,7 +182,7 @@ async function initializeClout() {
 
     connectLiveUpdates();
     updateNotificationCounts();
-    setInterval(updateNotificationCounts, 30000);
+    startNotificationPolling();
   } catch (error) {
     updateStatus(`Error: ${error.message}`, false);
     $('init-btn').disabled = false;
@@ -649,6 +697,7 @@ window.cloutApp = {
   loadFeed,
   loadFeedWithCurrentFilter,
   setFeedFilter,
+  setHopFilter,
   filterByTag,
   searchPosts,
   clearSearch,
@@ -771,6 +820,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupMediaErrorHandling();
 
   setupTabs();
+  setupMobileMoreSheet();
+  setupMobileHeaderBehavior();
   setupCharCounter();
   setupMediaUpload();
   setupAttachmentSelector();
@@ -781,7 +832,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('init-btn').addEventListener('click', initializeClout);
   $('create-post-btn').addEventListener('click', () => createPost(requireMembership, showInvitePopover));
   $('trust-btn').addEventListener('click', () => sendTrustRequest(requireMembership));
-  $('refresh-feed-btn').addEventListener('click', loadFeed);
   $('send-slide-btn').addEventListener('click', () => sendSlide(requireMembership));
   $('refresh-slides-btn').addEventListener('click', loadSlides);
 
@@ -823,16 +873,58 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('save-profile-btn').addEventListener('click', () => saveProfile(requireMembership));
   $('cancel-edit-btn').addEventListener('click', cancelProfileEdit);
 
-  // Search
-  $('search-btn').addEventListener('click', searchPosts);
-  $('clear-search-btn').addEventListener('click', clearSearch);
-  $('feed-search').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') searchPosts();
+  // Hop tab clicks
+  document.querySelectorAll('.feed-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => setHopFilter(btn.dataset.hop));
   });
 
-  // Feed filters
-  $$('.filter-btn').forEach(btn => {
+  // Sort pill clicks
+  document.querySelectorAll('.sort-pill').forEach(btn => {
+    btn.addEventListener('click', () => setFeedSort(btn.dataset.sort));
+  });
+
+  // Filter icon clicks
+  document.querySelectorAll('.filter-icon-btn').forEach(btn => {
     btn.addEventListener('click', () => setFeedFilter(btn.dataset.filter));
+  });
+
+  // Sidebar search
+  $('sidebar-search-btn')?.addEventListener('click', () => {
+    switchToTab('feed');
+    searchPosts();
+  });
+  $('sidebar-search')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      switchToTab('feed');
+      searchPosts();
+    }
+  });
+
+  // Inline compose
+  const inlineInput = $('inline-compose-input');
+  const inlineExpanded = $('inline-compose-expanded');
+  const inlineText = $('inline-compose-text');
+
+  inlineInput?.addEventListener('focus', () => {
+    inlineExpanded.style.display = 'block';
+    inlineText.value = inlineInput.value;
+    inlineInput.style.display = 'none';
+    inlineText.focus();
+  });
+
+  $('inline-post-btn')?.addEventListener('click', async () => {
+    const text = inlineText.value.trim();
+    if (!text || !requireMembership()) return;
+    try {
+      await apiCall('/posts', 'POST', { content: text });
+      inlineText.value = '';
+      inlineInput.value = '';
+      inlineExpanded.style.display = 'none';
+      inlineInput.style.display = 'block';
+      loadFeed();
+    } catch (e) {
+      showResult('feed-result', e.message, false);
+    }
   });
 
   // Auto-initialize

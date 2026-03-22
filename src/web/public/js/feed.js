@@ -11,7 +11,7 @@
 import * as state from './state.js';
 import { apiCall, API_BASE } from './api.js';
 import {
-  $, $$, showLoading, showResult, escapeHtml, formatRelativeTime,
+  $, $$, showLoading, showResult, escapeHtml, escapeInlineJsString, formatRelativeTime,
   renderAvatar, getReputationColor, switchToTab, renderMarkdown
 } from './ui.js';
 import { renderReactionsBar } from './reactions.js';
@@ -142,6 +142,9 @@ class VirtualScroller {
 // Singleton virtual scroller instance
 let virtualScroller = null;
 
+// Hop filter state
+let currentHopFilter = 'all';
+
 /**
  * Get or create the virtual scroller instance
  */
@@ -223,6 +226,8 @@ export async function recalculateTrustForPosts(posts) {
     post.isDirectlyTrusted = trustedKeys.has(post.author) && post.author !== browserPublicKey;
 
     // Recalculate trust distance (reputation.distance)
+    // Use _hopDistance if tagged during feed loading (includes server-side multi-hop),
+    // otherwise fall back to local trust graph check.
     if (post.author === browserPublicKey) {
       post.reputation = { ...post.reputation, distance: 0, score: 1.0 };
       // Override avatar and display name with browser user's profile
@@ -232,10 +237,14 @@ export async function recalculateTrustForPosts(posts) {
       if (myProfile?.displayName) {
         post.authorDisplayName = myProfile.displayName;
       }
-    } else if (trustedKeys.has(post.author)) {
+    } else if (post._hopDistance === 1 || trustedKeys.has(post.author)) {
       post.reputation = { ...post.reputation, distance: 1, score: 0.8 };
+    } else if (post._hopDistance === 2) {
+      post.reputation = { ...post.reputation, distance: 2, score: 0.5 };
+    } else if (post._hopDistance === 3) {
+      post.reputation = { ...post.reputation, distance: 3, score: 0.3 };
     } else {
-      post.reputation = { ...post.reputation, distance: 3, score: 0.2 };
+      post.reputation = { ...post.reputation, distance: 4, score: 0.1 };
     }
 
     // Overlay bookmark state from IndexedDB
@@ -254,7 +263,7 @@ export async function recalculateTrustForPosts(posts) {
     }
     // Note: authorAvatar is NOT overridden by nickname - it's always the author's chosen avatar
 
-    // Clear server's trust path - we don't have multi-hop info in browser yet
+    // Trust path not yet populated from browser-side graph traversal
     post.trustPath = [];
   });
 
@@ -294,18 +303,57 @@ export async function loadFeed(append = false) {
     }
 
     // Dark Social Graph: Filter posts client-side using browser's local trust graph
-    let filteredPosts = data.posts || [];
+    const fetchedPosts = data.posts || [];
+    let filteredPosts = fetchedPosts;
     if (window.CloutUserData && browserPublicKey) {
       try {
         const trustGraph = await window.CloutUserData.getTrustGraph();
-        console.log('[Feed] Trust graph from IndexedDB:', trustGraph);
         trustedKeys = new Set(trustGraph.map(t => t.trustedKey));
         trustedKeys.add(browserPublicKey);
+
+        // Merge server-side trust (with 2-hop resolution) into browser trust graph
+        let hopMap = {};
+        try {
+          const serverTrust = await apiCall(`/trust/server-graph?publicKey=${browserPublicKey}&hops=3`);
+          if (serverTrust) {
+            // Sync first-hop trust to IndexedDB
+            if (serverTrust.trustedKeys) {
+              for (const key of serverTrust.trustedKeys) {
+                if (!trustedKeys.has(key)) {
+                  trustedKeys.add(key);
+                  // Only persist first-hop (direct) trust to IndexedDB
+                  const hop = serverTrust.hopMap?.[key] || 1;
+                  if (hop === 1) {
+                    await window.CloutUserData.trust(key, 1.0);
+                    console.log('[Feed] Synced server-side trust to IndexedDB:', key.slice(0, 12));
+                  }
+                }
+              }
+            }
+            if (serverTrust.hopMap) {
+              hopMap = serverTrust.hopMap;
+            }
+          }
+        } catch (syncErr) {
+          // Non-fatal: server trust sync is best-effort
+          console.warn('[Feed] Server trust sync failed:', syncErr.message);
+        }
 
         filteredPosts = filteredPosts.filter(post =>
           trustedKeys.has(post.author) || post.author === browserPublicKey
         );
-        console.log(`[Feed] Filtered ${data.posts?.length || 0} posts to ${filteredPosts.length} from ${trustedKeys.size} trusted users`);
+
+        // Tag posts with hop distance for display
+        for (const post of filteredPosts) {
+          if (post.author === browserPublicKey) {
+            post._hopDistance = 0;
+          } else if (hopMap[post.author]) {
+            post._hopDistance = hopMap[post.author];
+          } else if (trustedKeys.has(post.author)) {
+            post._hopDistance = 1;
+          }
+        }
+        console.log(`[Feed] Filtered ${fetchedPosts.length} posts to ${filteredPosts.length} from ${trustedKeys.size} trusted users`);
 
         // Filter out muted users
         const mutedUsers = await window.CloutUserData.getMutedUsers();
@@ -325,14 +373,23 @@ export async function loadFeed(append = false) {
     // Recalculate trust data using browser's Dark Social Graph
     filteredPosts = await recalculateTrustForPosts(filteredPosts);
 
+    // Apply hop distance filter
+    if (currentHopFilter !== 'all') {
+      const hopNum = parseInt(currentHopFilter);
+      filteredPosts = filteredPosts.filter(p =>
+        p._hopDistance === hopNum ||
+        (hopNum === 0 && p.author === window.userPublicKey)
+      );
+    }
+
     // Cache posts for edit lookups
     filteredPosts.forEach(post => state.cachePost(post));
 
     // Update pagination state
     state.setFeedHasMore(data.hasMore || false);
-    state.setFeedOffset((data.offset || 0) + filteredPosts.length);
+    state.setFeedOffset((data.offset || 0) + fetchedPosts.length);
 
-    if (filteredPosts.length === 0 && !append) {
+    if (filteredPosts.length === 0 && !append && !state.feedHasMore) {
       feedList.innerHTML = `
         <div class="empty-state-helpful">
           <div class="empty-icon">🏠</div>
@@ -447,7 +504,7 @@ export function setFeedSort(sortOption) {
   state.setFeedOffset(0);
 
   // Update active state on sort buttons
-  document.querySelectorAll('.feed-sort-btn').forEach(btn => {
+  document.querySelectorAll('.sort-pill').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.sort === sortOption);
   });
 
@@ -478,6 +535,33 @@ export async function loadVisitorFeed() {
           </p>
         </div>
       `;
+    } else if (state.isVisitor && data.ownerPublicKey) {
+      // Visitor mode with initialized server: show only owner's posts
+      const ownerPosts = (data.posts || []).filter(p => p.author === data.ownerPublicKey);
+      if (ownerPosts.length > 0) {
+        const banner = document.createElement('div');
+        banner.className = 'visitor-banner-inline';
+        banner.style.cssText = 'padding: 0.75rem; margin-bottom: 1rem; border-radius: 8px; background: var(--card-bg); border: 1px solid var(--border);';
+        const bannerText = document.createElement('p');
+        bannerText.style.cssText = 'margin: 0; font-size: 0.85rem; opacity: 0.8;';
+        bannerText.textContent = "You're seeing the instance owner's posts. Join with an invitation code to see the full feed.";
+        banner.appendChild(bannerText);
+        feedList.innerHTML = '';
+        feedList.appendChild(banner);
+        // renderFeedItem returns sanitized HTML from the existing codebase render pipeline
+        feedList.insertAdjacentHTML('beforeend', ownerPosts.map(post => renderFeedItem(post, true)).join(''));
+      } else {
+        feedList.innerHTML = `
+          <div class="empty-state-helpful visitor-welcome">
+            <div class="empty-icon">&#x1F44B;</div>
+            <h4>Welcome to Clout</h4>
+            <p>This network is waiting for its first post. Join with an invitation code!</p>
+            <div class="empty-actions">
+              <button class="btn btn-primary" onclick="window.cloutApp.showInvitePopover()">&#x1F39F; I Have an Invitation</button>
+            </div>
+          </div>
+        `;
+      }
     } else if (!data.posts || data.posts.length === 0) {
       feedList.innerHTML = `
         <div class="empty-state-helpful">
@@ -536,14 +620,25 @@ export async function loadFeedWithCurrentFilter() {
 }
 
 /**
+ * Set hop filter
+ */
+export function setHopFilter(hop) {
+  currentHopFilter = hop;
+  document.querySelectorAll('.feed-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.hop === hop);
+  });
+  loadFeedWithCurrentFilter();
+}
+
+/**
  * Set feed filter
  */
 export function setFeedFilter(filter) {
   state.setCurrentFilter(filter);
   state.setCurrentTagFilter(null);
 
-  $$('.filter-btn').forEach(btn => btn.classList.remove('active'));
-  document.querySelector(`.filter-btn[data-filter="${filter}"]`)?.classList.add('active');
+  $$('.filter-icon-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelector(`.filter-icon-btn[data-filter="${filter}"]`)?.classList.add('active');
   $$('.tag-pill').forEach(pill => pill.classList.remove('active'));
 
   loadFeedWithCurrentFilter();
@@ -564,10 +659,10 @@ export async function filterByTag(tag) {
   });
 
   if (state.currentTagFilter) {
-    $$('.filter-btn').forEach(btn => btn.classList.remove('active'));
+    $$('.filter-icon-btn').forEach(btn => btn.classList.remove('active'));
   } else {
     state.setCurrentFilter('all');
-    document.querySelector('.filter-btn[data-filter="all"]')?.classList.add('active');
+    document.querySelector('.filter-icon-btn[data-filter="all"]')?.classList.add('active');
   }
 
   await loadFeedWithCurrentFilter();
@@ -587,7 +682,7 @@ async function loadFeedByTag(tag) {
           <div class="empty-icon">🏷️</div>
           <h4>No posts from "${escapeHtml(tag)}"</h4>
           <p>Posts from users tagged "${escapeHtml(tag)}" will appear here.</p>
-          <button class="btn btn-secondary" onclick="window.cloutApp.filterByTag('${escapeHtml(tag)}')">Clear Filter</button>
+          <button class="btn btn-secondary" onclick="window.cloutApp.filterByTag('${escapeInlineJsString(tag)}')">Clear Filter</button>
         </div>
       `;
       return;
@@ -618,7 +713,7 @@ async function loadTagFilterPills() {
     wrapper.style.display = 'flex';
     container.innerHTML = data.tags.map(tag => `
       <button class="tag-pill${state.currentTagFilter === tag.tag ? ' active' : ''}"
-              onclick="window.cloutApp.filterByTag('${escapeHtml(tag.tag)}')"
+              onclick="window.cloutApp.filterByTag('${escapeInlineJsString(tag.tag)}')"
               title="${tag.count} users">
         ${escapeHtml(tag.tag)}
       </button>
@@ -739,7 +834,7 @@ async function loadMentionsView() {
  * Search posts
  */
 export async function searchPosts() {
-  const query = $('feed-search').value.trim();
+  const query = $('sidebar-search').value.trim();
   if (!query) {
     clearSearch();
     return;
@@ -750,7 +845,6 @@ export async function searchPosts() {
 
   try {
     const data = await apiCall(`/search?q=${encodeURIComponent(query)}`);
-    $('clear-search-btn').style.display = 'inline-block';
 
     if (!data.posts || data.posts.length === 0) {
       $('feed-list').innerHTML = `
@@ -777,8 +871,7 @@ export async function searchPosts() {
  */
 export function clearSearch() {
   state.setCurrentSearchQuery('');
-  $('feed-search').value = '';
-  $('clear-search-btn').style.display = 'none';
+  $('sidebar-search').value = '';
   loadFeed();
 }
 
@@ -824,7 +917,7 @@ export function renderFeedItem(post, fullFeatures = true) {
 
   // Quick trust button (+ next to author) - hide for visitors
   const quickTrustBtn = (!visitor && !isYou && !isDirectTrust && fullFeatures)
-    ? `<button class="btn-trust-quick" onclick="event.stopPropagation(); window.cloutApp.quickTrust('${post.author}')" title="Add to your circle">+</button>`
+    ? `<button class="btn-trust-quick" onclick="event.stopPropagation(); window.cloutApp.quickTrust('${escapeInlineJsString(post.author)}')" title="Add to your circle">+</button>`
     : '';
 
   // Reputation badge (hop distance) - hide for visitors
@@ -836,13 +929,13 @@ export function renderFeedItem(post, fullFeatures = true) {
 
   // Mute/Redact button - hide for visitors
   const muteBtn = (!visitor && !isYou && fullFeatures)
-    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(post.authorDisplayName || '')}')" title="Redact this user">Redact</button>`
+    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${escapeInlineJsString(post.author)}', '${escapeInlineJsString(post.authorDisplayName || '')}')" title="Redact this user">Redact</button>`
     : '';
 
   // Author actions (Revise/Retract) - hide for visitors
   const authorActions = (!visitor && post.isAuthor && fullFeatures)
-    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Revise post">Revise</button>
-       <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${post.id}')" title="Retract post">Retract</button>`
+    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${escapeInlineJsString(post.id)}')" title="Revise post">Revise</button>
+       <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${escapeInlineJsString(post.id)}')" title="Retract post">Retract</button>`
     : '';
 
   const editedIndicator = post.isEdited ? '<span class="edited-badge" title="This post has been edited">edited</span>' : '';
@@ -858,18 +951,18 @@ export function renderFeedItem(post, fullFeatures = true) {
 
   // Save button - hide for visitors
   const saveBtn = visitor ? '' : `
-    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${escapeInlineJsString(post.id)}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
       ${post.isBookmarked ? 'Saved' : 'Save'}
     </button>`;
 
   // Reply button - hide for visitors
   const replyBtn = visitor ? '' : `
-    <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>`;
+    <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${escapeInlineJsString(post.id)}', '${escapeInlineJsString(authorName)}')">Reply</button>`;
 
   const authorAvatar = post.authorAvatar || '&#x1F464;';
 
   return `
-    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasLink ? 'has-link' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="window.cloutApp.viewThread('${post.id}')" style="cursor: pointer;">
+    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasLink ? 'has-link' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="window.cloutApp.viewThread('${escapeInlineJsString(post.id)}')" style="cursor: pointer;">
       <div class="feed-item-wrapper">
         <div class="feed-avatar">${renderAvatar(authorAvatar)}</div>
         <div class="feed-post-content">
@@ -886,10 +979,10 @@ export function renderFeedItem(post, fullFeatures = true) {
               ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
             </div>
           </div>
-          ${post.replyTo ? `<div class="feed-reply-indicator">&#x21B3; Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); window.cloutApp.viewThread('${post.resolvedReplyTo || post.replyTo}')">View parent</a></div>` : ''}
+          ${post.replyTo ? `<div class="feed-reply-indicator">&#x21B3; Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); window.cloutApp.viewThread('${escapeInlineJsString(post.resolvedReplyTo || post.replyTo)}')">View parent</a></div>` : ''}
           ${hasCW ? `
             <div class="cw-wrapper" id="${cwId}">
-              <button class="cw-reveal-btn" onclick="event.stopPropagation(); window.cloutApp.toggleCW('${cwId}')">
+              <button class="cw-reveal-btn" onclick="event.stopPropagation(); window.cloutApp.toggleCW('${escapeInlineJsString(cwId)}')">
                 &#x26A0;&#xFE0F; ${escapeHtml(post.contentWarning)} - Click to reveal
               </button>
               <div class="cw-content" style="display: none;">
@@ -975,7 +1068,9 @@ export function renderPostContent(post) {
     const mimeType = post.media.mimeType || '';
 
     let mediaHtml = '';
-    const hopDistance = post.reputation?.distance ?? 999;
+    const hopDistance = post.isAuthor || post.author === window.userPublicKey
+      ? 0
+      : (post.reputation?.distance ?? 1);
     // Use data attributes instead of inline handlers to prevent XSS
     const mediaDataAttrs = `data-media-post-id="${post.id}" data-media-hop-distance="${hopDistance}"`;
 
@@ -1065,7 +1160,8 @@ export function setupMediaErrorHandling() {
     // Handle new media format with data attributes
     if (target.dataset && target.dataset.mediaPostId) {
       const postId = target.dataset.mediaPostId;
-      const hopDistance = parseInt(target.dataset.mediaHopDistance, 10) || 999;
+      const parsedHopDistance = parseInt(target.dataset.mediaHopDistance, 10);
+      const hopDistance = Number.isFinite(parsedHopDistance) ? parsedHopDistance : 1;
       handleMediaError(target, postId, hopDistance);
       return;
     }
