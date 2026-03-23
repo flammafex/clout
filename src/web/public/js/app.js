@@ -522,6 +522,9 @@ function updateTabVisibility(isVisitor) {
   const composeFab = $('compose-fab-btn');
   if (composeFab) composeFab.style.display = isVisitor ? 'none' : '';
 
+  const mobileComposeFab = $('mobile-compose-fab');
+  if (mobileComposeFab) mobileComposeFab.style.display = isVisitor ? 'none' : '';
+
   const inlineCompose = $('inline-compose');
   if (inlineCompose) inlineCompose.style.display = isVisitor ? 'none' : '';
 
@@ -693,7 +696,7 @@ function openComposeModal(draftText = '') {
     if (textarea) textarea.value = draftText;
   }
 
-  modal.style.display = 'flex';
+  modal.classList.add('active');
 }
 
 function closeComposeModal() {
@@ -706,7 +709,7 @@ function closeComposeModal() {
     $('post-tab').appendChild(postTabSection);
   }
 
-  modal.style.display = 'none';
+  modal.classList.remove('active');
 }
 
 // =========================================================================

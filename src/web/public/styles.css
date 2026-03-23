@@ -4618,10 +4618,14 @@ body.offline .btn-action::after {
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   z-index: 2000;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(2px);
+}
+
+.compose-modal-overlay.active {
+  display: flex;
 }
 
 .compose-modal {
