@@ -4352,14 +4352,24 @@ body.offline .btn-action::after {
     right: 0;
     bottom: 0;
     top: auto;
+    height: auto;
+    width: 100%;
     z-index: 1000;
     background: rgba(15, 23, 42, 0.96);
     border-top: 1px solid var(--border);
     backdrop-filter: blur(8px);
     padding: 0.45rem 0.4rem calc(0.45rem + env(safe-area-inset-bottom));
+    flex-direction: row;
+    justify-content: center;
   }
 
   .rail-brand {
+    display: none;
+  }
+
+  .rail-spacer,
+  .rail-status,
+  .compose-fab {
     display: none;
   }
 
