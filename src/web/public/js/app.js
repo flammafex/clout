@@ -242,6 +242,19 @@ async function loadInstanceStats() {
     if (cloutAuthors) cloutAuthors.textContent = formatNumber(result.authors || 0);
     if (cloutReactions) cloutReactions.textContent = formatNumber(result.reactions || 0);
     if (cloutPeers) cloutPeers.textContent = formatNumber(result.peers || 0);
+
+    // Sync to collapsible stats summary row (medium breakpoint fallback)
+    const posts = formatNumber(result.posts || 0);
+    const authors = formatNumber(result.authors || 0);
+    const reactions = formatNumber(result.reactions || 0);
+    const peers = formatNumber(result.peers || 0);
+    if ($('summary-posts')) $('summary-posts').textContent = posts;
+    if ($('summary-authors')) $('summary-authors').textContent = authors;
+    if ($('summary-detail-posts')) $('summary-detail-posts').textContent = posts;
+    if ($('summary-detail-authors')) $('summary-detail-authors').textContent = authors;
+    if ($('summary-detail-reactions')) $('summary-detail-reactions').textContent = reactions;
+    if ($('summary-detail-peers')) $('summary-detail-peers').textContent = peers;
+    if ($('summary-peers')) $('summary-peers').textContent = peers;
   } catch (error) {
     console.warn('[App] Could not load instance stats:', error.message);
   }
@@ -511,7 +524,7 @@ function hideVisitorBanner() {
  * Visitors can see Feed and Owner tabs only, without filters/search
  */
 function updateTabVisibility(isVisitor) {
-  const memberOnlyTabs = ['post', 'trust', 'slides', 'profile', 'settings'];
+  const memberOnlyTabs = ['trust', 'slides', 'profile', 'settings'];
 
   memberOnlyTabs.forEach(tabName => {
     const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
@@ -529,8 +542,12 @@ function updateTabVisibility(isVisitor) {
   const sidebarSearch = document.querySelector('.sidebar-search');
   if (sidebarSearch) sidebarSearch.style.display = isVisitor ? 'none' : '';
 
-  const inlineSearchFallback = document.querySelector('.inline-search-fallback');
+  const inlineSearchFallback = document.querySelector('.inline-search-fallback-container');
   if (inlineSearchFallback) inlineSearchFallback.style.display = isVisitor ? 'none' : '';
+
+  // Hide stats summary row for visitors
+  const statsSummary = $('stats-summary-row');
+  if (statsSummary) statsSummary.style.display = isVisitor ? 'none' : '';
 }
 
 /**

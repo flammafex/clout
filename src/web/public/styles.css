@@ -4258,6 +4258,61 @@ body.offline .btn-action::after {
   display: none;
 }
 
+/* Stats summary row (medium breakpoint fallback) */
+.stats-summary-row {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.stats-summary-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.stats-summary-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.stats-summary-chevron {
+  transition: transform 0.2s;
+}
+
+.stats-summary-row.expanded .stats-summary-chevron {
+  transform: rotate(90deg);
+}
+
+.stats-summary-detail {
+  display: none;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.stats-summary-row.expanded .stats-summary-detail {
+  display: block;
+}
+
+.stats-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.stats-summary-grid strong {
+  display: block;
+  font-size: 1rem;
+  color: var(--text);
+}
+
 @media (max-width: 1200px) and (min-width: 769px) {
   .app-shell {
     grid-template-columns: 72px minmax(0, 1fr);
@@ -4267,13 +4322,17 @@ body.offline .btn-action::after {
     display: none;
   }
 
-  .inline-search-fallback {
+  .stats-summary-row {
+    display: block !important;
+  }
+
+  .inline-search-fallback-container {
     display: flex !important;
     padding: 0.5rem;
     border-bottom: 1px solid var(--border);
   }
 
-  .inline-search-fallback .input {
+  .inline-search-fallback-container .input {
     flex: 1;
     font-size: 0.85rem;
     border-radius: 999px;
@@ -4305,7 +4364,11 @@ body.offline .btn-action::after {
     flex-wrap: wrap;
   }
 
-  .inline-search-fallback {
+  .inline-search-fallback-container {
+    display: none !important;
+  }
+
+  .stats-summary-row {
     display: none !important;
   }
 

@@ -154,6 +154,27 @@
 
         <main class="app-main">
 
+        <!-- Collapsible stats summary (visible at 769-1200px when sidebar hidden) -->
+        <div id="stats-summary-row" class="stats-summary-row" style="display: none;">
+          <button class="stats-summary-toggle" onclick="this.parentElement.classList.toggle('expanded')">
+            <span class="stats-summary-brief">
+              <span id="summary-posts">0</span> posts · <span id="summary-authors">0</span> authors · <span id="summary-peers">0</span> peers
+            </span>
+            <span class="stats-summary-chevron">▸</span>
+          </button>
+          <div class="stats-summary-detail">
+            <div class="stats-summary-grid">
+              <div><strong id="summary-detail-posts">0</strong> Posts</div>
+              <div><strong id="summary-detail-authors">0</strong> Authors</div>
+              <div><strong id="summary-detail-reactions">0</strong> Reactions</div>
+              <div><strong id="summary-detail-peers">0</strong> Peers</div>
+            </div>
+            <div id="summary-daypass" style="display: none;">
+              <span>Day Pass: <span id="summary-daypass-countdown"></span></span>
+            </div>
+          </div>
+        </div>
+
       <!-- Feed Tab -->
       <div id="feed-tab" class="tab-content active">
         <!-- Inline Quick Compose -->
@@ -172,7 +193,7 @@
         </div>
 
         <!-- Inline search fallback (visible at 769-1200px when sidebar hidden) -->
-        <div class="inline-search-fallback" style="display: none;">
+        <div class="inline-search-fallback-container" style="display: none;">
           <input type="text" id="inline-search-fallback" class="input" placeholder="Search..." aria-label="Search posts and authors">
         </div>
 
