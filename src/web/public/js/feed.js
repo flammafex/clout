@@ -539,17 +539,7 @@ export async function loadVisitorFeed() {
       // Visitor mode with initialized server: show only owner's posts
       const ownerPosts = (data.posts || []).filter(p => p.author === data.ownerPublicKey);
       if (ownerPosts.length > 0) {
-        const banner = document.createElement('div');
-        banner.className = 'visitor-banner-inline';
-        banner.style.cssText = 'padding: 0.75rem; margin-bottom: 1rem; border-radius: 8px; background: var(--card-bg); border: 1px solid var(--border);';
-        const bannerText = document.createElement('p');
-        bannerText.style.cssText = 'margin: 0; font-size: 0.85rem; opacity: 0.8;';
-        bannerText.textContent = "You're seeing the instance owner's posts. Join with an invitation code to see the full feed.";
-        banner.appendChild(bannerText);
-        feedList.innerHTML = '';
-        feedList.appendChild(banner);
-        // renderFeedItem returns sanitized HTML from the existing codebase render pipeline
-        feedList.insertAdjacentHTML('beforeend', ownerPosts.map(post => renderFeedItem(post, true)).join(''));
+        feedList.innerHTML = ownerPosts.map(post => renderFeedItem(post, true)).join('');
       } else {
         feedList.innerHTML = `
           <div class="empty-state-helpful visitor-welcome">
