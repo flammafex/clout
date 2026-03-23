@@ -56,6 +56,7 @@ export async function createPost(requireMembership, showInvitePopover) {
     }
     if (state.pendingMedia && state.pendingMedia.cid) {
       options.mediaCid = state.pendingMedia.cid;
+      options.mediaMimeType = state.pendingMedia.mimeType;
     }
     if (state.pendingLink) {
       options.link = state.pendingLink;
@@ -96,6 +97,11 @@ export async function createPost(requireMembership, showInvitePopover) {
     }
 
     await loadFeed();
+
+    // Auto-close compose modal after successful post
+    if (window.cloutApp?.closeComposeModal) {
+      setTimeout(() => window.cloutApp.closeComposeModal(), 800);
+    }
   } catch (error) {
     if (isInvitationRequiredError(error)) {
       showInvitePopover();

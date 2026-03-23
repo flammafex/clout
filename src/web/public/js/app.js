@@ -7,7 +7,7 @@
 
 // Import all modules
 import * as state from './state.js';
-import { apiCall } from './api.js';
+import { apiCall, submitSignedPost } from './api.js';
 import {
   $, $$, showLoading, showResult, updateStatus, escapeHtml,
   formatRelativeTime, renderAvatar, getReputationColor, getWeightLabel,
@@ -84,7 +84,7 @@ function setupTabs() {
       $$('.tab-content').forEach(content => content.classList.remove('active'));
       $(`${tab}-tab`).classList.add('active');
 
-      if (tab === 'feed') loadFeed();
+      if (tab === 'feed') { state.isVisitor ? loadVisitorFeed() : loadFeed(); }
       if (tab === 'slides') loadSlides();
       if (tab === 'settings') { loadSettings(); loadDelegationStatus(); }
       if (tab === 'trust') { loadTrustedUsers(); loadTrustRequests(); loadStats(); loadSettings(); }
@@ -242,19 +242,6 @@ async function loadInstanceStats() {
     if (cloutAuthors) cloutAuthors.textContent = formatNumber(result.authors || 0);
     if (cloutReactions) cloutReactions.textContent = formatNumber(result.reactions || 0);
     if (cloutPeers) cloutPeers.textContent = formatNumber(result.peers || 0);
-
-    // Sync to collapsible stats summary row (medium breakpoint fallback)
-    const posts = formatNumber(result.posts || 0);
-    const authors = formatNumber(result.authors || 0);
-    const reactions = formatNumber(result.reactions || 0);
-    const peers = formatNumber(result.peers || 0);
-    if ($('summary-posts')) $('summary-posts').textContent = posts;
-    if ($('summary-authors')) $('summary-authors').textContent = authors;
-    if ($('summary-detail-posts')) $('summary-detail-posts').textContent = posts;
-    if ($('summary-detail-authors')) $('summary-detail-authors').textContent = authors;
-    if ($('summary-detail-reactions')) $('summary-detail-reactions').textContent = reactions;
-    if ($('summary-detail-peers')) $('summary-detail-peers').textContent = peers;
-    if ($('summary-peers')) $('summary-peers').textContent = peers;
   } catch (error) {
     console.warn('[App] Could not load instance stats:', error.message);
   }
@@ -545,9 +532,15 @@ function updateTabVisibility(isVisitor) {
   const inlineSearchFallback = document.querySelector('.inline-search-fallback-container');
   if (inlineSearchFallback) inlineSearchFallback.style.display = isVisitor ? 'none' : '';
 
-  // Hide stats summary row for visitors
-  const statsSummary = $('stats-summary-row');
-  if (statsSummary) statsSummary.style.display = isVisitor ? 'none' : '';
+  // Hide hop tabs, sort row, and feed legend for visitors
+  const hopTabs = $('feed-hop-tabs');
+  if (hopTabs) hopTabs.style.display = isVisitor ? 'none' : '';
+
+  const sortRow = document.querySelector('.feed-sort-row');
+  if (sortRow) sortRow.style.display = isVisitor ? 'none' : '';
+
+  const feedLegend = document.querySelector('.sidebar-feed-legend');
+  if (feedLegend) feedLegend.style.display = isVisitor ? 'none' : '';
 }
 
 /**
@@ -739,6 +732,10 @@ window.cloutApp = {
   handleMediaError,
   loadMorePosts,
   setFeedSort,
+
+  // Compose modal
+  openComposeModal,
+  closeComposeModal,
 
   // Posts
   createPost: () => createPost(requireMembership, showInvitePopover),
@@ -964,7 +961,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const text = inlineText.value.trim();
     if (!text || !requireMembership()) return;
     try {
-      await apiCall('/posts', 'POST', { content: text });
+      await submitSignedPost(text);
       inlineText.value = '';
       inlineInput.value = '';
       inlineExpanded.style.display = 'none';

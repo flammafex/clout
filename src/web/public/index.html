@@ -144,36 +144,11 @@
   <button class="compose-fab" aria-label="New post" title="New post" id="compose-fab-btn">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
   </button>
-  <div class="rail-status">
-    <span id="status-indicator" class="status-dot"></span>
-    <span id="status-text" class="rail-status-label">Not initialized</span>
-    <span id="offline-indicator" class="offline-indicator" style="display: none;">Offline</span>
-  </div>
   <button id="mobile-more-trigger" class="mobile-more-trigger" type="button">More</button>
 </aside>
 
         <main class="app-main">
 
-        <!-- Collapsible stats summary (visible at 769-1200px when sidebar hidden) -->
-        <div id="stats-summary-row" class="stats-summary-row" style="display: none;">
-          <button class="stats-summary-toggle" onclick="this.parentElement.classList.toggle('expanded')">
-            <span class="stats-summary-brief">
-              <span id="summary-posts">0</span> posts · <span id="summary-authors">0</span> authors · <span id="summary-peers">0</span> peers
-            </span>
-            <span class="stats-summary-chevron">▸</span>
-          </button>
-          <div class="stats-summary-detail">
-            <div class="stats-summary-grid">
-              <div><strong id="summary-detail-posts">0</strong> Posts</div>
-              <div><strong id="summary-detail-authors">0</strong> Authors</div>
-              <div><strong id="summary-detail-reactions">0</strong> Reactions</div>
-              <div><strong id="summary-detail-peers">0</strong> Peers</div>
-            </div>
-            <div id="summary-daypass" style="display: none;">
-              <span>Day Pass: <span id="summary-daypass-countdown"></span></span>
-            </div>
-          </div>
-        </div>
 
       <!-- Feed Tab -->
       <div id="feed-tab" class="tab-content active">
@@ -972,10 +947,10 @@
         <div class="sidebar-widget sidebar-feed-legend">
           <h4>Feed Legend</h4>
           <div class="legend-levels">
-            <div class="legend-item"><span class="legend-icon">&#x1FA9E;</span><div class="legend-text"><strong>Self</strong><span class="legend-desc">Your own posts</span></div></div>
-            <div class="legend-item"><span class="legend-icon">&#x1F464;</span><div class="legend-text"><strong>Direct (1 hop)</strong><span class="legend-desc">People you personally trust</span></div></div>
-            <div class="legend-item"><span class="legend-icon">&#x1F465;</span><div class="legend-text"><strong>Friends of Friends (2 hops)</strong><span class="legend-desc">Vouched for by someone you trust</span></div></div>
-            <div class="legend-item"><span class="legend-icon">&#x1F310;</span><div class="legend-text"><strong>Extended Network (3 hops)</strong><span class="legend-desc">Within your wider web of trust</span></div></div>
+            <div class="legend-item"><span class="legend-color" style="background: var(--primary)"></span><div class="legend-text"><strong>Self</strong><span class="legend-desc">Your own posts</span></div></div>
+            <div class="legend-item"><span class="legend-color" style="background: #22c55e"></span><div class="legend-text"><strong>Direct (1 hop)</strong><span class="legend-desc">People you personally trust</span></div></div>
+            <div class="legend-item"><span class="legend-color" style="background: #eab308"></span><div class="legend-text"><strong>Friends of Friends (2 hops)</strong><span class="legend-desc">Vouched for by someone you trust</span></div></div>
+            <div class="legend-item"><span class="legend-color" style="background: #f97316"></span><div class="legend-text"><strong>Extended Network (3 hops)</strong><span class="legend-desc">Within your wider web of trust</span></div></div>
           </div>
         </div>
 
@@ -996,6 +971,14 @@
             <span id="day-pass-countdown" class="daypass-countdown">--:--:--</span>
             <span class="daypass-label">remaining</span>
           </div>
+        </div>
+
+        <div class="sidebar-widget sidebar-status">
+          <div class="sidebar-status-row">
+            <span id="status-indicator" class="status-dot"></span>
+            <span id="status-text">Not initialized</span>
+          </div>
+          <span id="offline-indicator" class="offline-indicator" style="display: none;">Offline</span>
         </div>
       </aside>
 
