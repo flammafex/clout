@@ -2965,9 +2965,9 @@ h2 {
 
 .visitor-banner-content {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
 }
 
 .visitor-icon {
@@ -4613,19 +4613,31 @@ body.offline .btn-action::after {
    Compose Modal
    ========================================================================= */
 
+/* Visitor mode — hide member-only elements with !important to override media queries */
+.visitor-mode .inline-search-fallback-container,
+.visitor-mode .inline-compose,
+.visitor-mode .compose-fab,
+.visitor-mode .mobile-compose-fab,
+.visitor-mode .feed-tabs,
+.visitor-mode .feed-sort-row,
+.visitor-mode .sidebar-feed-legend,
+.visitor-mode .sidebar-search {
+  display: none !important;
+}
+
 .compose-modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   z-index: 2000;
-  display: none;
+  display: none !important;
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(2px);
 }
 
 .compose-modal-overlay.active {
-  display: flex;
+  display: flex !important;
 }
 
 .compose-modal {

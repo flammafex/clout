@@ -497,6 +497,7 @@ async function restoreFromServer() {
  */
 function showVisitorBanner() {
   $('visitor-banner').style.display = 'block';
+  document.body.classList.add('visitor-mode');
 }
 
 /**
@@ -504,6 +505,7 @@ function showVisitorBanner() {
  */
 function hideVisitorBanner() {
   $('visitor-banner').style.display = 'none';
+  document.body.classList.remove('visitor-mode');
 }
 
 /**
