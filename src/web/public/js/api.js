@@ -98,7 +98,7 @@ export async function ensureDayPass(identity, invitationCode = null) {
 /**
  * Submit a signed post using browser identity
  * @param {string} content - Post content
- * @param {Object} options - Post options (replyTo, mediaCid, link, nsfw, contentWarning)
+ * @param {Object} options - Post options (replyTo, mediaCid, mediaMimeType, link, nsfw, contentWarning)
  * @returns {Promise<Object>} Post result
  */
 export async function submitSignedPost(content, options = {}) {
@@ -145,6 +145,7 @@ export async function submitSignedPost(content, options = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       ...signedPost,
+      mediaMimeType: options.mediaMimeType,
       authorDisplayName,
       authorAvatar
     })

@@ -11,7 +11,7 @@
 
 import * as state from './state.js';
 import { apiCall, submitSignedTrust } from './api.js';
-import { $, showLoading, showResult, escapeHtml, getWeightLabel, renderAvatar } from './ui.js';
+import { $, showLoading, showResult, escapeHtml, escapeInlineJsString, getWeightLabel, renderAvatar } from './ui.js';
 import { loadFeed } from './feed.js';
 import { sendTrustAcceptanceSlide } from './slides.js';
 
@@ -155,15 +155,15 @@ export async function loadTrustedUsers() {
               <div class="trusted-user-key-small">${user.publicKeyShort}...</div>
             </div>
             <div class="trusted-user-actions">
-              <button class="btn-small" onclick="window.cloutApp.copyToClipboard('${user.publicKey}')">Copy</button>
+              <button class="btn-small" onclick="window.cloutApp.copyToClipboard('${escapeInlineJsString(user.publicKey)}')">Copy</button>
             </div>
           </div>
         `;
       }
 
       const muteBtn = isMuted
-        ? `<button class="btn-small btn-unmute" onclick="window.cloutApp.unmuteUser('${user.publicKey}')" title="Unredact">🔊</button>`
-        : `<button class="btn-small btn-mute" onclick="window.cloutApp.muteUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Redact">🔇</button>`;
+        ? `<button class="btn-small btn-unmute" onclick="window.cloutApp.unmuteUser('${escapeInlineJsString(user.publicKey)}')" title="Unredact">🔊</button>`
+        : `<button class="btn-small btn-mute" onclick="window.cloutApp.muteUser('${escapeInlineJsString(user.publicKey)}', '${escapeInlineJsString(displayName)}')" title="Redact">🔇</button>`;
 
       const weightBadge = weight < 1.0
         ? `<span class="weight-badge ${weightClass}" title="${weightLabel}">${weight.toFixed(1)}</span>`
@@ -181,10 +181,10 @@ export async function loadTrustedUsers() {
             ${tagsHtml}
           </div>
           <div class="trusted-user-actions">
-            <button class="btn-small btn-untrust" onclick="window.cloutApp.untrustUser('${user.publicKey}', '${escapeHtml(displayName)}')" title="Remove from trust circle">✕</button>
+            <button class="btn-small btn-untrust" onclick="window.cloutApp.untrustUser('${escapeInlineJsString(user.publicKey)}', '${escapeInlineJsString(displayName)}')" title="Remove from trust circle">✕</button>
             ${muteBtn}
-            <button class="btn-small btn-nickname" onclick="window.cloutApp.editNickname('${user.publicKey}', '${escapeHtml(nickname || '')}')" title="Set nickname">✏️</button>
-            <button class="btn-small" onclick="window.cloutApp.copyToClipboard('${user.publicKey}')">Copy</button>
+            <button class="btn-small btn-nickname" onclick="window.cloutApp.editNickname('${escapeInlineJsString(user.publicKey)}', '${escapeInlineJsString(nickname || '')}')" title="Set nickname">✏️</button>
+            <button class="btn-small" onclick="window.cloutApp.copyToClipboard('${escapeInlineJsString(user.publicKey)}')">Copy</button>
           </div>
         </div>
       `;
@@ -262,7 +262,7 @@ export async function quickTrust(publicKey, requireMembership) {
       invalidateTrustCacheAfterMutation();
     }
 
-    showResult('feed-list', `Added ${publicKey.slice(0, 8)}... to your trust circle!`, true);
+    showResult('feed-result', `Added ${publicKey.slice(0, 8)}... to your trust circle!`, true);
     setTimeout(() => loadFeed(), 1000);
   } catch (error) {
     alert(`Could not trust user: ${error.message}`);
@@ -283,7 +283,7 @@ export async function muteUser(publicKey, displayName, requireMembership) {
     if (window.CloutUserData) {
       await window.CloutUserData.mute(publicKey);
     }
-    showResult('feed-list', `Redacted ${displayName || publicKey.slice(0, 8)}...`, true);
+    showResult('feed-result', `Redacted ${displayName || publicKey.slice(0, 8)}...`, true);
     setTimeout(() => loadFeed(), 500);
   } catch (error) {
     alert(`Could not redact user: ${error.message}`);
@@ -461,8 +461,8 @@ function renderIncomingRequest(request) {
         </div>
       </div>
       <div class="trust-request-actions">
-        <button class="btn-small btn-accept" onclick="window.cloutApp.acceptTrustRequest('${escapeHtml(request.id)}')" title="Accept">✓</button>
-        <button class="btn-small btn-reject" onclick="window.cloutApp.rejectTrustRequest('${escapeHtml(request.id)}')" title="Reject">✕</button>
+        <button class="btn-small btn-accept" onclick="window.cloutApp.acceptTrustRequest('${escapeInlineJsString(request.id)}')" title="Accept">✓</button>
+        <button class="btn-small btn-reject" onclick="window.cloutApp.rejectTrustRequest('${escapeInlineJsString(request.id)}')" title="Reject">✕</button>
       </div>
     </div>
   `;
@@ -489,8 +489,8 @@ function renderOutgoingRequest(request) {
         </div>
       </div>
       <div class="trust-request-actions">
-        ${canRetry ? `<button class="btn-small btn-retry" onclick="window.cloutApp.retryTrustRequest('${escapeHtml(request.id)}')" title="Retry">↻</button>` : ''}
-        <button class="btn-small btn-withdraw" onclick="window.cloutApp.withdrawTrustRequest('${escapeHtml(request.id)}')" title="Withdraw">✕</button>
+        ${canRetry ? `<button class="btn-small btn-retry" onclick="window.cloutApp.retryTrustRequest('${escapeInlineJsString(request.id)}')" title="Retry">↻</button>` : ''}
+        <button class="btn-small btn-withdraw" onclick="window.cloutApp.withdrawTrustRequest('${escapeInlineJsString(request.id)}')" title="Withdraw">✕</button>
       </div>
     </div>
   `;

@@ -40,3 +40,9 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Runtime data
+data/
+
+# Plugins
+.superpowers/

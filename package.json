@@ -9,6 +9,7 @@
     "clout": "./dist/src/cli/index.js"
   },
   "scripts": {
+    "clean": "rm -rf dist build coverage .nyc_output tmp temp && find . -name '*.tsbuildinfo' -type f -delete",
     "build": "tsc && npm run copy-static",
     "copy-static": "mkdir -p dist/src/web && mkdir -p dist/src/vendor/hypertoken && cp -r src/web/public dist/src/web/ 2>/dev/null || true && cp -r src/vendor/hypertoken/pkg dist/src/vendor/hypertoken/ 2>/dev/null || true",
     "dev": "tsc --watch",
@@ -42,6 +43,7 @@
     "@roamhq/wrtc": "^0.7.0",
     "better-sqlite3": "^12.5.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "multiformats": "^13.3.1",

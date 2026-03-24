@@ -70,7 +70,8 @@ function computeHotScore(post: any, reactionCount: number, replyCount: number): 
 export function createFeedRoutes(
   getClout: () => Clout | undefined,
   isInitialized: () => boolean,
-  areVisitorsAllowed: () => boolean = () => true
+  areVisitorsAllowed: () => boolean = () => true,
+  getOwnerPublicKey?: () => string | undefined
 ): Router {
   const router = Router();
 
@@ -110,7 +111,8 @@ export function createFeedRoutes(
         }
 
         // Visitor mode - return empty feed with visitor flag
-        // In the future, this could return a curated public feed from gossip
+        // (Note: this path is rarely hit since the server auto-initializes.
+        //  Visitor filtering happens client-side in feed.js loadVisitorFeed.)
         return res.json({
           success: true,
           data: {
@@ -205,7 +207,8 @@ export function createFeedRoutes(
           hasMore,
           sort,
           nsfwEnabled: clout.isNsfwEnabled(),
-          isVisitor: false
+          isVisitor: false,
+          ownerPublicKey: getOwnerPublicKey?.() || null
         }
       });
     } catch (error: any) {

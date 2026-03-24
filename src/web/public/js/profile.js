@@ -12,7 +12,7 @@
 
 import * as state from './state.js';
 import { apiCall } from './api.js';
-import { $, showLoading, showResult, escapeHtml, formatRelativeTime, renderAvatar } from './ui.js';
+import { $, showLoading, showResult, escapeHtml, escapeInlineJsString, formatRelativeTime, renderAvatar } from './ui.js';
 import { loadFeed } from './feed.js';
 
 // =========================================================================
@@ -466,7 +466,7 @@ export async function loadTags() {
       <div class="tag-item">
         <span class="tag-name">${escapeHtml(tag.tag)}</span>
         <span class="tag-count">${tag.count} users</span>
-        <button class="btn btn-small" onclick="window.cloutApp.viewTagUsers('${escapeHtml(tag.tag)}')">View</button>
+        <button class="btn btn-small" onclick="window.cloutApp.viewTagUsers('${escapeInlineJsString(tag.tag)}')">View</button>
       </div>
     `).join('');
   } catch (error) {
@@ -554,7 +554,7 @@ export async function loadIdentities() {
           <div class="identity-created">Created ${formatRelativeTime(id.created)}</div>
         </div>
         <div class="identity-actions">
-          ${!id.isDefault ? `<button class="btn-small" onclick="window.cloutApp.switchIdentity('${escapeHtml(id.name)}')">Switch</button>` : ''}
+          ${!id.isDefault ? `<button class="btn-small" onclick="window.cloutApp.switchIdentity('${escapeInlineJsString(id.name)}')">Switch</button>` : ''}
         </div>
       </div>
     `).join('');

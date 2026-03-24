@@ -13,7 +13,7 @@ import { $, updateStatus, startDayPassTimer } from './ui.js';
 import { loadFeed } from './feed.js';
 import { loadIdentity, loadProfile } from './profile.js';
 import { loadSlides } from './slides.js';
-import { connectLiveUpdates, updateNotificationCounts } from './notifications.js';
+import { connectLiveUpdates, updateNotificationCounts, startNotificationPolling } from './notifications.js';
 
 /**
  * Show invite popover
@@ -107,8 +107,10 @@ export async function redeemInvite() {
         console.log('[Clout] Day Pass obtained, expires:', new Date(ticketExpiry).toLocaleString());
       } catch (dayPassError) {
         console.warn('[Clout] Failed to get Day Pass:', dayPassError.message);
-        // Continue anyway - they can get a Day Pass when they try to post
+        throw new Error(`Day Pass request failed: ${dayPassError.message}`);
       }
+    } else {
+      throw new Error('Day Pass module not loaded');
     }
 
     // Step 6: Create trust signal for inviter
@@ -139,6 +141,12 @@ export async function redeemInvite() {
           weight,
           timestamp
         });
+
+        // Save to browser's local trust graph (IndexedDB) so feed filtering works
+        if (window.CloutUserData) {
+          await window.CloutUserData.trust(inviterPubkey, weight);
+          console.log('[Clout] Saved inviter to browser trust graph (IndexedDB)');
+        }
 
         console.log('[Clout] Created mutual trust with inviter:', inviterPubkey.slice(0, 16) + '...');
       } catch (trustError) {
@@ -188,7 +196,7 @@ export async function redeemInvite() {
       loadSlides().catch(() => {});
       connectLiveUpdates();
       updateNotificationCounts();
-      setInterval(updateNotificationCounts, 30000);
+      startNotificationPolling();
     }, 1500);
   } catch (error) {
     $('invite-result').textContent = error.message;
@@ -357,7 +365,7 @@ async function completeIdentityRestore(identity, resultEl) {
       loadSlides().catch(() => {});
       connectLiveUpdates();
       updateNotificationCounts();
-      setInterval(updateNotificationCounts, 30000);
+      startNotificationPolling();
     }, 1500);
   } else if (isRegistered) {
     // Identity restored with expired Day Pass but user is registered - auto-renew
@@ -430,7 +438,7 @@ async function renewDayPass(identity) {
     loadSlides().catch(() => {});
     connectLiveUpdates();
     updateNotificationCounts();
-    setInterval(updateNotificationCounts, 30000);
+    startNotificationPolling();
 
   } catch (error) {
     console.error('[Clout] Day Pass renewal failed:', error);

@@ -29,8 +29,13 @@ const VOPRF_DST = 'P256_XMD:SHA-256_SSWU_RO_';
 
 // Token format constants
 const COMPRESSED_POINT_LEN = 33;
+const TOKEN_VERSION_V1 = 0x01;
+const TOKEN_VERSION_LEN = 1;
+const TOKEN_SIGNATURE_LEN = 64;
 const PROOF_LEN = 64;
-const TOKEN_LEN = COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 130 bytes
+const RAW_TOKEN_LEN_V0 = COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 130
+const RAW_TOKEN_LEN_V1 = TOKEN_VERSION_LEN + COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 131
+const TOKEN_LEN_V2 = RAW_TOKEN_LEN_V1 + TOKEN_SIGNATURE_LEN; // 195
 
 // DLEQ verification domain separator
 const DLEQ_DST_PREFIX = new TextEncoder().encode('DLEQ-P256-v1');
@@ -97,35 +102,33 @@ export function finalize(blindedValue, tokenB64, issuerPubkeyB64) {
   }
 
   // 1. Decode inputs
-  const tokenBytes = base64UrlToBytes(tokenB64);
+  const fullTokenBytes = base64UrlToBytes(tokenB64);
   const pubkeyBytes = base64UrlToBytes(issuerPubkeyB64);
+  const tokenBytes =
+    fullTokenBytes.length === TOKEN_LEN_V2
+      ? fullTokenBytes.slice(0, RAW_TOKEN_LEN_V1)
+      : fullTokenBytes;
 
   // Handle different token formats
   let A_bytes, B_bytes, proofBytes;
 
-  if (tokenBytes.length === 195 && tokenBytes[0] === 0x01) {
-    // V1 format: version byte + points + proof
-    const pointPrefix = tokenBytes[1];
-    if (pointPrefix === 0x04) {
-      // Uncompressed points (65 bytes each)
-      A_bytes = tokenBytes.slice(1, 66);
-      B_bytes = tokenBytes.slice(66, 131);
-      proofBytes = tokenBytes.slice(131);
-    } else if (pointPrefix === 0x02 || pointPrefix === 0x03) {
-      // Compressed points (33 bytes each)
-      A_bytes = tokenBytes.slice(1, 34);
-      B_bytes = tokenBytes.slice(34, 67);
-      proofBytes = tokenBytes.slice(67, 131);
-    } else {
-      throw new Error(`Invalid token format: unknown point prefix 0x${pointPrefix.toString(16)}`);
+  if (tokenBytes.length === RAW_TOKEN_LEN_V1) {
+    if (tokenBytes[0] !== TOKEN_VERSION_V1) {
+      throw new Error(`Unsupported token version: ${tokenBytes[0]}`);
     }
-  } else if (tokenBytes.length === TOKEN_LEN) {
+    // V1 raw format: [ version (1) | A (33) | B (33) | Proof (64) ]
+    A_bytes = tokenBytes.slice(1, 34);
+    B_bytes = tokenBytes.slice(34, 67);
+    proofBytes = tokenBytes.slice(67, 131);
+  } else if (tokenBytes.length === RAW_TOKEN_LEN_V0) {
     // Legacy format: [ A (33) | B (33) | Proof (64) ]
     A_bytes = tokenBytes.slice(0, COMPRESSED_POINT_LEN);
     B_bytes = tokenBytes.slice(COMPRESSED_POINT_LEN, COMPRESSED_POINT_LEN * 2);
     proofBytes = tokenBytes.slice(COMPRESSED_POINT_LEN * 2);
   } else {
-    throw new Error(`Invalid token length: expected ${TOKEN_LEN} or 195, got ${tokenBytes.length}`);
+    throw new Error(
+      `Invalid token length: expected one of ${RAW_TOKEN_LEN_V0}, ${RAW_TOKEN_LEN_V1}, ${TOKEN_LEN_V2}; got ${fullTokenBytes.length}`
+    );
   }
 
   // 2. Decode Points
@@ -149,7 +152,7 @@ export function finalize(blindedValue, tokenB64, issuerPubkeyB64) {
   blindStates.delete(blindedHex);
 
   // 5. Return the verified token bytes
-  return tokenBytes;
+  return fullTokenBytes;
 }
 
 /**

@@ -24,6 +24,24 @@ const KDF_SALT_ENCRYPTION = new TextEncoder().encode('CLOUT_ENCRYPTION_KEY_V1');
  */
 export class Crypto {
   /**
+   * Normalize key-like input to Uint8Array.
+   * Accepts Uint8Array, number[], or 64-char hex strings.
+   */
+  static normalizeBytes(value, fieldName = 'value') {
+    if (value instanceof Uint8Array) {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return new Uint8Array(value);
+    }
+    if (typeof value === 'string') {
+      // Assume hex for secret/public keys.
+      return this.fromHex(value);
+    }
+    throw new Error(`Invalid ${fieldName}: expected Uint8Array, number[], or hex string`);
+  }
+
+  /**
    * Generate cryptographically secure random bytes
    */
   static randomBytes(length) {
@@ -243,7 +261,8 @@ export class Crypto {
    * Sign a message using Ed25519
    */
   static sign(message, privateKey) {
-    return ed25519.sign(message, privateKey);
+    const keyBytes = this.normalizeBytes(privateKey, 'privateKey');
+    return ed25519.sign(message, keyBytes);
   }
 
   /**
@@ -261,14 +280,16 @@ export class Crypto {
    * Get Ed25519 public key from private key
    */
   static getPublicKey(privateKey) {
-    return ed25519.getPublicKey(privateKey);
+    const keyBytes = this.normalizeBytes(privateKey, 'privateKey');
+    return ed25519.getPublicKey(keyBytes);
   }
 
   /**
    * Get X25519 public key from private key (for encryption)
    */
   static getX25519PublicKey(privateKey) {
-    return x25519.getPublicKey(privateKey);
+    const keyBytes = this.normalizeBytes(privateKey, 'privateKey');
+    return x25519.getPublicKey(keyBytes);
   }
 
   /**
@@ -285,7 +306,8 @@ export class Crypto {
    * Convert Ed25519 private key (seed) to X25519 private key (scalar)
    */
   static ed25519PrivToX25519(ed25519PrivateKey) {
-    return edwardsToMontgomeryPriv(ed25519PrivateKey);
+    const keyBytes = this.normalizeBytes(ed25519PrivateKey, 'ed25519PrivateKey');
+    return edwardsToMontgomeryPriv(keyBytes);
   }
 
   // =================================================================

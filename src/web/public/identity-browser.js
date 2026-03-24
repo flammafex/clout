@@ -107,11 +107,14 @@ export class BrowserIdentity {
             return;
           }
 
-          const privateKey = new Uint8Array(record.privateKey);
+          const privateKey = Crypto.normalizeBytes(record.privateKey, 'privateKey');
+          const publicKey = record.publicKey
+            ? Crypto.normalizeBytes(record.publicKey, 'publicKey')
+            : Crypto.getPublicKey(privateKey);
           resolve({
             privateKey,
-            publicKey: new Uint8Array(record.publicKey),
-            publicKeyHex: record.publicKeyHex,
+            publicKey,
+            publicKeyHex: record.publicKeyHex || Crypto.toHex(publicKey),
             secretKeyHex: Crypto.toHex(privateKey), // Include for export
             created: record.created
           });

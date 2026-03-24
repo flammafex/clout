@@ -5,7 +5,11 @@
 import { Router } from 'express';
 import type { Clout } from '../../clout.js';
 
-export function createSettingsRoutes(getClout: () => Clout | undefined, isInitialized: () => boolean): Router {
+export function createSettingsRoutes(
+  getClout: () => Clout | undefined,
+  isInitialized: () => boolean,
+  getOwnerPublicKey?: () => string | undefined
+): Router {
   const router = Router();
 
   // Get current settings
@@ -19,7 +23,7 @@ export function createSettingsRoutes(getClout: () => Clout | undefined, isInitia
       // Check if admin features are available
       const adminKey = process.env.FREEBIRD_ADMIN_KEY;
       const issuerUrl = process.env.FREEBIRD_ISSUER_URL || 'http://localhost:8081';
-      const ownerPubkey = process.env.INSTANCE_OWNER_PUBKEY;
+      const ownerPubkey = getOwnerPublicKey?.() || process.env.INSTANCE_OWNER_PUBKEY;
       const isAdmin = !!adminKey;
 
       res.json({

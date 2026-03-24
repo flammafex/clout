@@ -47,6 +47,33 @@ export interface FreebirdInvitationDetails {
   created_at: number;
   expires_at: number;
   redeemed: boolean;
+  signature?: string;
+}
+
+/**
+ * Normalize a signature string to base64url format.
+ *
+ * Freebird's admin API returns signatures in two different encodings:
+ *  - Create endpoint: base64url (86 chars for 64 bytes)
+ *  - List endpoint: hex via serde hex_serde (128 chars for 64 bytes)
+ *
+ * The issuer's /v1/oprf/issue expects base64url, so we normalize here.
+ */
+export function normalizeSignatureToBase64Url(sig: string): string {
+  // 128 hex chars = 64 bytes (P-256 ECDSA r||s)
+  if (sig.length === 128 && /^[0-9a-fA-F]+$/.test(sig)) {
+    const bytes = new Uint8Array(64);
+    for (let i = 0; i < 64; i++) {
+      bytes[i] = parseInt(sig.slice(i * 2, i * 2 + 2), 16);
+    }
+    // Base64url encode without padding
+    const b64 = btoa(String.fromCharCode(...bytes))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    return b64;
+  }
+  return sig;
 }
 
 export class FreebirdAdmin {
@@ -175,6 +202,50 @@ export class FreebirdAdmin {
       }
       return null;
     }
+  }
+
+  /**
+   * Resolve invitation signature by code.
+   *
+   * Some Freebird deployments may omit signature on the detail endpoint,
+   * so this method also scans paginated invitation lists as a fallback.
+   */
+  async resolveInvitationSignatureByCode(code: string): Promise<string | null> {
+    try {
+      const details = await this.getInvitationByCode(code);
+      if (details && typeof details.signature === 'string' && details.signature.length > 0) {
+        return normalizeSignatureToBase64Url(details.signature);
+      }
+    } catch {
+      // Continue to list scan fallback.
+    }
+
+    const pageSize = 100;
+    const maxPages = 20; // Scan up to 2000 invitations.
+
+    for (let page = 0; page < maxPages; page++) {
+      const offset = page * pageSize;
+      try {
+        const response = await this.request<{ invitations?: Invitation[]; total?: number }>(
+          `/admin/invitations?offset=${offset}&limit=${pageSize}`
+        );
+        const invitations = response.invitations || [];
+        const match = invitations.find(inv => inv.code === code && typeof inv.signature === 'string' && inv.signature.length > 0);
+        if (match) {
+          return normalizeSignatureToBase64Url(match.signature);
+        }
+        if (invitations.length < pageSize) {
+          break;
+        }
+        if (typeof response.total === 'number' && offset + pageSize >= response.total) {
+          break;
+        }
+      } catch {
+        break;
+      }
+    }
+
+    return null;
   }
 
   /**

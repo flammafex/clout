@@ -9,7 +9,7 @@
 
 import * as state from './state.js';
 import { apiCall } from './api.js';
-import { $, $$, escapeHtml, formatRelativeTime, renderAvatar } from './ui.js';
+import { $, $$, escapeHtml, escapeInlineJsString, formatRelativeTime, renderAvatar } from './ui.js';
 import { renderReactionsBar } from './reactions.js';
 import { renderPostContent, recalculateTrustForPosts } from './feed.js';
 
@@ -120,27 +120,27 @@ function renderThreadPost(post, isParent = false) {
 
   // Redact button - hide for visitors
   const muteBtn = (!visitor && !post.isAuthor)
-    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${post.author}', '${escapeHtml(authorName)}')" title="Redact">Redact</button>`
+    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${escapeInlineJsString(post.author)}', '${escapeInlineJsString(authorName)}')" title="Redact">Redact</button>`
     : '';
 
   // Author actions - hide for visitors
   const authorActions = (!visitor && post.isAuthor)
-    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${post.id}')" title="Revise">Revise</button>
-       <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${post.id}')" title="Retract">Retract</button>`
+    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${escapeInlineJsString(post.id)}')" title="Revise">Revise</button>
+       <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${escapeInlineJsString(post.id)}')" title="Retract">Retract</button>`
     : '';
 
   // Save button - hide for visitors
   const saveBtn = visitor ? '' : `
-    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${post.id}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${escapeInlineJsString(post.id)}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
       ${post.isBookmarked ? 'Saved' : 'Save'}
     </button>`;
 
   // Reply button - hide for visitors
   const replyBtn = visitor ? '' : `
-    <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${post.id}', '${escapeHtml(authorName)}')">Reply</button>`;
+    <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${escapeInlineJsString(post.id)}', '${escapeInlineJsString(authorName)}')">Reply</button>`;
 
   const parentClass = isParent ? 'thread-parent-post' : '';
-  const clickHandler = isParent ? '' : `onclick="window.cloutApp.viewThread('${post.id}')" style="cursor: pointer;"`;
+  const clickHandler = isParent ? '' : `onclick="window.cloutApp.viewThread('${escapeInlineJsString(post.id)}')" style="cursor: pointer;"`;
 
   return `
     <div class="feed-item ${parentClass} ${hasMedia ? 'has-media' : ''}" ${clickHandler}>
@@ -148,7 +148,7 @@ function renderThreadPost(post, isParent = false) {
         <div class="feed-avatar">${renderAvatar(avatar)}</div>
         <div class="feed-post-content">
           <div class="feed-author"><span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span></div>
-          ${post.replyTo ? `<div class="feed-reply-indicator">&#x21B3; Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); window.cloutApp.viewThread('${post.resolvedReplyTo || post.replyTo}')">View parent</a></div>` : ''}
+          ${post.replyTo ? `<div class="feed-reply-indicator">&#x21B3; Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); window.cloutApp.viewThread('${escapeInlineJsString(post.resolvedReplyTo || post.replyTo)}')">View parent</a></div>` : ''}
           <div class="feed-content">${renderPostContent(post)}</div>
           <div class="feed-footer">
             <div class="feed-timestamp">&#x1F64C; ${formatRelativeTime(timestamp)} ${editedIndicator}</div>

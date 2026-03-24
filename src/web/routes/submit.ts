@@ -65,6 +65,24 @@ const POST_SIGNATURE_WINDOW_MS = 5 * 60 * 1000;
 const POST_SIGNATURE_REPLAY_TTL_MS = 10 * 60 * 1000;
 const DAYPASS_TOKEN_REPLAY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+function normalizeBytes(value: unknown): Uint8Array | null {
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+  if (Array.isArray(value) && value.every((n) => typeof n === 'number')) {
+    return new Uint8Array(value);
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([k, v]) => /^\d+$/.test(k) && typeof v === 'number')
+      .sort((a, b) => Number(a[0]) - Number(b[0]));
+    if (entries.length > 0) {
+      return new Uint8Array(entries.map(([, v]) => Number(v)));
+    }
+  }
+  return null;
+}
+
 function cleanupExpiredPostSignatures(now: number): void {
   for (const [sig, expiresAt] of usedPostSignatures.entries()) {
     if (expiresAt <= now) {
@@ -124,6 +142,7 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         timestamp,
         replyTo,
         mediaCid,
+        mediaMimeType,
         link,
         nsfw,
         contentWarning,
@@ -211,6 +230,15 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         });
       }
 
+      const authorshipProofBytes = normalizeBytes((ticket as any).freebirdProof) ||
+        normalizeBytes((ticket as any).proof);
+      if (!authorshipProofBytes) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid Day Pass proof format. Please renew your Day Pass.'
+        });
+      }
+
       // Create post ID from content hash
       const id = Crypto.hashString(content);
 
@@ -234,11 +262,16 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         replyTo,
         nsfw,
         contentWarning,
-        media: mediaCid ? { cid: mediaCid } : undefined,
+        media: mediaCid ? {
+          cid: mediaCid,
+          mimeType: typeof mediaMimeType === 'string' && mediaMimeType.length > 0
+            ? mediaMimeType
+            : 'application/octet-stream'
+        } : undefined,
         // OpenGraph link preview (mutually exclusive with media)
         link: link || undefined,
         // Include Day Pass as authorship proof
-        authorshipProof: ticket.proof
+        authorshipProof: authorshipProofBytes
       };
 
       // Get witness proof and broadcast via gossip

@@ -6,7 +6,7 @@
  */
 
 import { apiCall } from './api.js';
-import { $, escapeHtml, formatRelativeTime } from './ui.js';
+import { $, escapeHtml, escapeInlineJsString, formatRelativeTime } from './ui.js';
 
 /**
  * Sign an admin request with the browser identity
@@ -214,7 +214,7 @@ export async function loadAdminMembers() {
             <span class="quota-badge ${member.remaining > 0 ? 'has-quota' : 'no-quota'}">
               ${member.remaining}/${member.quota} remaining
             </span>
-            <button class="btn btn-small" onclick="window.cloutApp.prefillGrantQuota('${member.publicKey}')">Grant More</button>
+            <button class="btn btn-small" onclick="window.cloutApp.prefillGrantQuota('${escapeInlineJsString(member.publicKey)}')">Grant More</button>
           </div>
         </div>
       `;
@@ -347,7 +347,7 @@ export async function ownerCreateInvitations() {
     const codesHtml = data.invitations.map(inv => `
       <div class="code-item">
         <code>${escapeHtml(inv.code)}</code>
-        <button class="btn btn-small" onclick="navigator.clipboard.writeText('${escapeHtml(inv.code)}')">Copy</button>
+        <button class="btn btn-small" onclick="navigator.clipboard.writeText('${escapeInlineJsString(inv.code)}')">Copy</button>
       </div>
     `).join('');
 

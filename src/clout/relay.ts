@@ -61,7 +61,7 @@ export class CloutRelay {
     replyTo?: string;
     nsfw?: boolean;
     contentWarning?: string;
-    media?: { cid: string };
+    media?: { cid: string; mimeType?: string };
     link?: { url: string; title?: string; description?: string; image?: string; siteName?: string; type?: string; fetchedAt: number };
     authorshipProof?: Uint8Array;
     authorDisplayName?: string;
@@ -87,7 +87,7 @@ export class CloutRelay {
       contentWarning: postPackage.contentWarning,
       media: postPackage.media ? {
         cid: postPackage.media.cid,
-        mimeType: 'application/octet-stream',
+        mimeType: postPackage.media.mimeType || 'application/octet-stream',
         size: 0,
         storedAt: Date.now()
       } : undefined,

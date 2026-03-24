@@ -10,7 +10,7 @@
 
 import * as state from './state.js';
 import { apiCall } from './api.js';
-import { $, showResult } from './ui.js';
+import { $, showResult, escapeInlineJsString } from './ui.js';
 
 // Common emoji categories for the picker
 const EMOJI_CATEGORIES = {
@@ -44,7 +44,7 @@ export function renderReactionsBar(postId, reactions, myReaction, readOnly = fal
     }
     // Members see React button
     return `<div class="reactions-bar" data-post-id="${postId}">
-      <button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>
+      <button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${escapeInlineJsString(postId)}')" title="Add reaction">+</button>
     </div>`;
   }
 
@@ -62,7 +62,7 @@ export function renderReactionsBar(postId, reactions, myReaction, readOnly = fal
       </span>`;
     }
     const btnClass = isMyReaction ? 'reaction-btn active' : 'reaction-btn';
-    return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="${count} reaction${count !== 1 ? 's' : ''}">
+    return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${escapeInlineJsString(postId)}', '${escapeInlineJsString(emoji)}')" title="${count} reaction${count !== 1 ? 's' : ''}">
       ${emoji}<span class="reaction-count">${count}</span>
     </button>`;
   }).join('');
@@ -79,21 +79,21 @@ export function renderReactionsBar(postId, reactions, myReaction, readOnly = fal
         </span>`;
       }
       const btnClass = isMyReaction ? 'reaction-btn active reaction-overflow' : 'reaction-btn reaction-overflow';
-      return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')" title="${count} reaction${count !== 1 ? 's' : ''}">
+      return `<button class="${btnClass}" onclick="event.stopPropagation(); window.cloutApp.toggleReaction('${escapeInlineJsString(postId)}', '${escapeInlineJsString(emoji)}')" title="${count} reaction${count !== 1 ? 's' : ''}">
         ${emoji}<span class="reaction-count">${count}</span>
       </button>`;
     }).join('');
 
     // Mobile ellipsis button to expand (only for non-readonly)
     if (!readOnly) {
-      hiddenButtons += `<button class="reaction-btn reaction-expand-btn" onclick="event.stopPropagation(); window.cloutApp.expandReactions('${postId}')" title="Show ${hiddenReactions.length} more reactions">
+      hiddenButtons += `<button class="reaction-btn reaction-expand-btn" onclick="event.stopPropagation(); window.cloutApp.expandReactions('${escapeInlineJsString(postId)}')" title="Show ${hiddenReactions.length} more reactions">
         <span class="reaction-ellipsis">...</span>
       </button>`;
     }
   }
 
   // React button to add new reaction (only for non-readonly)
-  const reactButton = readOnly ? '' : `<button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${postId}')" title="Add reaction">+</button>`;
+  const reactButton = readOnly ? '' : `<button class="reaction-btn reaction-picker-btn" onclick="event.stopPropagation(); window.cloutApp.openEmojiPicker('${escapeInlineJsString(postId)}')" title="Add reaction">+</button>`;
 
   return `<div class="reactions-bar" data-post-id="${postId}">
     ${visibleButtons}${hiddenButtons}${reactButton}
@@ -142,7 +142,7 @@ export function openEmojiPicker(postId) {
     pickerHtml += `<div class="emoji-category" data-category="${category}">
       <div class="emoji-category-label">${category}</div>
       <div class="emoji-grid">
-        ${emojis.map(e => `<button class="emoji-option" onclick="window.cloutApp.selectEmoji('${postId}', '${e}')">${e}</button>`).join('')}
+        ${emojis.map(e => `<button class="emoji-option" onclick="window.cloutApp.selectEmoji('${escapeInlineJsString(postId)}', '${escapeInlineJsString(e)}')">${e}</button>`).join('')}
       </div>
     </div>`;
   }
@@ -297,7 +297,7 @@ export async function toggleReaction(postId, emoji, requireMembership) {
       // Create new button for this reaction
       const newBtn = document.createElement('button');
       newBtn.className = 'reaction-btn active';
-      newBtn.setAttribute('onclick', `event.stopPropagation(); window.cloutApp.toggleReaction('${postId}', '${emoji}')`);
+      newBtn.setAttribute('onclick', `event.stopPropagation(); window.cloutApp.toggleReaction('${escapeInlineJsString(postId)}', '${escapeInlineJsString(emoji)}')`);
       newBtn.setAttribute('title', '1 reaction');
       newBtn.innerHTML = `${emoji}<span class="reaction-count">1</span>`;
 

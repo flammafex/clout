@@ -84,7 +84,49 @@ Deploy from the [Witness repository](https://github.com/flammafex/Witness):
 ```bash
 # From Witness repo
 cargo build --release
-./target/release/witness-gateway --port 8080
+
+# 1) Generate witness keypairs and auth tokens
+./target/release/witness-node --generate-key
+./target/release/witness-node --generate-key
+./target/release/witness-node --generate-key
+TOKEN1=$(openssl rand -hex 32)
+TOKEN2=$(openssl rand -hex 32)
+TOKEN3=$(openssl rand -hex 32)
+
+# 2) Create witness node configs (host + signing_auth_token are required)
+cat > witness1.json <<EOF
+{"id":"witness-1","private_key":"<PRIVKEY1>","port":4001,"host":"0.0.0.0","network_id":"clout-net","signing_auth_token":"$TOKEN1","max_clock_skew":300}
+EOF
+cat > witness2.json <<EOF
+{"id":"witness-2","private_key":"<PRIVKEY2>","port":4002,"host":"0.0.0.0","network_id":"clout-net","signing_auth_token":"$TOKEN2","max_clock_skew":300}
+EOF
+cat > witness3.json <<EOF
+{"id":"witness-3","private_key":"<PRIVKEY3>","port":4003,"host":"0.0.0.0","network_id":"clout-net","signing_auth_token":"$TOKEN3","max_clock_skew":300}
+EOF
+
+# 3) Create gateway network config (auth_token is required per witness)
+cat > network.json <<EOF
+{
+  "id":"clout-net",
+  "threshold":2,
+  "witnesses":[
+    {"id":"witness-1","pubkey":"<PUBKEY1>","endpoint":"http://127.0.0.1:4001","auth_token":"$TOKEN1"},
+    {"id":"witness-2","pubkey":"<PUBKEY2>","endpoint":"http://127.0.0.1:4002","auth_token":"$TOKEN2"},
+    {"id":"witness-3","pubkey":"<PUBKEY3>","endpoint":"http://127.0.0.1:4003","auth_token":"$TOKEN3"}
+  ],
+  "federation_peers":[],
+  "external_anchors":{"enabled":false,"providers":[]}
+}
+EOF
+
+# 4) Run witness nodes
+./target/release/witness-node --config witness1.json
+./target/release/witness-node --config witness2.json
+./target/release/witness-node --config witness3.json
+
+# 5) Run gateway (bind externally; keep token checks non-consuming for Clout)
+FREEBIRD_CONSUME_TOKENS=false \
+./target/release/witness-gateway --config network.json --host 0.0.0.0 --port 8080
 ```
 
 **Option B: Use fallback mode (development/small networks)**
@@ -99,8 +141,21 @@ Deploy from the [Freebird repository](https://github.com/flammafex/Freebird):
 ```bash
 # From Freebird repo
 cargo build --release
-./target/release/freebird-issuer --port 8081
-./target/release/freebird-verifier --port 8082
+
+# Issuer (example: invitation mode)
+export BIND_ADDR=0.0.0.0:8081
+export ISSUER_ID=issuer:my-clout:v1
+export TOKEN_TTL_MIN=60
+export SYBIL_RESISTANCE=invitation
+export ADMIN_ENABLED=true
+export ADMIN_API_KEY="$(openssl rand -hex 32)"
+./target/release/freebird-issuer
+
+# Verifier
+export BIND_ADDR=0.0.0.0:8082
+export ISSUER_URL=http://127.0.0.1:8081/.well-known/issuer
+export REDIS_URL=redis://127.0.0.1:6379
+./target/release/freebird-verifier
 ```
 
 For MPC threshold issuance (recommended for production), run multiple issuers.

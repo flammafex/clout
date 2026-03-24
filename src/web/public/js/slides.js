@@ -9,7 +9,7 @@
 
 import * as state from './state.js';
 import { apiCall, submitSignedTrust } from './api.js';
-import { $, showLoading, showResult, escapeHtml, formatRelativeTime } from './ui.js';
+import { $, showLoading, showResult, escapeHtml, escapeInlineJsString, formatRelativeTime } from './ui.js';
 
 /**
  * Send an encrypted slide using browser identity
@@ -243,7 +243,7 @@ export async function loadSlides() {
             <div class="slide-timestamp">${formatRelativeTime(slide.timestamp)}</div>
           </div>
           <div class="slide-message">${escapeHtml(slide.decryptedContent || '')}</div>
-          <button class="btn btn-small" onclick="window.cloutApp.startSlideReply('${slide.sender || ''}')">Reply</button>
+          <button class="btn btn-small" onclick="window.cloutApp.startSlideReply('${escapeInlineJsString(slide.sender || '')}')">Reply</button>
         </div>
       `;
     }).join('');

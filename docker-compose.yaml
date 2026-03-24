@@ -173,19 +173,22 @@ services:
         OUT1=$$(witness-node --generate-key)
         PRIV1=$$(echo "$$OUT1" | grep "Private key:" | awk '{print $$3}')
         PUB1=$$(echo "$$OUT1" | grep "Public key:" | awk '{print $$3}')
-        echo "{\"id\": \"witness-1\", \"private_key\": \"$$PRIV1\", \"port\": 4001, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness1.json
+        TOKEN1=$$(cat /proc/sys/kernel/random/uuid | tr -d '-')
+        echo "{\"id\": \"witness-1\", \"private_key\": \"$$PRIV1\", \"port\": 4001, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN1\", \"max_clock_skew\": 300}" > /data/witness1.json
 
         # Generate witness-2
         OUT2=$$(witness-node --generate-key)
         PRIV2=$$(echo "$$OUT2" | grep "Private key:" | awk '{print $$3}')
         PUB2=$$(echo "$$OUT2" | grep "Public key:" | awk '{print $$3}')
-        echo "{\"id\": \"witness-2\", \"private_key\": \"$$PRIV2\", \"port\": 4002, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness2.json
+        TOKEN2=$$(cat /proc/sys/kernel/random/uuid | tr -d '-')
+        echo "{\"id\": \"witness-2\", \"private_key\": \"$$PRIV2\", \"port\": 4002, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN2\", \"max_clock_skew\": 300}" > /data/witness2.json
 
         # Generate witness-3
         OUT3=$$(witness-node --generate-key)
         PRIV3=$$(echo "$$OUT3" | grep "Private key:" | awk '{print $$3}')
         PUB3=$$(echo "$$OUT3" | grep "Public key:" | awk '{print $$3}')
-        echo "{\"id\": \"witness-3\", \"private_key\": \"$$PRIV3\", \"port\": 4003, \"network_id\": \"docker-net\", \"max_clock_skew\": 300}" > /data/witness3.json
+        TOKEN3=$$(cat /proc/sys/kernel/random/uuid | tr -d '-')
+        echo "{\"id\": \"witness-3\", \"private_key\": \"$$PRIV3\", \"port\": 4003, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN3\", \"max_clock_skew\": 300}" > /data/witness3.json
 
         echo "📝 Creating network.json..."
         cat > /data/network.json <<EOF
@@ -193,9 +196,9 @@ services:
           "id": "docker-net",
           "threshold": 2,
           "witnesses": [
-            { "id": "witness-1", "pubkey": "$$PUB1", "endpoint": "http://witness-1:4001" },
-            { "id": "witness-2", "pubkey": "$$PUB2", "endpoint": "http://witness-2:4002" },
-            { "id": "witness-3", "pubkey": "$$PUB3", "endpoint": "http://witness-3:4003" }
+            { "id": "witness-1", "pubkey": "$$PUB1", "endpoint": "http://witness-1:4001", "auth_token": "$$TOKEN1" },
+            { "id": "witness-2", "pubkey": "$$PUB2", "endpoint": "http://witness-2:4002", "auth_token": "$$TOKEN2" },
+            { "id": "witness-3", "pubkey": "$$PUB3", "endpoint": "http://witness-3:4003", "auth_token": "$$TOKEN3" }
           ],
           "federation_peers": [],
           "external_anchors": { "enabled": false, "providers": [] }
@@ -263,7 +266,10 @@ services:
       - witness-config:/config
     environment:
       - RUST_LOG=info
-    command: ["witness-gateway", "--config", "/config/network.json", "--database", ":memory:"]
+      # Clout reuses Freebird tokens for ongoing Witness timestamps.
+      # Keep gateway in non-consuming mode unless explicitly overridden.
+      - FREEBIRD_CONSUME_TOKENS=${WITNESS_FREEBIRD_CONSUME_TOKENS:-false}
+    command: ["witness-gateway", "--config", "/config/network.json", "--host", "0.0.0.0", "--database", ":memory:"]
     networks:
       - clout-net
   # ============================================================================

@@ -30,6 +30,22 @@ function shortKey(publicKey: string): string {
   return publicKey.slice(0, 12) + '...';
 }
 
+function normalizeBytes(value: unknown): Uint8Array | undefined {
+  if (value instanceof Uint8Array) return value;
+  if (Array.isArray(value) && value.every((n) => typeof n === 'number')) {
+    return new Uint8Array(value);
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([k, v]) => /^\d+$/.test(k) && typeof v === 'number')
+      .sort((a, b) => Number(a[0]) - Number(b[0]));
+    if (entries.length > 0) {
+      return new Uint8Array(entries.map(([, v]) => Number(v)));
+    }
+  }
+  return undefined;
+}
+
 /**
  * User ticket data (Day Pass)
  */
@@ -75,6 +91,11 @@ export interface UserLocalData {
    * Set to true after first successful token issuance with invitation mode.
    */
   isFreebirdRegistered?: boolean;
+  /**
+   * Freebird internal user identifier (invitee_id) used by registered_user proof.
+   * For owners, this may equal their Clout public key.
+   */
+  freebirdUserId?: string;
 }
 
 /**
@@ -220,7 +241,14 @@ export class UserDataStore {
    */
   async getTicket(publicKey: string): Promise<UserTicket | null> {
     const userData = await this.loadUserData(publicKey);
-    return userData.ticket;
+    const ticket = userData.ticket;
+    if (!ticket) return null;
+
+    const normalizedFreebirdProof = normalizeBytes(ticket.freebirdProof);
+    if (normalizedFreebirdProof) {
+      (ticket as any).freebirdProof = normalizedFreebirdProof;
+    }
+    return ticket;
   }
 
   /**
@@ -228,7 +256,12 @@ export class UserDataStore {
    */
   async setTicket(publicKey: string, ticket: UserTicket): Promise<void> {
     const userData = await this.loadUserData(publicKey);
-    userData.ticket = ticket;
+    const normalizedFreebirdProof = normalizeBytes(ticket.freebirdProof);
+    userData.ticket = {
+      ...ticket,
+      // Persist as plain array for stable JSON serialization.
+      freebirdProof: normalizedFreebirdProof ? Array.from(normalizedFreebirdProof) : ticket.freebirdProof
+    };
     await this.saveUserData(publicKey, userData);
   }
 
@@ -608,6 +641,26 @@ export class UserDataStore {
     console.log(`[UserDataStore] 🎫 ${shortKey(publicKey)} Freebird registered: ${registered}`);
   }
 
+  /**
+   * Get stored Freebird user ID for this Clout user.
+   */
+  async getFreebirdUserId(publicKey: string): Promise<string | undefined> {
+    const userData = await this.loadUserData(publicKey);
+    return userData.localData.freebirdUserId;
+  }
+
+  /**
+   * Persist Freebird user ID for this Clout user.
+   */
+  async setFreebirdUserId(publicKey: string, freebirdUserId: string): Promise<void> {
+    const userData = await this.loadUserData(publicKey);
+    userData.localData.freebirdUserId = freebirdUserId;
+    await this.saveUserData(publicKey, userData);
+    console.log(
+      `[UserDataStore] 🪪 ${shortKey(publicKey)} mapped to Freebird user ${freebirdUserId.slice(0, 12)}...`
+    );
+  }
+
   // =========================================================================
   //  UTILITY OPERATIONS
   // =========================================================================
@@ -693,6 +746,12 @@ export class UserDataStore {
           ...existing.localData.bookmarks,
           ...data.localData.bookmarks
         ])];
+      }
+      if (data.localData.isFreebirdRegistered !== undefined) {
+        existing.localData.isFreebirdRegistered = data.localData.isFreebirdRegistered;
+      }
+      if (data.localData.freebirdUserId) {
+        existing.localData.freebirdUserId = data.localData.freebirdUserId;
       }
       // Merge objects (override)
       if (data.localData.tags) {

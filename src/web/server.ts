@@ -5,6 +5,7 @@
  * Now with rich media support via WNFS-based storage
  */
 
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -31,7 +32,7 @@ import {
   createOpenGraphRoutes
 } from './routes/index.js';
 import { createFreebirdProxyRoutes } from './routes/freebird-proxy.js';
-import { createFreebirdAdminFromEnv } from '../integrations/freebird-admin.js';
+import { createFreebirdAdminFromEnv, normalizeSignatureToBase64Url } from '../integrations/freebird-admin.js';
 import type { FreebirdAdapter } from '../integrations/freebird.js';
 import { existsSync, writeFileSync, readFileSync } from 'fs';
 import { homedir } from 'os';
@@ -64,7 +65,7 @@ export class CloutWebServer {
   // Track invitation codes that have been used (prevent double-spending)
   private usedInvitationCodes: Set<string> = new Set();
   // Pending claims reserved during /invitation/redeem, consumed on successful /daypass/mint
-  private pendingInvitationClaims: Map<string, { publicKey: string; signature: string; claimedAt: number }> = new Map();
+  private pendingInvitationClaims: Map<string, { publicKey: string; signature: string; claimedAt: number; inviter?: string }> = new Map();
   // Freebird adapter for browser VOPRF proxy
   private freebirdAdapter?: FreebirdAdapter;
   // File system store for quota tracking
@@ -434,30 +435,22 @@ export class CloutWebServer {
           });
         }
 
-        // Look up the inviter from our local mapping
-        // This mapping is populated when invitations are created
-        const inviterKey = this.invitationCodeToInviter.get(code);
-
-        if (!inviterKey) {
-          // Code might be valid but we don't have the mapping
-          // This can happen for codes created before this feature
-          // Return success but without inviter info
-          return res.json({
-            success: true,
-            data: {
-              code,
-              hasInviter: false,
-              message: 'Invitation code format valid, but inviter unknown'
-            }
-          });
+        // Resolve the inviter: local map → resolve server identity to owner → fall back to owner.
+        let inviterKey = this.invitationCodeToInviter.get(code);
+        const serverIdentity = this.identityManager.getIdentity()?.publicKey;
+        if (inviterKey && inviterKey === serverIdentity && this.ownerPublicKey) {
+          inviterKey = this.ownerPublicKey;
+        }
+        if (!inviterKey || inviterKey === serverIdentity) {
+          inviterKey = this.ownerPublicKey;
         }
 
         res.json({
           success: true,
           data: {
             code,
-            hasInviter: true,
-            inviter: inviterKey
+            hasInviter: !!inviterKey,
+            inviter: inviterKey || null
           }
         });
       } catch (error: any) {
@@ -513,9 +506,26 @@ export class CloutWebServer {
         }
 
         // Get the signature for this code
-        const signature = this.invitationCodeToSignature.get(code);
+        let signature = this.invitationCodeToSignature.get(code);
         if (!signature) {
-          console.warn(`[Server] No signature found for invitation code ${code.slice(0, 8)}...`);
+          console.warn(`[Server] No cached signature for invitation ${code.slice(0, 8)}..., checking Freebird admin API`);
+
+          // Fallback: fetch invitation details directly from Freebird admin.
+          // This allows redemption for invitations created after startup
+          // (or when local invitation mapping is incomplete).
+          const freebirdAdmin = createFreebirdAdminFromEnv();
+          if (freebirdAdmin) {
+            try {
+              const resolvedSignature = await freebirdAdmin.resolveInvitationSignatureByCode(code);
+              if (resolvedSignature) {
+                signature = resolvedSignature;
+                this.invitationCodeToSignature.set(code, signature);
+                console.log(`[Server] Resolved invitation signature from Freebird admin for ${code.slice(0, 8)}...`);
+              }
+            } catch (lookupError: any) {
+              console.warn(`[Server] Failed to resolve invitation signature from Freebird admin: ${lookupError.message}`);
+            }
+          }
         }
 
         if (!signature) {
@@ -525,15 +535,26 @@ export class CloutWebServer {
           });
         }
 
+        // Resolve the inviter for this code.
+        // Try local map first, fall back to instance owner (only the owner can create invitations).
+        let inviterKey = this.invitationCodeToInviter.get(code);
+        const serverIdentity = this.identityManager.getIdentity()?.publicKey;
+        // Bootstrap invitations store the server identity as inviter — resolve to the owner's browser key.
+        if (inviterKey && inviterKey === serverIdentity && this.ownerPublicKey) {
+          inviterKey = this.ownerPublicKey;
+        }
+        // If inviter is still the server identity (owner not set yet) or unknown, fall back to owner.
+        if (!inviterKey || inviterKey === serverIdentity) {
+          inviterKey = this.ownerPublicKey;
+        }
+
         this.pendingInvitationClaims.set(code, {
           publicKey,
           signature,
-          claimedAt: Date.now()
+          claimedAt: Date.now(),
+          inviter: inviterKey
         });
-        console.log(`[Server] Invitation ${code.slice(0, 8)}... reserved by ${publicKey.slice(0, 16)}...`);
-
-        // Get the inviter for this code (for response)
-        const inviterKey = this.invitationCodeToInviter.get(code);
+        console.log(`[Server] Invitation ${code.slice(0, 8)}... reserved by ${publicKey.slice(0, 16)}... (inviter: ${inviterKey?.slice(0, 16) || 'unknown'}...)`);
 
         res.json({
           success: true,
@@ -606,13 +627,64 @@ export class CloutWebServer {
     });
 
     // Mount route modules
-    this.app.use('/api', createFeedRoutes(this.getClout, this.isInitialized, this.areVisitorsAllowed));
+    this.app.use('/api', createFeedRoutes(this.getClout, this.isInitialized, this.areVisitorsAllowed, this.getOwnerPublicKey));
     this.app.use('/api', createTrustRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/media', createMediaRoutes(this.getClout, this.isInitialized));
     this.app.use('/api/slides', createSlidesRoutes(this.getClout, this.isInitialized));
-    this.app.use('/api/settings', createSettingsRoutes(this.getClout, this.isInitialized));
+    this.app.use('/api/settings', createSettingsRoutes(this.getClout, this.isInitialized, this.getOwnerPublicKey));
     this.app.use('/api/data', createDataRoutes(this.getClout, this.isInitialized, this.identityManager));
     this.app.use('/api/opengraph', createOpenGraphRoutes());
+
+    // Server-side trust graph sync endpoint
+    // Returns trust relationships created server-side (e.g., from invitation auto-trust)
+    // so the browser can merge them into its local IndexedDB trust graph.
+    this.app.get('/api/trust/server-graph', async (req, res) => {
+      try {
+        const publicKey = req.query.publicKey as string;
+        const hops = Math.min(parseInt(req.query.hops as string) || 1, 3);
+        if (!publicKey || typeof publicKey !== 'string') {
+          return res.status(400).json({ success: false, error: 'publicKey query param required' });
+        }
+
+        // Hop 1: user's direct trust
+        const hop1Keys = await this.userDataStore.getTrustGraph(publicKey);
+        const trustedKeys = [...hop1Keys];
+
+        // Hop 2+: friends-of-friends
+        const hopMap: Record<string, number> = {};
+        for (const k of hop1Keys) hopMap[k] = 1;
+
+        if (hops >= 2) {
+          const hop2AllKeys: string[] = [];
+          for (const hop1Key of hop1Keys) {
+            const hop2Keys = await this.userDataStore.getTrustGraph(hop1Key);
+            for (const k of hop2Keys) {
+              if (k !== publicKey && !hopMap[k]) {
+                hopMap[k] = 2;
+                trustedKeys.push(k);
+                hop2AllKeys.push(k);
+              }
+            }
+          }
+
+          if (hops >= 3) {
+            for (const hop2Key of hop2AllKeys) {
+              const hop3Keys = await this.userDataStore.getTrustGraph(hop2Key);
+              for (const k of hop3Keys) {
+                if (k !== publicKey && !hopMap[k]) {
+                  hopMap[k] = 3;
+                  trustedKeys.push(k);
+                }
+              }
+            }
+          }
+        }
+
+        res.json({ success: true, data: { trustedKeys, hopMap } });
+      } catch (error: any) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
 
     // Mount browser-identity submit routes (pre-signed payloads)
     // Note: Server only stores Day Pass tickets. All social graph data
@@ -649,6 +721,15 @@ export class CloutWebServer {
       setUserRegistered: async (publicKey: string, registered: boolean) => {
         await this.userDataStore.setFreebirdRegistered(publicKey, registered);
       },
+      getFreebirdUserId: async (publicKey: string) => {
+        return this.userDataStore.getFreebirdUserId(publicKey);
+      },
+      setFreebirdUserId: async (publicKey: string, freebirdUserId: string) => {
+        await this.userDataStore.setFreebirdUserId(publicKey, freebirdUserId);
+      },
+      getRedeemedInvitationCode: async (publicKey: string) => {
+        return this.getRedeemedInvitationCodeForUser(publicKey);
+      },
       getReservedInvitationSignature: async (code: string, publicKey: string) => {
         return this.getReservedInvitationSignature(code, publicKey);
       },
@@ -663,7 +744,17 @@ export class CloutWebServer {
       isInitialized: this.isInitialized,
       getStore: this.getStore,
       getOwnerPublicKey: this.getOwnerPublicKey,
-      findBootstrapInvitationByRedeemer: this.findBootstrapInvitationByRedeemer.bind(this)
+      findBootstrapInvitationByRedeemer: this.findBootstrapInvitationByRedeemer.bind(this),
+      getFreebirdUserId: async (publicKey: string) => {
+        return this.userDataStore.getFreebirdUserId(publicKey);
+      },
+      onInvitationCreated: (code: string, inviterPublicKey: string, signature?: string) => {
+        this.invitationCodeToInviter.set(code, inviterPublicKey);
+        if (signature) {
+          this.invitationCodeToSignature.set(code, signature);
+        }
+        console.log(`[Server] Registered invitation ${code.slice(0, 8)}... from ${inviterPublicKey.slice(0, 16)}...`);
+      }
     }));
 
     // Legacy slide endpoints (for backwards compatibility)
@@ -794,6 +885,31 @@ export class CloutWebServer {
 
       if (existingInvites.length > 0) {
         console.log(`[Bootstrap] ${existingInvites.length} invitations already exist, skipping bootstrap`);
+
+        // Re-download mappings if local invitations.json is missing
+        const dataDir = process.env.CLOUT_DATA_DIR || join(homedir(), '.clout');
+        const invitesFile = join(dataDir, 'invitations.json');
+        if (!existsSync(invitesFile)) {
+          console.log(`[Bootstrap] Local invitations.json missing, re-downloading from Freebird...`);
+          for (const inv of existingInvites) {
+            this.invitationCodeToInviter.set(inv.code, selfPublicKey);
+            if (inv.signature) {
+              this.invitationCodeToSignature.set(inv.code, normalizeSignatureToBase64Url(inv.signature));
+            }
+          }
+          writeFileSync(invitesFile, JSON.stringify({
+            created: new Date().toISOString(),
+            count: existingInvites.length,
+            codes: existingInvites.map(i => i.code),
+            invitations: existingInvites.map(i => ({
+              code: i.code,
+              signature: i.signature ? normalizeSignatureToBase64Url(i.signature) : ''
+            })),
+            inviter: selfPublicKey,
+            adminUrl: freebirdAdmin.getAdminUiUrl()
+          }, null, 2));
+          console.log(`[Bootstrap] Re-downloaded ${existingInvites.length} invitation mappings to ${invitesFile}`);
+        }
         return;
       }
 
@@ -922,17 +1038,22 @@ export class CloutWebServer {
    * This is the final redemption step that prevents code burn on failed onboarding.
    */
   private async consumeInvitationCode(code: string, redeemerPublicKey: string): Promise<boolean> {
+    console.log(`[Server] consumeInvitationCode called: code=${code.slice(0, 8)}... redeemer=${redeemerPublicKey.slice(0, 16)}...`);
+
     if (!code || !redeemerPublicKey) {
+      console.warn(`[Server] consumeInvitationCode: missing code or publicKey`);
       return false;
     }
 
     if (this.usedInvitationCodes.has(code)) {
+      console.warn(`[Server] consumeInvitationCode: code already used`);
       return false;
     }
 
     this.cleanupExpiredPendingInvitationClaims();
     const claim = this.pendingInvitationClaims.get(code);
     if (!claim || claim.publicKey !== redeemerPublicKey) {
+      console.warn(`[Server] consumeInvitationCode: no matching pending claim (hasClaim=${!!claim})`);
       return false;
     }
 
@@ -945,23 +1066,32 @@ export class CloutWebServer {
       this.store.markInvitationRedeemed(code, redeemerPublicKey);
     }
 
-    // If no owner is set yet and this is a bootstrap invitation, set the redeemer as owner
-    const isBootstrapInvitation = this.invitationCodeToInviter.has(code);
-    if (isBootstrapInvitation && !this.ownerPublicKey) {
+    // The first person to redeem any invitation on a fresh instance becomes the owner.
+    if (!this.ownerPublicKey) {
+      console.log(`[Server] First invitation redeemed on ownerless instance — setting owner`);
       this.setOwnerPublicKey(redeemerPublicKey);
     }
 
-    // Auto-trust inviter after successful redemption
-    const inviterKey = this.invitationCodeToInviter.get(code);
-    const serverIdentity = this.identityManager.getIdentity()?.publicKey;
-    const isBootstrapInviter = inviterKey === serverIdentity;
+    // Bidirectional auto-trust: invitation implies mutual trust.
+    // The inviter was resolved and stored in the pending claim during /invitation/redeem.
+    let inviterKey = claim.inviter;
 
-    if (inviterKey && redeemerPublicKey !== inviterKey && !isBootstrapInviter) {
+    // Final fallback: if inviter wasn't resolved at redeem time, use current owner.
+    if (!inviterKey && this.ownerPublicKey) {
+      inviterKey = this.ownerPublicKey;
+    }
+
+    console.log(`[Server] Auto-trust: inviter=${inviterKey?.slice(0, 16) || 'none'}, redeemer=${redeemerPublicKey.slice(0, 16)}...`);
+
+    if (inviterKey && redeemerPublicKey !== inviterKey) {
       try {
+        // Invitee trusts inviter
         await this.userDataStore.trust(redeemerPublicKey, inviterKey);
-        console.log(`[Server] 🤝 Auto-trusted inviter ${inviterKey.slice(0, 8)}... for new user ${redeemerPublicKey.slice(0, 8)}...`);
+        // Inviter trusts invitee
+        await this.userDataStore.trust(inviterKey, redeemerPublicKey);
+        console.log(`[Server] 🤝 Mutual trust established: ${inviterKey.slice(0, 8)}... <-> ${redeemerPublicKey.slice(0, 8)}...`);
       } catch (trustError: any) {
-        console.warn(`[Server] Failed to auto-trust inviter: ${trustError.message}`);
+        console.warn(`[Server] Failed to auto-trust: ${trustError.message}`);
       }
     }
 
@@ -1047,6 +1177,20 @@ export class CloutWebServer {
       console.error(`[Server] Error searching invitation redemptions: ${error.message}`);
     }
     return null;
+  }
+
+  /**
+   * Resolve redeemed invitation code for a user (member-created or bootstrap).
+   */
+  private getRedeemedInvitationCodeForUser(redeemerPublicKey: string): string | null {
+    if (this.store) {
+      const memberInvitation = this.store.getInvitationByRedeemer(redeemerPublicKey);
+      if (memberInvitation?.code) {
+        return memberInvitation.code;
+      }
+    }
+    const bootstrap = this.findBootstrapInvitationByRedeemer(redeemerPublicKey);
+    return bootstrap?.code || null;
   }
 
   /**

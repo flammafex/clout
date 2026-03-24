@@ -34,6 +34,9 @@ export interface AdminRoutesConfig {
   getStore: () => FileSystemStore | undefined;
   getOwnerPublicKey: () => string | undefined;
   findBootstrapInvitationByRedeemer?: (publicKey: string) => { code: string; redeemedAt: number } | null;
+  getFreebirdUserId?: (publicKey: string) => Promise<string | undefined>;
+  /** Register an invitation code → inviter mapping for auto-trust */
+  onInvitationCreated?: (code: string, inviterPublicKey: string, signature?: string) => void;
 }
 
 /**
@@ -357,8 +360,17 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
         });
       }
 
-      // Create invitations via Freebird (use browser user's key as creator)
-      const invitations = await freebirdAdmin.createInvitations(browserUserKey!, count, expiresInDays);
+      // Resolve Clout public key to Freebird user ID
+      let inviterId = browserUserKey!;
+      if (config.getFreebirdUserId) {
+        const fbUserId = await config.getFreebirdUserId(browserUserKey!);
+        if (fbUserId) {
+          inviterId = fbUserId;
+        }
+      }
+
+      // Create invitations via Freebird
+      const invitations = await freebirdAdmin.createInvitations(inviterId, count, expiresInDays);
 
       // Record locally
       const now = Date.now();
@@ -372,12 +384,17 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
           expiresAt,
           redeemed: false
         });
+        // Register inviter mapping for auto-trust on redemption
+        if (config.onInvitationCreated) {
+          config.onInvitationCreated(inv.code, browserUserKey!, inv.signature);
+        }
       }
 
       res.json({
         success: true,
         data: {
           count: invitations.length,
+          invitations: invitations.map(i => ({ code: i.code })),
           codes: invitations.map(i => i.code),
           expiresAt
         }
@@ -744,8 +761,17 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
         });
       }
 
+      // Resolve Clout public key to Freebird user ID
+      let inviterId = browserUserKey;
+      if (config.getFreebirdUserId) {
+        const fbUserId = await config.getFreebirdUserId(browserUserKey);
+        if (fbUserId) {
+          inviterId = fbUserId;
+        }
+      }
+
       // Create invitation via Freebird (1 at a time for members)
-      const invitations = await freebirdAdmin.createInvitations(browserUserKey, 1, expiresInDays);
+      const invitations = await freebirdAdmin.createInvitations(inviterId, 1, expiresInDays);
 
       if (invitations.length === 0) {
         return res.status(500).json({
@@ -772,6 +798,11 @@ export function createAdminRoutes(config: AdminRoutesConfig): Router {
         expiresAt,
         redeemed: false
       });
+
+      // Register inviter mapping for auto-trust on redemption
+      if (config.onInvitationCreated) {
+        config.onInvitationCreated(invitation.code, browserUserKey, invitation.signature);
+      }
 
       res.json({
         success: true,

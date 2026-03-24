@@ -14,6 +14,8 @@ import { loadFeed } from './feed.js';
 
 // Debounce timer for banner updates (prevents DOM thrashing during rapid events)
 let bannerUpdateTimeout = null;
+let notificationPollInterval = null;
+const NOTIFICATION_POLL_INTERVAL_MS = 30000;
 
 /**
  * Debounced banner update - batches rapid SSE events
@@ -65,6 +67,23 @@ export function connectLiveUpdates() {
     console.log('[SSE] Connection lost, reconnecting in 5s...');
     setTimeout(connectLiveUpdates, 5000);
   };
+}
+
+/**
+ * Start notification polling (idempotent)
+ */
+export function startNotificationPolling() {
+  if (notificationPollInterval) return;
+  notificationPollInterval = setInterval(updateNotificationCounts, NOTIFICATION_POLL_INTERVAL_MS);
+}
+
+/**
+ * Stop notification polling
+ */
+export function stopNotificationPolling() {
+  if (!notificationPollInterval) return;
+  clearInterval(notificationPollInterval);
+  notificationPollInterval = null;
 }
 
 /**
