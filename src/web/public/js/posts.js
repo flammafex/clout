@@ -122,11 +122,8 @@ export function startReply(postId, author, requireMembership) {
 
   state.setReplyingTo(postId);
 
-  // Switch to post tab
-  $$('.tab-btn').forEach(b => b.classList.remove('active'));
-  $$('.tab-btn')[1].classList.add('active');
-  $$('.tab-content').forEach(content => content.classList.remove('active'));
-  $('post-tab').classList.add('active');
+  // Open compose modal (replaces dead tab-switching code)
+  window.cloutApp.openComposeModal();
 
   $('post-content').placeholder = `Reply to ${author}...`;
   $('post-content').focus();
@@ -160,11 +157,8 @@ export function startEditPost(postId, requireMembership) {
   const currentContent = cachedPost.content || '';
   state.setEditingPost({ id: postId, content: currentContent });
 
-  // Switch to post tab
-  $$('.tab-btn').forEach(b => b.classList.remove('active'));
-  $$('.tab-btn')[1].classList.add('active');
-  $$('.tab-content').forEach(content => content.classList.remove('active'));
-  $('post-tab').classList.add('active');
+  // Open compose modal (replaces dead tab-switching code)
+  window.cloutApp.openComposeModal();
 
   $('post-content').value = currentContent;
   $('post-content').placeholder = 'Edit your post...';

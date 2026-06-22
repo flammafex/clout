@@ -5,7 +5,7 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
-  "theme_color": "#3b82f6",
+  "theme_color": "#6366f1",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [
@@ -22,21 +22,5 @@
       "purpose": "maskable"
     }
   ],
-  "categories": ["social", "communication"],
-  "shortcuts": [
-    {
-      "name": "New Post",
-      "short_name": "Post",
-      "description": "Create a new post",
-      "url": "/?tab=post",
-      "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }]
-    },
-    {
-      "name": "Messages",
-      "short_name": "Slides",
-      "description": "View encrypted messages",
-      "url": "/?tab=slides",
-      "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }]
-    }
-  ]
+  "categories": ["social", "communication"]
 }

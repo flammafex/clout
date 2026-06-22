@@ -18,6 +18,7 @@ const STATIC_ASSETS = [
   '/styles.css',
   '/clout.webp',
   '/js/app.js',
+  '/js/admin.js',
   '/js/api.js',
   '/js/feed.js',
   '/js/invite.js',
@@ -36,7 +37,15 @@ const STATIC_ASSETS = [
   '/user-data-browser.js',
   '/daypass-browser.js',
   '/voprf-browser.js',
-  '/manifest.json'
+  '/manifest.json',
+  '/vendor/noble/hashes-sha256.js',
+  '/vendor/noble/hashes-hkdf.js',
+  '/vendor/noble/hashes-utils.js',
+  '/vendor/noble/curves-ed25519.js',
+  '/vendor/noble/curves-p256.js',
+  '/vendor/noble/ciphers-chacha.js',
+  '/vendor/noble/ciphers-webcrypto.js',
+  '/vendor/qrcode.min.js'
 ];
 
 // API routes that should use network-first strategy
@@ -138,7 +147,8 @@ async function cacheFirst(request) {
   } catch (error) {
     // Network failed and not in cache - return offline page
     console.log('[SW] Network failed, returning offline fallback');
-    return caches.match('/') || new Response('Offline', { status: 503 });
+    const cachedRoot = await caches.match('/');
+    return cachedRoot || new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } });
   }
 }
 

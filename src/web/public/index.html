@@ -7,7 +7,7 @@
 
   <!-- PWA Meta Tags -->
   <meta name="description" content="Uncensorable reputation protocol - Trust-based social network">
-  <meta name="theme-color" content="#3b82f6">
+  <meta name="theme-color" content="#6366f1">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Clout">
@@ -16,19 +16,19 @@
   <link rel="apple-touch-icon" href="/icons/icon.svg">
 
   <link rel="stylesheet" href="styles.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="/vendor/qrcode.min.js"></script>
 
   <!-- Import map for @noble/* crypto libraries (browser-compatible builds) -->
   <script type="importmap">
   {
     "imports": {
-      "@noble/hashes/sha256": "https://esm.sh/@noble/hashes@1.4.0/sha256",
-      "@noble/hashes/hkdf": "https://esm.sh/@noble/hashes@1.4.0/hkdf",
-      "@noble/hashes/utils": "https://esm.sh/@noble/hashes@1.4.0/utils",
-      "@noble/curves/ed25519": "https://esm.sh/@noble/curves@1.9.7/ed25519",
-      "@noble/curves/p256": "https://esm.sh/@noble/curves@1.9.7/p256",
-      "@noble/ciphers/chacha": "https://esm.sh/@noble/ciphers@1.3.0/chacha",
-      "@noble/ciphers/webcrypto": "https://esm.sh/@noble/ciphers@1.3.0/webcrypto"
+      "@noble/hashes/sha256": "/vendor/noble/hashes-sha256.js",
+      "@noble/hashes/hkdf": "/vendor/noble/hashes-hkdf.js",
+      "@noble/hashes/utils": "/vendor/noble/hashes-utils.js",
+      "@noble/curves/ed25519": "/vendor/noble/curves-ed25519.js",
+      "@noble/curves/p256": "/vendor/noble/curves-p256.js",
+      "@noble/ciphers/chacha": "/vendor/noble/ciphers-chacha.js",
+      "@noble/ciphers/webcrypto": "/vendor/noble/ciphers-webcrypto.js"
     }
   }
   </script>
@@ -43,16 +43,19 @@
       <div class="visitor-banner-content">
         <span class="visitor-icon">&#x1F440;</span>
         <div class="visitor-text">
-          <strong>Browsing as a visitor</strong>
-          <span>You're seeing the instance owner's posts. Join with an invitation code to see the full feed.</span>
+          <strong>Welcome to Clout</strong>
+          <span>Clout is a social network where your feed is controlled by people you trust — not an algorithm. Posts only reach you through your web of trust, so spam and manipulation can't reach you.</span>
         </div>
-        <button id="visitor-join-btn" class="btn btn-primary">Have an invite code?</button>
-        <button id="visitor-restore-btn" class="btn btn-secondary">Restore Identity</button>
+        <div class="visitor-actions">
+          <button id="visitor-join-btn" class="btn btn-primary">I have an invitation code</button>
+          <button id="visitor-restore-btn" class="btn btn-secondary">Returning? Restore identity</button>
+          <a href="https://github.com/flammafex/clout" target="_blank" rel="noopener" class="btn btn-secondary">Run your own instance</a>
+        </div>
       </div>
     </div>
 
     <!-- Invite Required Popover -->
-    <div id="invite-popover" class="popover" style="display: none;">
+    <div id="invite-popover" class="popover" role="dialog" aria-modal="true" style="display: none;">
       <div class="popover-content">
         <button class="popover-close" onclick="window.cloutApp.closeInvitePopover()">×</button>
         <h3>🎟️ Join Clout</h3>
@@ -81,7 +84,7 @@
     </div>
 
     <!-- Restore Identity Popover -->
-    <div id="restore-popover" class="popover" style="display: none;">
+    <div id="restore-popover" class="popover" role="dialog" aria-modal="true" style="display: none;">
       <div class="popover-content">
         <button class="popover-close" onclick="window.cloutApp.closeRestorePopover()">×</button>
         <h3>🔑 Restore Identity</h3>
@@ -109,6 +112,19 @@
 
     <!-- Main Application -->
     <div id="main-app" style="display: none;">
+      <!-- Identity Backup Reminder (shown after joining, until backup is completed) -->
+      <div id="backup-reminder" class="backup-reminder" style="display: none;">
+        <div class="backup-reminder-content">
+          <span class="backup-reminder-icon">🔐</span>
+          <div class="backup-reminder-text">
+            <strong>Back up your identity</strong>
+            <span>Your identity lives only in this browser. If you clear your data or switch devices without a backup, your account is gone forever.</span>
+          </div>
+          <button id="backup-now-btn" class="btn btn-primary">Back Up Now</button>
+          <button id="backup-dismiss-btn" class="btn btn-small">Later</button>
+        </div>
+      </div>
+
       <div class="app-shell">
         <aside class="app-rail-left">
   <div class="rail-brand">
@@ -404,31 +420,6 @@
             </div>
             <p class="help-text-small">Higher weight = more influence on your feed. Use lower weights for new acquaintances.</p>
             <div id="trust-result" class="result-message" style="display: none;"></div>
-          </div>
-
-          <!-- Trust Settings -->
-          <div class="form-card">
-            <h3>Trust Settings</h3>
-
-            <div class="setting-item">
-              <label for="settings-max-hops">Maximum Trust Distance</label>
-              <select id="settings-max-hops" class="select">
-                <option value="1">1 hop (direct follows only)</option>
-                <option value="2">2 hops (friends of friends)</option>
-                <option value="3" selected>3 hops (extended network)</option>
-              </select>
-              <p class="help-text-small">Control how far into your trust network you see posts from</p>
-            </div>
-
-            <div class="setting-item">
-              <label for="settings-min-reputation">Minimum Reputation Score</label>
-              <input type="range" id="settings-min-reputation" min="0" max="100" value="30" class="range">
-              <span id="settings-min-reputation-value">0.30</span>
-              <p class="help-text-small">Only show posts from users with at least this reputation score</p>
-            </div>
-
-            <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
-            <div id="settings-result" class="result-message" style="display: none;"></div>
           </div>
 
           <!-- Trust Tags Management -->
@@ -747,6 +738,31 @@
             </div>
           </div>
 
+          <!-- Trust Settings -->
+          <div class="form-card">
+            <h3>Trust Settings</h3>
+
+            <div class="setting-item">
+              <label for="settings-max-hops">Maximum Trust Distance</label>
+              <select id="settings-max-hops" class="select">
+                <option value="1">1 hop (direct follows only)</option>
+                <option value="2">2 hops (friends of friends)</option>
+                <option value="3" selected>3 hops (extended network)</option>
+              </select>
+              <p class="help-text-small">Control how far into your trust network you see posts from</p>
+            </div>
+
+            <div class="setting-item">
+              <label for="settings-min-reputation">Minimum Reputation Score</label>
+              <input type="range" id="settings-min-reputation" min="0" max="100" value="30" class="range">
+              <span id="settings-min-reputation-value">0.30</span>
+              <p class="help-text-small">Only show posts from users with at least this reputation score</p>
+            </div>
+
+            <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
+            <div id="settings-result" class="result-message" style="display: none;"></div>
+          </div>
+
           <!-- Member Invitation Section (visible to members with quota) -->
           <div id="member-invites-section" class="member-invites-card settings-card" style="display: none;">
             <h3>🎟️ Your Invitations</h3>
@@ -999,13 +1015,36 @@
 
   <!-- Compose Modal -->
   <div id="compose-modal" class="compose-modal-overlay">
-    <div class="compose-modal">
+    <div class="compose-modal" role="dialog" aria-modal="true" aria-label="Compose post">
       <div class="compose-modal-header">
         <h3>New Post</h3>
         <button class="compose-modal-close" id="compose-modal-close" aria-label="Close">&times;</button>
       </div>
       <div class="compose-modal-body" id="compose-modal-body">
         <!-- #post-tab content moved here on open, moved back on close -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Identity Backup Modal -->
+  <div id="backup-modal" class="compose-modal-overlay" role="dialog" aria-modal="true" aria-label="Backup identity">
+    <div class="compose-modal" style="max-width: 480px;">
+      <div class="compose-modal-header">
+        <h3>🔐 Backup Your Identity</h3>
+        <button class="compose-modal-close" id="backup-modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="compose-modal-body">
+        <p class="help-text" style="margin-bottom: 1rem;">Your identity will be encrypted with this password. Keep the backup file safe — without it, you cannot recover your account on another device.</p>
+        <div class="form-group" style="margin-bottom: 0.75rem;">
+          <label for="backup-password-input">Password</label>
+          <input type="password" id="backup-password-input" class="input" placeholder="Enter a password" autocomplete="new-password">
+        </div>
+        <div class="form-group" style="margin-bottom: 0.75rem;">
+          <label for="backup-password-confirm">Confirm Password</label>
+          <input type="password" id="backup-password-confirm" class="input" placeholder="Confirm your password" autocomplete="new-password">
+        </div>
+        <div id="backup-modal-result" class="result-message" style="display: none;"></div>
+        <button id="backup-download-btn" class="btn btn-primary" style="width: 100%;">Download Encrypted Backup</button>
       </div>
     </div>
   </div>

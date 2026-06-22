@@ -11,7 +11,7 @@ import { apiCall, submitSignedPost } from './api.js';
 import {
   $, $$, showLoading, showResult, updateStatus, escapeHtml,
   formatRelativeTime, renderAvatar, getReputationColor, getWeightLabel,
-  copyToClipboard, switchToTab, startDayPassTimer, setupAvatarErrorHandling
+  copyToClipboard, switchToTab, startDayPassTimer, setupAvatarErrorHandling, showToast
 } from './ui.js';
 import {
   loadFeed, loadVisitorFeed, loadFeedWithCurrentFilter, setFeedFilter,
@@ -48,7 +48,8 @@ import {
 } from './notifications.js';
 import {
   showInvitePopover, closeInvitePopover, redeemInvite, promptIdentityBackup,
-  showRestorePopover, closeRestorePopover, restoreFromFile
+  showRestorePopover, closeRestorePopover, restoreFromFile,
+  showBackupReminder, dismissBackupReminder, closeBackupModal, downloadBackup
 } from './invite.js';
 import {
   loadMyInvitationStatus, loadMyInvitations, createMemberInvitation, copyMemberCode,
@@ -725,6 +726,7 @@ window.cloutApp = {
   // UI helpers
   switchToTab,
   copyToClipboard,
+  showToast,
 
   // Feed
   loadFeed,
@@ -811,6 +813,13 @@ window.cloutApp = {
   showRestorePopover,
   closeRestorePopover,
   restoreFromFile,
+
+  // Identity Backup
+  promptIdentityBackup,
+  showBackupReminder,
+  dismissBackupReminder,
+  closeBackupModal,
+  downloadBackup,
 
   // Owner Admin
   backupBrowserIdentity,
@@ -982,6 +991,49 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('compose-modal-close')?.addEventListener('click', closeComposeModal);
   $('compose-modal')?.addEventListener('click', (e) => {
     if (e.target === $('compose-modal')) closeComposeModal();
+  });
+
+  // Popover backdrop-click-to-close
+  $('invite-popover')?.addEventListener('click', (e) => {
+    if (e.target === $('invite-popover')) $('invite-popover').style.display = 'none';
+  });
+  $('restore-popover')?.addEventListener('click', (e) => {
+    if (e.target === $('restore-popover')) $('restore-popover').style.display = 'none';
+  });
+
+  // Backup reminder buttons
+  $('backup-now-btn')?.addEventListener('click', () => {
+    promptIdentityBackup();
+  });
+  $('backup-dismiss-btn')?.addEventListener('click', () => {
+    dismissBackupReminder();
+  });
+
+  // Backup modal
+  $('backup-modal-close')?.addEventListener('click', closeBackupModal);
+  $('backup-modal')?.addEventListener('click', (e) => {
+    if (e.target === $('backup-modal')) closeBackupModal();
+  });
+  $('backup-download-btn')?.addEventListener('click', downloadBackup);
+
+  // Global Escape key handler — closes compose modal, backup modal, and any visible popover
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if ($('compose-modal')?.classList.contains('active')) {
+      closeComposeModal();
+    }
+    // Close backup modal if open
+    if ($('backup-modal')?.classList.contains('active')) {
+      closeBackupModal();
+    }
+    const invitePopover = $('invite-popover');
+    if (invitePopover && invitePopover.style.display !== 'none') {
+      invitePopover.style.display = 'none';
+    }
+    const restorePopover = $('restore-popover');
+    if (restorePopover && restorePopover.style.display !== 'none') {
+      restorePopover.style.display = 'none';
+    }
   });
 
   // Inline compose expand button opens modal with draft

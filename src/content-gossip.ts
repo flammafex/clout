@@ -102,6 +102,12 @@ export interface ContentGossipConfig {
     readonly windowMs?: number;
     /** Ban duration in milliseconds when limit exceeded (default: 300000 = 5 minutes) */
     readonly banDurationMs?: number;
+    /**
+     * Maximum invalid messages per peer per window before ban (default: 10).
+     * Circuit breaker: peers sending too much garbage get banned even if
+     * under the volume rate limit.
+     */
+    readonly maxInvalidPerWindow?: number;
   };
 
   /**
@@ -112,6 +118,21 @@ export interface ContentGossipConfig {
     readonly messageExpiryMs?: number;
     /** How long to keep seen message IDs for deduplication (default: 600000 = 10 minutes) */
     readonly seenMessagesTtlMs?: number;
+  };
+
+  /**
+   * Content size limits to prevent memory exhaustion from oversized messages.
+   * Messages exceeding these limits are rejected before expensive crypto verification.
+   */
+  readonly sizeLimits?: {
+    /** Maximum post content length in bytes (default: 65536 = 64KB) */
+    readonly maxContentSize?: number;
+    /** Maximum slide ciphertext length in bytes (default: 65536 = 64KB) */
+    readonly maxSlideSize?: number;
+    /** Maximum number of mentions per post (default: 50) */
+    readonly maxMentions?: number;
+    /** Maximum edit history chain length (default: 100) */
+    readonly maxEditHistory?: number;
   };
 }
 
@@ -177,6 +198,12 @@ export class ContentGossip {
   private readonly maxPostAge: number;
   private readonly maxClockSkew: number;
 
+  // Content size limits (MED-02: prevent memory exhaustion from oversized messages)
+  private readonly maxContentSize: number;
+  private readonly maxSlideSize: number;
+  private readonly maxMentions: number;
+  private readonly maxEditHistory: number;
+
   // Extracted modules
   private readonly messageSigner: GossipMessageSigner;
   private readonly rateLimiter: PeerRateLimiter;
@@ -205,6 +232,12 @@ export class ContentGossip {
     this.encryptionKey = config.encryptionKey;
     this.ourPublicKey = config.ourPublicKey;
 
+    // Content size limits (MED-02)
+    this.maxContentSize = config.sizeLimits?.maxContentSize ?? 65_536; // 64KB
+    this.maxSlideSize = config.sizeLimits?.maxSlideSize ?? 65_536; // 64KB
+    this.maxMentions = config.sizeLimits?.maxMentions ?? 50;
+    this.maxEditHistory = config.sizeLimits?.maxEditHistory ?? 100;
+
     // Initialize extracted modules
     this.messageSigner = new GossipMessageSigner({
       signingKey: config.signingKey,
@@ -216,7 +249,8 @@ export class ContentGossip {
     this.rateLimiter = new PeerRateLimiter({
       maxMessagesPerWindow: config.rateLimit?.maxMessagesPerWindow,
       windowMs: config.rateLimit?.windowMs,
-      banDurationMs: config.rateLimit?.banDurationMs
+      banDurationMs: config.rateLimit?.banDurationMs,
+      maxInvalidPerWindow: config.rateLimit?.maxInvalidPerWindow
     });
 
     this.trustGraphCache = new TrustGraphCache({
@@ -368,7 +402,8 @@ export class ContentGossip {
     // Verify signature and unwrap message
     const message = this.messageSigner.verify(data);
     if (!message) {
-      // Invalid signature or unsigned when signatures required
+      // Invalid signature or unsigned when signatures required — circuit breaker
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -396,6 +431,33 @@ export class ContentGossip {
 
     // Skip if already seen
     if (existing) {
+      return;
+    }
+
+    // LAYER 0: CONTENT SIZE LIMITS (MED-02)
+    // Reject oversized payloads before expensive crypto verification.
+    if (post.content.length > this.maxContentSize) {
+      console.warn(
+        `[ContentGossip] Rejecting oversized post content ` +
+        `(${post.content.length} > ${this.maxContentSize} bytes)`
+      );
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
+      return;
+    }
+    if (post.mentions && post.mentions.length > this.maxMentions) {
+      console.warn(
+        `[ContentGossip] Rejecting post with too many mentions ` +
+        `(${post.mentions.length} > ${this.maxMentions})`
+      );
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
+      return;
+    }
+    if (post.editHistory && post.editHistory.length > this.maxEditHistory) {
+      console.warn(
+        `[ContentGossip] Rejecting post with oversized edit history ` +
+        `(${post.editHistory.length} > ${this.maxEditHistory})`
+      );
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -429,6 +491,7 @@ export class ContentGossip {
     const proofValid = await this.witness.verify(post.proof);
     if (!proofValid) {
       console.warn('[ContentGossip] Invalid witness proof, ignoring');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -437,6 +500,7 @@ export class ContentGossip {
     const expectedProofHash = hashPostAttestationPayload(post);
     if (post.proof.hash !== expectedProofHash) {
       console.warn('[ContentGossip] Post proof hash mismatch, ignoring');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -444,6 +508,7 @@ export class ContentGossip {
     const contentHash = Crypto.hashString(post.content);
     if (contentHash !== post.id) {
       console.warn('[ContentGossip] Content hash mismatch, ignoring');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -476,6 +541,7 @@ export class ContentGossip {
 
     if (!signatureValid) {
       console.warn('[ContentGossip] Invalid post signature, ignoring');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -484,6 +550,7 @@ export class ContentGossip {
       const authorshipValid = await this.freebird.verifyToken(post.authorshipProof);
       if (!authorshipValid) {
         console.warn('[ContentGossip] Invalid authorship proof, ignoring');
+        if (peerId) this.rateLimiter.recordInvalid(peerId);
         return;
       }
     }
@@ -525,11 +592,13 @@ export class ContentGossip {
     const proofValid = await this.witness.verify(signal.proof);
     if (!proofValid) {
       console.warn('[ContentGossip] Invalid trust signal proof');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
     if (!verifyCanonicalPlaintextTrustSignal(signal)) {
       console.warn('[ContentGossip] Invalid plaintext trust signal signature/hash');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -593,11 +662,13 @@ export class ContentGossip {
     const proofValid = await this.witness.verify(signal.proof);
     if (!proofValid) {
       console.warn('[ContentGossip] Invalid encrypted trust signal proof');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
     if (signal.proof.hash !== signal.trusteeCommitment) {
       console.warn('[ContentGossip] Encrypted trust proof hash mismatch');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -612,6 +683,7 @@ export class ContentGossip {
 
     if (!signatureValid) {
       console.warn('[ContentGossip] Invalid encrypted trust signal signature');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -692,6 +764,17 @@ export class ContentGossip {
       return;
     }
 
+    // LAYER 0: CONTENT SIZE LIMITS (MED-02)
+    // Reject oversized slides before expensive crypto verification.
+    if (slide.ciphertext.length > this.maxSlideSize) {
+      console.warn(
+        `[ContentGossip] Rejecting oversized slide ciphertext ` +
+        `(${slide.ciphertext.length} > ${this.maxSlideSize} bytes)`
+      );
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
+      return;
+    }
+
     // LAYER 1: TIMESTAMP VALIDATION
     const now = Date.now();
     const age = now - slide.proof.timestamp;
@@ -710,6 +793,7 @@ export class ContentGossip {
     const proofValid = await this.witness.verify(slide.proof);
     if (!proofValid) {
       console.warn('[ContentGossip] Invalid slide witness proof');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -722,6 +806,7 @@ export class ContentGossip {
     ));
     if (slideHash !== slide.id) {
       console.warn('[ContentGossip] Slide hash mismatch');
+      if (peerId) this.rateLimiter.recordInvalid(peerId);
       return;
     }
 
@@ -990,7 +1075,13 @@ export class ContentGossip {
       trustGraphSize: this.trustGraph.size,
       rateLimitedPeers: rateLimiterStats.bannedPeers,
       trackedPeers: rateLimiterStats.trackedPeers,
-      seenMessageIds: this.messageSigner.seenMessageCount
+      seenMessageIds: this.messageSigner.seenMessageCount,
+      sizeLimits: {
+        maxContentSize: this.maxContentSize,
+        maxSlideSize: this.maxSlideSize,
+        maxMentions: this.maxMentions,
+        maxEditHistory: this.maxEditHistory
+      }
     };
   }
 

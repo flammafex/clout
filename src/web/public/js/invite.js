@@ -179,12 +179,8 @@ export async function redeemInvite() {
     $('invite-result').textContent = '&#x1F389; Welcome to Clout! Your identity has been created.';
     $('invite-result').className = 'result-message success';
 
-    // Prompt for backup
-    setTimeout(() => {
-      if (confirm('Would you like to backup your identity now? This is important - your identity lives only in this browser!')) {
-        promptIdentityBackup();
-      }
-    }, 2000);
+    // Show persistent backup reminder (instead of a dismissable confirm dialog)
+    showBackupReminder();
 
     // Load member data
     setTimeout(async () => {
@@ -208,26 +204,101 @@ export async function redeemInvite() {
 }
 
 /**
- * Prompt user to backup their identity
+ * Show the persistent backup reminder banner
  */
-export async function promptIdentityBackup() {
-  const password = prompt('Enter a password to encrypt your identity backup:');
-  if (!password) return;
+export function showBackupReminder() {
+  const reminder = $('backup-reminder');
+  if (reminder) {
+    reminder.style.display = 'block';
+  }
+}
 
-  const confirmPassword = prompt('Confirm your password:');
+/**
+ * Dismiss the backup reminder banner
+ */
+export function dismissBackupReminder() {
+  const reminder = $('backup-reminder');
+  if (reminder) {
+    reminder.style.display = 'none';
+  }
+}
+
+/**
+ * Open the backup modal (replaces the old prompt-based flow)
+ */
+export function promptIdentityBackup() {
+  const modal = $('backup-modal');
+  if (!modal) return;
+  $('backup-password-input').value = '';
+  $('backup-password-confirm').value = '';
+  const result = $('backup-modal-result');
+  result.style.display = 'none';
+  result.textContent = '';
+  modal.classList.add('active');
+  $('backup-password-input').focus();
+}
+
+/**
+ * Close the backup modal
+ */
+export function closeBackupModal() {
+  const modal = $('backup-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+/**
+ * Download encrypted backup with the entered password
+ */
+export async function downloadBackup() {
+  const password = $('backup-password-input').value;
+  const confirmPassword = $('backup-password-confirm').value;
+  const resultEl = $('backup-modal-result');
+
+  if (!password) {
+    resultEl.textContent = 'Please enter a password';
+    resultEl.className = 'result-message error';
+    resultEl.style.display = 'block';
+    return;
+  }
+
+  if (password.length < 8) {
+    resultEl.textContent = 'Password must be at least 8 characters';
+    resultEl.className = 'result-message error';
+    resultEl.style.display = 'block';
+    return;
+  }
+
   if (password !== confirmPassword) {
-    alert('Passwords do not match. Please try again from Profile > Backup Identity.');
+    resultEl.textContent = 'Passwords do not match';
+    resultEl.className = 'result-message error';
+    resultEl.style.display = 'block';
     return;
   }
 
   try {
+    const btn = $('backup-download-btn');
+    btn.disabled = true;
+    btn.textContent = 'Creating backup...';
+    resultEl.style.display = 'none';
+
     const identity = await window.CloutIdentity.load();
     if (identity) {
       await window.CloutIdentity.downloadBackup(identity, password);
-      alert('Identity backup downloaded! Keep this file safe - you can use it to restore your identity on another device.');
+      closeBackupModal();
+      dismissBackupReminder();
+      // Show success toast
+      if (window.cloutApp?.showToast) {
+        window.cloutApp.showToast('Identity backup downloaded! Keep this file safe.', 'success');
+      }
     }
   } catch (error) {
-    alert('Failed to create backup: ' + error.message);
+    resultEl.textContent = 'Failed to create backup: ' + error.message;
+    resultEl.className = 'result-message error';
+    resultEl.style.display = 'block';
+  } finally {
+    const btn = $('backup-download-btn');
+    btn.disabled = false;
+    btn.textContent = 'Download Encrypted Backup';
   }
 }
 

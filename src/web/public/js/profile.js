@@ -12,7 +12,7 @@
 
 import * as state from './state.js';
 import { apiCall } from './api.js';
-import { $, showLoading, showResult, escapeHtml, escapeInlineJsString, formatRelativeTime, renderAvatar } from './ui.js';
+import { $, showLoading, showResult, showToast, escapeHtml, escapeInlineJsString, formatRelativeTime, renderAvatar } from './ui.js';
 import { loadFeed } from './feed.js';
 
 // =========================================================================
@@ -481,21 +481,21 @@ export async function loadTags() {
 export async function viewTagUsers(tag) {
   try {
     if (!window.CloutUserData) {
-      alert('User data not available');
+      showToast('User data not available', 'error');
       return;
     }
 
     const users = await window.CloutUserData.getUsersByTag(tag);
 
     if (users.length === 0) {
-      alert(`No users with tag "${tag}"`);
+      showToast(`No users with tag "${tag}"`, 'info');
       return;
     }
 
-    const userList = users.map(u => `${u.slice(0, 12)}...`).join('\n');
-    alert(`Users with tag "${tag}":\n\n${userList}`);
+    const userList = users.map(u => `${u.slice(0, 12)}...`).join(', ');
+    showToast(`Tag "${tag}": ${userList}`, 'info', 5000);
   } catch (error) {
-    alert(`Error: ${error.message}`);
+    showToast(`Error: ${error.message}`, 'error');
   }
 }
 
@@ -574,10 +574,10 @@ export async function switchIdentity(name) {
 
   try {
     const result = await apiCall('/data/identities/switch', 'POST', { name });
-    alert(result.message || 'Identity switched. Please restart the server.');
+    showToast(result.message || 'Identity switched. Please restart the server.', 'success', 5000);
     await loadIdentities();
   } catch (error) {
-    alert(`Failed to switch identity: ${error.message}`);
+    showToast(`Failed to switch identity: ${error.message}`, 'error');
   }
 }
 
@@ -627,7 +627,7 @@ export async function exportIdentityKey() {
     const key = result.secretKey;
     prompt('Your secret key (copy this and keep it safe!):', key);
   } catch (error) {
-    alert(`Failed to export key: ${error.message}`);
+    showToast(`Failed to export key: ${error.message}`, 'error');
   }
 }
 
@@ -682,14 +682,14 @@ export async function exportBrowserIdentity() {
 
     const confirmPassword = prompt('Confirm your password:');
     if (password !== confirmPassword) {
-      alert('Passwords do not match.');
+      showToast('Passwords do not match', 'error');
       return;
     }
 
     await window.CloutIdentity.downloadBackup(identity, password);
-    alert('Identity backup downloaded! Keep this file safe.');
+    showToast('Identity backup downloaded! Keep this file safe.', 'success', 5000);
   } catch (error) {
-    alert(`Failed to export identity: ${error.message}`);
+    showToast(`Failed to export identity: ${error.message}`, 'error');
   }
 }
 

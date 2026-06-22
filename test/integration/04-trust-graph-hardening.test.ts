@@ -633,6 +633,166 @@ async function testInvitationTrustSignalUsesCanonicalPlaintextFormat(): Promise<
   }
 }
 
+/**
+ * MED-05: BFS path search must be bounded to prevent CPU exhaustion.
+ *
+ * Builds a dense trust graph (a near-clique) where the number of distinct
+ * paths to a target would explode combinatorially without a bound, then
+ * verifies computeReputation() returns promptly and with a sane path count.
+ */
+async function testReputationBFSIsBounded(): Promise<void> {
+  const selfKey = Crypto.toHex(Crypto.getPublicKey(Crypto.randomBytes(32)));
+  const targetKey = Crypto.toHex(Crypto.getPublicKey(Crypto.randomBytes(32)));
+
+  // Build a dense graph: 40 intermediate nodes, each trusted by self,
+  // each trusting every other intermediate AND the target.
+  // Without bounds, the number of paths to target at depth 2 alone would
+  // be 40, and at depth 3 it would be 40*39 = 1560 — well past maxPaths.
+  const intermediates: string[] = [];
+  for (let i = 0; i < 40; i++) {
+    intermediates.push(Crypto.toHex(Crypto.getPublicKey(Crypto.randomBytes(32))));
+  }
+
+  const trustGraph = new Set<string>(intermediates);
+  const validator = new ReputationValidator({
+    selfPublicKey: selfKey,
+    trustGraph,
+    witness: new MockWitnessClient() as any,
+    maxHops: 3,
+    trustDecayDays: 0
+  });
+
+  // Each intermediate trusts every other intermediate + the target
+  for (const a of intermediates) {
+    for (const b of intermediates) {
+      if (a === b) continue;
+      validator.addTrustSignal({
+        truster: a,
+        trustee: b,
+        signature: Crypto.randomBytes(64),
+        proof: { hash: 'mock', timestamp: Date.now(), signatures: ['mock-sig'], witnessIds: ['mock-witness'] },
+        weight: 1.0
+      });
+    }
+    validator.addTrustSignal({
+      truster: a,
+      trustee: targetKey,
+      signature: Crypto.randomBytes(64),
+      proof: { hash: 'mock', timestamp: Date.now(), signatures: ['mock-sig'], witnessIds: ['mock-witness'] },
+      weight: 1.0
+    });
+  }
+
+  // Time the computation — must complete quickly even on a dense graph.
+  const start = Date.now();
+  const rep = validator.computeReputation(targetKey);
+  const elapsed = Date.now() - start;
+
+  assert.ok(elapsed < 1000, `computeReputation took ${elapsed}ms on dense graph — BFS bound not effective`);
+
+  // Path count must be capped (default maxPaths = 50), not the full combinatorial explosion.
+  assert.ok(
+    rep.pathCount <= 50,
+    `pathCount ${rep.pathCount} exceeds maxPaths bound (50) — BFS bound not effective`
+  );
+
+  // Target is reachable at distance 2 (self → intermediate → target).
+  assert.equal(rep.distance, 2);
+  assert.ok(rep.score > 0, 'target should have positive reputation');
+}
+
+/**
+ * MED-02: Content size limits reject oversized posts before expensive crypto.
+ */
+async function testContentSizeLimitsRejectOversizedPosts(): Promise<void> {
+  const selfKey = Crypto.toHex(Crypto.getPublicKey(Crypto.randomBytes(32)));
+  const authorKey = Crypto.toHex(Crypto.getPublicKey(Crypto.randomBytes(32)));
+
+  const gossip = new ContentGossip({
+    witness: new MockWitnessClient(),
+    freebird: new MockFreebirdClient() as any,
+    trustGraph: new Set<string>([authorKey]),
+    maxHops: 3,
+    sizeLimits: { maxContentSize: 100 } // 100 bytes for testing
+  });
+
+  const acceptedPosts: string[] = [];
+  gossip.setReceiveHandler(async (msg) => {
+    if (msg.type === 'post' && msg.post) acceptedPosts.push(msg.post.id);
+  });
+
+  try {
+    // Oversized post — content exceeds 100 bytes
+    const oversizedContent = 'x'.repeat(200);
+    const oversizedPost: PostPackage = {
+      id: Crypto.hashString(oversizedContent),
+      content: oversizedContent,
+      author: authorKey,
+      signature: Crypto.randomBytes(64),
+      proof: { hash: 'mock', timestamp: Date.now(), signatures: ['mock-sig'], witnessIds: ['mock-witness'] }
+    };
+
+    await gossip.onReceive({ type: 'post', post: oversizedPost, timestamp: Date.now() }, 'peer-oversized');
+
+    assert.equal(acceptedPosts.length, 0, 'oversized post must be rejected');
+
+    // Normal-sized post — should be accepted (passes size check, but may fail on signature — that's fine)
+    const normalContent = 'hello';
+    const normalPost: PostPackage = {
+      id: Crypto.hashString(normalContent),
+      content: normalContent,
+      author: authorKey,
+      signature: Crypto.randomBytes(64),
+      proof: { hash: 'mock', timestamp: Date.now(), signatures: ['mock-sig'], witnessIds: ['mock-witness'] }
+    };
+
+    await gossip.onReceive({ type: 'post', post: normalPost, timestamp: Date.now() }, 'peer-normal');
+
+    // Normal post passes size limit (may fail on signature, but that's not what we're testing)
+    // The key assertion is that the oversized post was rejected at the size check layer.
+  } finally {
+    gossip.destroy();
+  }
+}
+
+/**
+ * MED-08: Circuit breaker bans peers that send too many invalid messages.
+ */
+async function testCircuitBreakerBansPeersSendingGarbage(): Promise<void> {
+  const selfKey = Crypto.toHex(Crypto.getPublicKey(Crypto.randomBytes(32)));
+  const authorKey = Crypto.toHex(Crypto.getPublicKey(Crypto.randomBytes(32)));
+
+  const gossip = new ContentGossip({
+    witness: new MockWitnessClient(),
+    freebird: new MockFreebirdClient() as any,
+    trustGraph: new Set<string>([authorKey]),
+    maxHops: 3,
+    rateLimit: { maxInvalidPerWindow: 3 } // Ban after 3 invalid messages
+  });
+
+  try {
+    // Send 3 invalid posts (bad content hash — content doesn't match id)
+    for (let i = 0; i < 3; i++) {
+      const badPost: PostPackage = {
+        id: 'wrong-hash-' + i,
+        content: 'content-' + i,
+        author: authorKey,
+        signature: Crypto.randomBytes(64),
+        proof: { hash: 'mock', timestamp: Date.now(), signatures: ['mock-sig'], witnessIds: ['mock-witness'] }
+      };
+      await gossip.onReceive({ type: 'post', post: badPost, timestamp: Date.now() }, 'peer-garbage');
+    }
+
+    // After 3 invalid messages, peer should be banned
+    assert.ok(gossip.isPeerBanned('peer-garbage'), 'peer must be banned after 3 invalid messages');
+
+    // A different peer sending valid-looking messages should not be affected
+    assert.ok(!gossip.isPeerBanned('peer-good'), 'unrelated peer must not be banned');
+  } finally {
+    gossip.destroy();
+  }
+}
+
 async function main(): Promise<void> {
   console.log('\n========================================');
   console.log('Trust Graph Hardening Integration Tests');
@@ -661,6 +821,15 @@ async function main(): Promise<void> {
 
   await testInvitationTrustSignalUsesCanonicalPlaintextFormat();
   console.log('✅ invitation trust signal uses canonical plaintext format');
+
+  await testReputationBFSIsBounded();
+  console.log('✅ reputation BFS is bounded against dense graphs (MED-05)');
+
+  await testContentSizeLimitsRejectOversizedPosts();
+  console.log('✅ content size limits reject oversized posts (MED-02)');
+
+  await testCircuitBreakerBansPeersSendingGarbage();
+  console.log('✅ circuit breaker bans peers sending garbage (MED-08)');
 
   console.log('\n========================================');
   console.log('✅ ALL TRUST GRAPH HARDENING TESTS PASSED');

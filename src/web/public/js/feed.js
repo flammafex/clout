@@ -870,12 +870,6 @@ export function clearSearch() {
  * Render a single feed item
  */
 export function renderFeedItem(post, fullFeatures = true) {
-  // Debug: Log witness domain state on first render
-  if (!renderFeedItem._debugLogged) {
-    console.log('[Feed] renderFeedItem - state.witnessDomain:', state.witnessDomain);
-    renderFeedItem._debugLogged = true;
-  }
-
   const hasMedia = post.media && post.media.cid;
   const hasLink = post.link && post.link.url;
   const rep = post.reputation || { score: 0, distance: 0 };
@@ -1040,11 +1034,6 @@ export function renderPostContent(post) {
 
   let content = renderMarkdown(escapeHtml(post.content));
   const visitor = isVisitorMode();
-
-  // Debug: Log media state for troubleshooting
-  if (post.media) {
-    console.log(`[Feed] Post ${post.id} media:`, { cid: post.media.cid, mimeType: post.media.mimeType, visitor });
-  }
 
   // Hide media for visitors - only show text content
   if (post.media && post.media.cid) {

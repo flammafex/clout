@@ -11,7 +11,7 @@
 
 import * as state from './state.js';
 import { apiCall, submitSignedTrust } from './api.js';
-import { $, showLoading, showResult, escapeHtml, escapeInlineJsString, getWeightLabel, renderAvatar } from './ui.js';
+import { $, showLoading, showResult, showToast, escapeHtml, escapeInlineJsString, getWeightLabel, renderAvatar } from './ui.js';
 import { loadFeed } from './feed.js';
 import { sendTrustAcceptanceSlide } from './slides.js';
 
@@ -265,7 +265,7 @@ export async function quickTrust(publicKey, requireMembership) {
     showResult('feed-result', `Added ${publicKey.slice(0, 8)}... to your trust circle!`, true);
     setTimeout(() => loadFeed(), 1000);
   } catch (error) {
-    alert(`Could not trust user: ${error.message}`);
+    showToast(`Could not trust user: ${error.message}`, 'error');
   }
 }
 
@@ -286,7 +286,7 @@ export async function muteUser(publicKey, displayName, requireMembership) {
     showResult('feed-result', `Redacted ${displayName || publicKey.slice(0, 8)}...`, true);
     setTimeout(() => loadFeed(), 500);
   } catch (error) {
-    alert(`Could not redact user: ${error.message}`);
+    showToast(`Could not redact user: ${error.message}`, 'error');
   }
 }
 
@@ -301,7 +301,7 @@ export async function unmuteUser(publicKey) {
     await loadTrustedUsers();
     showResult('trust-result', `Unredacted ${publicKey.slice(0, 8)}...`, true);
   } catch (error) {
-    alert(`Could not unredact user: ${error.message}`);
+    showToast(`Could not unredact user: ${error.message}`, 'error');
   }
 }
 
@@ -327,7 +327,7 @@ export async function untrustUser(publicKey, displayName) {
     await loadTrustedUsers();
     await loadFeed();
   } catch (error) {
-    alert(`Could not remove user: ${error.message}`);
+    showToast(`Could not remove user: ${error.message}`, 'error');
   }
 }
 
@@ -663,7 +663,7 @@ export async function acceptTrustRequest(requestId) {
     const request = incoming.find(r => r.id === requestId);
 
     if (!request) {
-      alert('Request not found');
+      showToast('Request not found', 'error');
       return;
     }
 
@@ -683,7 +683,7 @@ export async function acceptTrustRequest(requestId) {
     await loadTrustRequests();
     await loadTrustedUsers();
   } catch (error) {
-    alert(`Error accepting request: ${error.message}`);
+    showToast(`Error accepting request: ${error.message}`, 'error');
   }
 }
 
@@ -699,7 +699,7 @@ export async function rejectTrustRequest(requestId) {
 
     await loadTrustRequests();
   } catch (error) {
-    alert(`Error rejecting request: ${error.message}`);
+    showToast(`Error rejecting request: ${error.message}`, 'error');
   }
 }
 
@@ -718,7 +718,7 @@ export async function withdrawTrustRequest(requestId) {
     showResult('trust-result', 'Request withdrawn', true);
     await loadTrustRequests();
   } catch (error) {
-    alert(`Error withdrawing request: ${error.message}`);
+    showToast(`Error withdrawing request: ${error.message}`, 'error');
   }
 }
 
@@ -732,7 +732,7 @@ export async function retryTrustRequest(requestId) {
   try {
     const identity = await window.CloutIdentity.load();
     if (!identity) {
-      alert('No browser identity found');
+      showToast('No browser identity found', 'error');
       return;
     }
 
@@ -741,7 +741,7 @@ export async function retryTrustRequest(requestId) {
     const request = outgoing.find(r => r.id === requestId);
 
     if (!request) {
-      alert('Request not found');
+      showToast('Request not found', 'error');
       return;
     }
 
@@ -773,6 +773,6 @@ export async function retryTrustRequest(requestId) {
     showResult('trust-result', 'Request sent again (encrypted)', true);
     await loadTrustRequests();
   } catch (error) {
-    alert(`Error retrying request: ${error.message}`);
+    showToast(`Error retrying request: ${error.message}`, 'error');
   }
 }

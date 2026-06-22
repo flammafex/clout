@@ -28,8 +28,33 @@ export function showResult(elementId, message, isSuccess) {
   if (!el) return;
   el.textContent = message;
   el.className = `result-message ${isSuccess ? 'success' : 'error'}`;
+  el.setAttribute('aria-live', 'polite');
   el.style.display = 'block';
   setTimeout(() => el.style.display = 'none', 5000);
+}
+
+/**
+ * Show a toast notification (non-blocking, auto-dismiss)
+ */
+export function showToast(message, type = 'info', duration = 3000) {
+  let container = document.querySelector('.toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'toast-container';
+    container.setAttribute('aria-live', 'polite');
+    container.setAttribute('aria-atomic', 'true');
+    document.body.appendChild(container);
+  }
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  // Trigger entrance animation
+  requestAnimationFrame(() => toast.classList.add('toast-visible'));
+  setTimeout(() => {
+    toast.classList.remove('toast-visible');
+    setTimeout(() => toast.remove(), 300);
+  }, duration);
 }
 
 /**
@@ -155,12 +180,39 @@ export function getWeightLabel(weight) {
 }
 
 /**
- * Copy text to clipboard
+ * Copy text to clipboard with fallback for non-secure contexts (HTTP)
  */
-export function copyToClipboard(text) {
-  navigator.clipboard.writeText(text).then(() => {
-    alert('Copied to clipboard!');
-  });
+export async function copyToClipboard(text) {
+  // Try modern Clipboard API first (requires secure context: HTTPS or localhost)
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showResult('copy-result', 'Copied to clipboard!', true);
+      return;
+    } catch (e) {
+      console.warn('Clipboard API failed, falling back:', e);
+    }
+  }
+
+  // Fallback: execCommand('copy') via temporary textarea
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (ok) {
+      showResult('copy-result', 'Copied to clipboard!', true);
+    } else {
+      showResult('copy-result', 'Could not copy — please copy manually', false);
+    }
+  } catch (e) {
+    console.error('Clipboard fallback failed:', e);
+    showResult('copy-result', 'Could not copy — please copy manually', false);
+  }
 }
 
 /**

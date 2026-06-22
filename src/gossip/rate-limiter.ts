@@ -12,6 +12,12 @@ export interface RateLimiterConfig {
   readonly windowMs?: number;
   /** Ban duration in milliseconds when limit exceeded (default: 300000 = 5 minutes) */
   readonly banDurationMs?: number;
+  /**
+   * Maximum invalid messages per peer per window before ban (default: 10).
+   * A circuit breaker: peers sending too much garbage (invalid signatures,
+   * bad hashes, oversized content) get banned even if under the volume limit.
+   */
+  readonly maxInvalidPerWindow?: number;
 }
 
 /**
@@ -21,18 +27,22 @@ interface PeerRateLimit {
   messageCount: number;
   windowStart: number;
   bannedUntil?: number;
+  /** Count of invalid messages (failed validation) in current window */
+  invalidCount: number;
 }
 
 export class PeerRateLimiter {
   private readonly maxMessages: number;
   private readonly windowMs: number;
   private readonly banDurationMs: number;
+  private readonly maxInvalid: number;
   private readonly peerLimits = new Map<string, PeerRateLimit>();
 
   constructor(config: RateLimiterConfig = {}) {
     this.maxMessages = config.maxMessagesPerWindow ?? 100;
     this.windowMs = config.windowMs ?? 60_000; // 1 minute
     this.banDurationMs = config.banDurationMs ?? 300_000; // 5 minutes
+    this.maxInvalid = config.maxInvalidPerWindow ?? 10;
   }
 
   /**
@@ -49,7 +59,7 @@ export class PeerRateLimiter {
 
     // Initialize if first message from this peer
     if (!peerLimit) {
-      peerLimit = { messageCount: 0, windowStart: now };
+      peerLimit = { messageCount: 0, invalidCount: 0, windowStart: now };
       this.peerLimits.set(peerId, peerLimit);
     }
 
@@ -66,12 +76,14 @@ export class PeerRateLimiter {
     if (peerLimit.bannedUntil && now >= peerLimit.bannedUntil) {
       peerLimit.bannedUntil = undefined;
       peerLimit.messageCount = 0;
+      peerLimit.invalidCount = 0;
       peerLimit.windowStart = now;
     }
 
     // Reset window if expired
     if (now - peerLimit.windowStart >= this.windowMs) {
       peerLimit.messageCount = 0;
+      peerLimit.invalidCount = 0;
       peerLimit.windowStart = now;
     }
 
@@ -90,6 +102,46 @@ export class PeerRateLimiter {
     }
 
     return true;
+  }
+
+  /**
+   * Record an invalid message from a peer (circuit breaker).
+   *
+   * Called when a peer's message fails validation (invalid signature, bad hash,
+   * oversized content, etc.). If the peer exceeds maxInvalid in a window, they
+   * are banned for banDurationMs — even if under the volume rate limit.
+   *
+   * @param peerId - The peer's identifier
+   * @returns true if the peer was just banned, false otherwise
+   */
+  recordInvalid(peerId: string): boolean {
+    const now = Date.now();
+    let peerLimit = this.peerLimits.get(peerId);
+
+    if (!peerLimit) {
+      peerLimit = { messageCount: 0, invalidCount: 0, windowStart: now };
+      this.peerLimits.set(peerId, peerLimit);
+    }
+
+    // Reset window if expired
+    if (now - peerLimit.windowStart >= this.windowMs) {
+      peerLimit.invalidCount = 0;
+      peerLimit.windowStart = now;
+    }
+
+    peerLimit.invalidCount++;
+
+    if (peerLimit.invalidCount >= this.maxInvalid) {
+      peerLimit.bannedUntil = now + this.banDurationMs;
+      console.warn(
+        `[RateLimiter] ⛔ Peer ${peerId.slice(0, 8)} tripped circuit breaker ` +
+        `(${peerLimit.invalidCount} invalid messages in ${this.windowMs}ms). ` +
+        `Banned for ${this.banDurationMs}ms`
+      );
+      return true;
+    }
+
+    return false;
   }
 
   /**

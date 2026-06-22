@@ -13,11 +13,17 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// NOTE: 05-live-services.test.ts is intentionally excluded from this runner.
+// It is a "live service seam" that requires running Freebird, Witness, and
+// HyperToken services with allowInsecureFallback: false (non-default ports
+// 18081/18082/18080/13000). It cannot pass in a clean CI environment without
+// the full live stack. Run it manually via: npm run test:live
 const tests = [
   'integration/01-clout-gossip.test.js',
   'integration/02-encrypted-trust-signal.test.js',
   'integration/03-web-route-hardening.test.js',
-  'integration/04-trust-graph-hardening.test.js'
+  'integration/04-trust-graph-hardening.test.js',
+  'integration/06-invitation-redemption.test.js'
 ];
 
 async function runTest(testPath: string): Promise<boolean> {
@@ -72,6 +78,8 @@ async function runAllTests() {
   console.log(`Failed: ${failed}`);
   console.log(`Total:  ${tests.length}`);
   console.log('========================================\n');
+  console.log('Note: 05-live-services.test.ts is not included here.');
+  console.log('      Run it separately with: npm run test:live\n');
 
   process.exit(failed > 0 ? 1 : 0);
 }

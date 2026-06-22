@@ -257,6 +257,9 @@ export async function toggleReaction(postId, emoji, requireMembership) {
   // Find the picker button (we'll insert new reactions before it)
   const pickerBtn = bar.querySelector('.reaction-picker-btn');
 
+  // Capture bar HTML for revert on API failure
+  const barHtmlSnapshot = bar.innerHTML;
+
   // Optimistic UI update
   if (wasActive && existingBtn) {
     // REMOVING a reaction - decrement count or remove button
@@ -310,23 +313,24 @@ export async function toggleReaction(postId, emoji, requireMembership) {
     }
   }
 
-  // Make API call in background
+  // Make API call in background — revert optimistic update on failure
   try {
     if (wasActive) {
-      apiCall('/unreact', 'POST', { postId, emoji }).catch(e => {
+      await apiCall('/unreact', 'POST', { postId, emoji }).catch(e => {
         console.error('Failed to unreact:', e);
-        // Revert: re-add the button or restore active state
-        // For simplicity, we'll just log the error - a page refresh will fix it
+        // Revert: restore the bar to its pre-toggle state
+        bar.innerHTML = barHtmlSnapshot;
       });
     } else {
-      apiCall('/react', 'POST', { postId, emoji }).catch(e => {
+      await apiCall('/react', 'POST', { postId, emoji }).catch(e => {
         console.error('Failed to react:', e);
-        // Revert: remove newly added button or remove active state
-        // For simplicity, we'll just log the error - a page refresh will fix it
+        // Revert: restore the bar to its pre-toggle state
+        bar.innerHTML = barHtmlSnapshot;
       });
     }
   } catch (error) {
     console.error('Error toggling reaction:', error);
+    bar.innerHTML = barHtmlSnapshot;
   }
 }
 
