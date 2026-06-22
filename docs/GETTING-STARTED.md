@@ -39,8 +39,8 @@ Clout is built on three infrastructure services that you can run yourself:
 
 | Component | Purpose | Source |
 |-----------|---------|--------|
-| **Witness** | Timestamping for proof-of-order | [Witness repo](https://github.com/flammafex/Witness) or fallback mode |
-| **Freebird** | Anonymous anti-spam tokens (VOPRF) | [Freebird repo](https://github.com/flammafex/Freebird) or fallback mode |
+| **Witness** | Timestamping for proof-of-order | [Witness repo](https://git.carpocratian.org/sibyl/Witness) or fallback mode |
+| **Freebird** | Anonymous anti-spam tokens (VOPRF) | [Freebird repo](https://git.carpocratian.org/sibyl/Freebird) or fallback mode |
 | **HyperToken Relay** | WebRTC signaling, peer discovery | **Built into Clout** - you can run this |
 
 ---
@@ -80,7 +80,7 @@ node start-relay.js
 
 **Option A: Run your own Witness server**
 
-Deploy from the [Witness repository](https://github.com/flammafex/Witness):
+Deploy from the [Witness repository](https://git.carpocratian.org/sibyl/Witness):
 ```bash
 # From Witness repo
 cargo build --release
@@ -137,7 +137,7 @@ If no Witness gateway is configured, Clout automatically uses simulated local at
 
 **Option A: Run your own Freebird issuers**
 
-Deploy from the [Freebird repository](https://github.com/flammafex/Freebird):
+Deploy from the [Freebird repository](https://git.carpocratian.org/sibyl/Freebird):
 ```bash
 # From Freebird repo
 cargo build --release

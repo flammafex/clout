@@ -33,7 +33,7 @@ FROM node:20-bookworm-slim AS runtime
 
 LABEL org.opencontainers.image.title="Clout"
 LABEL org.opencontainers.image.description="Uncensorable P2P social networking with trust-based filtering"
-LABEL org.opencontainers.image.source="https://github.com/flammafex/clout"
+LABEL org.opencontainers.image.source="https://git.carpocratian.org/sibyl/clout"
 
 WORKDIR /app
 
@@ -94,7 +94,7 @@ FROM node:20-bookworm-slim AS cli
 
 LABEL org.opencontainers.image.title="Clout CLI"
 LABEL org.opencontainers.image.description="Command-line interface for Clout social networking"
-LABEL org.opencontainers.image.source="https://github.com/flammafex/clout"
+LABEL org.opencontainers.image.source="https://git.carpocratian.org/sibyl/clout"
 
 WORKDIR /app
 

@@ -1,6 +1,6 @@
 # HyperToken Vendored Code
 
-This directory contains vendored code from the [HyperToken](https://github.com/flammafex/hypertoken) project.
+This directory contains vendored code from the [HyperToken](https://git.carpocratian.org/sibyl/hypertoken) project.
 
 ## Files
 
@@ -59,7 +59,7 @@ node start-relay.js 3000 --verbose
 
 These files are licensed under the Apache License 2.0, Copyright 2025 The Carpocratian Church of Commonality and Equality, Inc.
 
-Original source: https://github.com/flammafex/hypertoken
+Original source: https://git.carpocratian.org/sibyl/hypertoken
 
 ## Modifications
 

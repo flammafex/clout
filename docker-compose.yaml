@@ -153,7 +153,7 @@ services:
   # ============================================================================
   witness-setup:
     build:
-      context: https://github.com/flammafex/witness.git
+      context: https://git.carpocratian.org/sibyl/witness.git
       target: witness-node
     volumes:
       - witness-config:/data
@@ -207,7 +207,7 @@ services:
 
   witness-1:
     build:
-      context: https://github.com/flammafex/witness.git
+      context: https://git.carpocratian.org/sibyl/witness.git
       target: witness-node
     depends_on:
       witness-setup:
@@ -220,7 +220,7 @@ services:
 
   witness-2:
     build:
-      context: https://github.com/flammafex/witness.git
+      context: https://git.carpocratian.org/sibyl/witness.git
       target: witness-node
     depends_on:
       witness-setup:
@@ -233,7 +233,7 @@ services:
 
   witness-3:
     build:
-      context: https://github.com/flammafex/witness.git
+      context: https://git.carpocratian.org/sibyl/witness.git
       target: witness-node
     depends_on:
       witness-setup:
@@ -246,7 +246,7 @@ services:
 
   witness-gateway:
     build:
-      context: https://github.com/flammafex/witness.git
+      context: https://git.carpocratian.org/sibyl/witness.git
     image: witness-gateway:latest
     container_name: witness-gateway
     ports:
@@ -275,7 +275,7 @@ services:
   # ============================================================================
   hypertoken-relay:
     build:
-      context: https://github.com/flammafex/hypertoken.git
+      context: https://git.carpocratian.org/sibyl/hypertoken.git
     image: hypertoken-relay:latest
     container_name: hypertoken-relay
     command: ["node", "start-relay.js", "3000"]

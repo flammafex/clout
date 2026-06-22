@@ -1,6 +1,6 @@
 [Unit]
 Description=Clout Social - Uncensorable Reputation Protocol
-Documentation=https://github.com/flammafex/clout
+Documentation=https://git.carpocratian.org/sibyl/clout
 After=network.target network-online.target
 Wants=network-online.target
 

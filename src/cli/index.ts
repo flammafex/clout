@@ -124,7 +124,7 @@ EXAMPLES:
 For detailed command help:
   clout <command> --help
 
-Documentation: https://github.com/flammafex/clout
+Documentation: https://git.carpocratian.org/sibyl/clout
 `);
 }
 

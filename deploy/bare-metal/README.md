@@ -40,7 +40,7 @@ Deploy Clout on a Hetzner CX11 (or similar) bare metal server.
 
 ```bash
 # Clone the repository (if not already)
-git clone https://github.com/flammafex/clout.git
+git clone https://git.carpocratian.org/sibyl/clout.git
 cd clout
 
 # Install dependencies
