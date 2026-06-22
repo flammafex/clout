@@ -49,6 +49,28 @@ export interface FederatedToken {
   readonly communityName?: string;
 }
 
+interface IssuerMetadata {
+  issuer_id: string;
+  voprf: {
+    kid: string;
+    pubkey: string;
+  };
+}
+
+interface VerifierMetadata {
+  verifier_id: string;
+  audience: string;
+  scope_digest_b64: string;
+}
+
+interface PendingTokenState {
+  blindState: BlindState;
+  nonce: Uint8Array;
+  scopeDigest: Uint8Array;
+  issuerId: string;
+  kid: string;
+}
+
 export interface FreebirdAdapterConfig {
   readonly issuerEndpoints: string[];
   readonly verifierUrl: string;
@@ -124,8 +146,9 @@ export class FreebirdAdapter implements FreebirdClient {
   private invitationWasAttempted = false;
   private readonly userPublicKey: string | undefined;
   private readonly isOwner: boolean;
-  private metadata: Map<string, any> = new Map();
-  private blindStates: Map<string, BlindState> = new Map();
+  private metadata: Map<string, IssuerMetadata> = new Map();
+  private verifierMetadata: VerifierMetadata | null = null;
+  private blindStates: Map<string, PendingTokenState> = new Map();
   private fallbackWarningShown = false;
   // Federated trust: token from another trusted community
   private federatedToken: FederatedToken | undefined;
@@ -147,7 +170,7 @@ export class FreebirdAdapter implements FreebirdClient {
     this.isOwner = config.isOwner ?? false;
     this.federatedToken = config.federatedToken;
     // Context must match Freebird server
-    this.context = new TextEncoder().encode('freebird:v1');
+    this.context = new TextEncoder().encode('freebird:v4');
 
     // Log if Tor is enabled for .onion addresses
     const hasOnion = this.issuerEndpoints.some(url => TorProxy.isOnionUrl(url)) ||
@@ -500,7 +523,7 @@ export class FreebirdAdapter implements FreebirdClient {
    * Initialize by fetching metadata from all issuers
    */
   private async init(): Promise<void> {
-    if (this.metadata.size > 0) return;
+    if (this.metadata.size > 0 && this.verifierMetadata) return;
 
     // Fetch metadata from all issuers in parallel
     const metadataPromises = this.issuerEndpoints.map(async (url, index) => {
@@ -523,6 +546,32 @@ export class FreebirdAdapter implements FreebirdClient {
 
     if (successCount > 0) {
       console.log(`[Freebird] Connected to ${successCount}/${this.issuerEndpoints.length} issuers`);
+
+      const response = await this.fetch(`${this.verifierUrl}/.well-known/verifier`);
+      if (!response.ok) {
+        throw new Error(`[Freebird] Failed to fetch verifier metadata: ${response.status}`);
+      }
+
+      const verifierMetadata = await response.json() as VerifierMetadata;
+      if (
+        !verifierMetadata.verifier_id ||
+        !verifierMetadata.audience ||
+        !verifierMetadata.scope_digest_b64
+      ) {
+        throw new Error('[Freebird] Verifier metadata missing required scope fields');
+      }
+
+      const scopeDigest = voprf.base64UrlToBytes(verifierMetadata.scope_digest_b64);
+      const expectedScopeDigest = voprf.buildScopeDigest(
+        verifierMetadata.verifier_id,
+        verifierMetadata.audience
+      );
+      if (!bytesEqual(scopeDigest, expectedScopeDigest)) {
+        throw new Error('[Freebird] Verifier scope metadata is inconsistent');
+      }
+
+      this.verifierMetadata = verifierMetadata;
+      console.log(`[Freebird] Connected to verifier: ${verifierMetadata.verifier_id}`);
     } else {
       if (!this.allowInsecureFallback) {
         throw new Error(
@@ -550,21 +599,36 @@ export class FreebirdAdapter implements FreebirdClient {
   /**
    * Blind a public key for privacy-preserving commitment
    *
-   * Uses P-256 VOPRF blinding when issuer is available: A = H(publicKey) * r
+   * Uses P-256 VOPRF blinding when issuer is available.
    * Falls back to hash-based blinding when issuer is unavailable.
    *
    * The blind state is stored internally for later finalization.
    */
-  async blind(publicKey: PublicKey): Promise<Uint8Array> {
+  async blind(_publicKey: PublicKey): Promise<Uint8Array> {
     await this.init();
 
     // Use production VOPRF blinding if at least one issuer is available
     if (this.metadata.size > 0) {
-      const { blinded, state } = voprf.blind(publicKey.bytes, this.context);
+      const issuerMetadata = Array.from(this.metadata.values())[0];
+      const scopeDigest = voprf.base64UrlToBytes(this.verifierMetadata!.scope_digest_b64);
+      const nonce = Crypto.randomBytes(32);
+      const inputBytes = voprf.buildPrivateTokenInput(
+        issuerMetadata.issuer_id,
+        issuerMetadata.voprf.kid,
+        nonce,
+        scopeDigest
+      );
+      const { blinded, state } = voprf.blind(inputBytes, this.context);
 
       // Store state indexed by blinded value for later finalization
       const blindedHex = Crypto.toHex(blinded);
-      this.blindStates.set(blindedHex, state);
+      this.blindStates.set(blindedHex, {
+        blindState: state,
+        nonce,
+        scopeDigest,
+        issuerId: issuerMetadata.issuer_id,
+        kid: issuerMetadata.voprf.kid,
+      });
 
       return blinded;
     }
@@ -572,7 +636,7 @@ export class FreebirdAdapter implements FreebirdClient {
     // Fallback: simulated blinding (only reached if allowInsecureFallback is true)
     // This is checked in init() - if we get here, the user explicitly opted in
     const nonce = Crypto.randomBytes(32);
-    return Crypto.hash(publicKey.bytes, nonce);
+    return Crypto.hash(_publicKey.bytes, nonce);
   }
 
   /**
@@ -610,7 +674,7 @@ export class FreebirdAdapter implements FreebirdClient {
 
     // Retrieve blind state for finalization (may not exist in proxy mode)
     const blindedHex = Crypto.toHex(blindedValue);
-    const state = this.blindStates.get(blindedHex);
+    const pending = this.blindStates.get(blindedHex);
 
     // Attempt real VOPRF issuance if at least one issuer is available
     // Note: state may be null when operating as a proxy (browser has the blind state)
@@ -713,7 +777,7 @@ export class FreebirdAdapter implements FreebirdClient {
         }
 
         // Clean up blind state if it exists (may not exist in proxy mode)
-        if (state) {
+        if (pending) {
           this.blindStates.delete(blindedHex);
         }
 
@@ -723,18 +787,25 @@ export class FreebirdAdapter implements FreebirdClient {
         if (this.issuerEndpoints.length === 1 && validResponses.length === 1) {
           const resp = validResponses[0];
 
-          if (state) {
-            // Full flow: verify DLEQ, unblind, build V3 redemption token
+          if (pending) {
+            // Full flow: verify DLEQ, unblind, build V4 private-verification token
             let output: Uint8Array;
             try {
-              output = voprf.finalize(state, resp.tokenB64, resp.pubkey, this.context);
+              output = voprf.finalize(pending.blindState, resp.tokenB64, resp.pubkey, this.context);
             } catch (e) {
               throw new Error(`[Freebird] DLEQ verification/unblinding failed: ${e}`);
             }
 
-            const sig = resp.sig ? this.base64UrlToBytes(resp.sig) : new Uint8Array(64);
-            const redemptionToken = voprf.buildRedemptionToken(
-              output, resp.kid, BigInt(resp.exp), resp.issuerId, sig
+            if (resp.kid !== pending.kid || resp.issuerId !== pending.issuerId) {
+              throw new Error('[Freebird] Issuer metadata changed during issuance');
+            }
+
+            const redemptionToken = voprf.buildPrivateRedemptionToken(
+              pending.nonce,
+              pending.scopeDigest,
+              resp.kid,
+              resp.issuerId,
+              output
             );
 
             this.lastTokenInfo = {
@@ -765,12 +836,15 @@ export class FreebirdAdapter implements FreebirdClient {
 
         const aggregatedPoint = voprf.aggregate(partials);
 
-        if (state) {
-          // Full flow: unblind aggregated point, build V3 redemption token
-          const output = voprf.computePrfOutput(state, aggregatedPoint, this.context);
-          const sig = firstResp.sig ? this.base64UrlToBytes(firstResp.sig) : new Uint8Array(64);
-          const redemptionToken = voprf.buildRedemptionToken(
-            output, firstResp.kid, BigInt(firstResp.exp), firstResp.issuerId, sig
+        if (pending) {
+          // Full flow: unblind aggregated point, build V4 private-verification token
+          const output = voprf.computePrfOutput(pending.blindState, aggregatedPoint, this.context);
+          const redemptionToken = voprf.buildPrivateRedemptionToken(
+            pending.nonce,
+            pending.scopeDigest,
+            firstResp.kid,
+            firstResp.issuerId,
+            output
           );
 
           this.lastTokenInfo = {
@@ -802,7 +876,7 @@ export class FreebirdAdapter implements FreebirdClient {
         }
       } catch (error) {
         // Re-throw errors from threshold check or other security failures
-        if (state) {
+        if (pending) {
           this.blindStates.delete(blindedHex);
         }
         throw error;
@@ -811,7 +885,7 @@ export class FreebirdAdapter implements FreebirdClient {
 
     // Fallback: simulated token (only reached if allowInsecureFallback is true)
     // This is checked in init() - if we get here, the user explicitly opted in
-    if (state) {
+    if (pending) {
       this.blindStates.delete(blindedHex);
     }
     return Crypto.hash(blindedValue, 'ISSUED');
@@ -821,8 +895,7 @@ export class FreebirdAdapter implements FreebirdClient {
    * Helper to decode base64url to bytes
    */
   private base64UrlToBytes(base64: string): Uint8Array {
-    const binString = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
-    return Uint8Array.from(binString, (m) => m.codePointAt(0)!);
+    return voprf.base64UrlToBytes(base64);
   }
 
   /**
@@ -837,7 +910,7 @@ export class FreebirdAdapter implements FreebirdClient {
     // Attempt real verification if verifier is available
     if (this.metadata.size > 0 && this.verifierUrl) {
       try {
-        // V3 tokens are self-contained — verifier only needs the token itself
+        // V4 tokens are self-contained — verifier only needs the token itself
         const response = await this.fetch(`${this.verifierUrl}/v1/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -857,6 +930,11 @@ export class FreebirdAdapter implements FreebirdClient {
     }
 
     // Local verification based on token format
+    if (token.length >= 101 && token.length <= 512 && token[0] === 0x04) {
+      console.warn('[Freebird] Using local V4 format validation (server unavailable)');
+      return true;
+    }
+
     if (token.length === 195 && token[0] === 0x01) {
       // V2 signed VOPRF token format
       console.warn('[Freebird] Using local format validation (server unavailable)');
@@ -893,7 +971,7 @@ export class FreebirdAdapter implements FreebirdClient {
     }
 
     // Unknown token format
-    console.error(`[Freebird] Invalid token length: ${token.length} (expected 195, 131, 130, or 32)`);
+    console.error(`[Freebird] Invalid token length: ${token.length} (expected V4, 195, 131, 130, or 32)`);
     return false;
   }
 
@@ -934,4 +1012,13 @@ export class FreebirdAdapter implements FreebirdClient {
     // Return first available issuer's metadata
     return Array.from(this.metadata.values())[0];
   }
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
 }

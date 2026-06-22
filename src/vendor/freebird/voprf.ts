@@ -22,6 +22,8 @@ const RAW_TOKEN_LEN_V0 = COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 130 (legacy, n
 const RAW_TOKEN_LEN_V1 = TOKEN_VERSION_LEN + COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 131
 const TOKEN_LEN_V2 = RAW_TOKEN_LEN_V1 + TOKEN_SIGNATURE_LEN; // 195 (VOPRF + signature)
 const REDEMPTION_TOKEN_VERSION_V3 = 0x03;
+const REDEMPTION_TOKEN_VERSION_V4 = 0x04;
+const PRIVATE_TOKEN_LEN = 32;
 
 /**
  * Internal state maintained between blinding and unblinding.
@@ -149,6 +151,86 @@ export function computePrfOutput(
     wBytes,
   );
   return sha256(finalizeInput);
+}
+
+export function buildScopeDigest(verifierId: string, audience: string): Uint8Array {
+  const verifierIdBytes = new TextEncoder().encode(verifierId);
+  const audienceBytes = new TextEncoder().encode(audience);
+  if (verifierIdBytes.length === 0 || verifierIdBytes.length > 255) {
+    throw new Error('verifier_id must be 1-255 bytes');
+  }
+  if (audienceBytes.length === 0 || audienceBytes.length > 255) {
+    throw new Error('audience must be 1-255 bytes');
+  }
+
+  return sha256(concatBytes(
+    new TextEncoder().encode('freebird:scope:v4'),
+    new Uint8Array([verifierIdBytes.length]),
+    verifierIdBytes,
+    new Uint8Array([audienceBytes.length]),
+    audienceBytes
+  ));
+}
+
+export function buildPrivateTokenInput(
+  issuerId: string,
+  kid: string,
+  nonce: Uint8Array,
+  scopeDigest: Uint8Array
+): Uint8Array {
+  const issuerIdBytes = new TextEncoder().encode(issuerId);
+  const kidBytes = new TextEncoder().encode(kid);
+  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) {
+    throw new Error('issuer_id must be 1-255 bytes');
+  }
+  if (kidBytes.length === 0 || kidBytes.length > 255) {
+    throw new Error('kid must be 1-255 bytes');
+  }
+  if (nonce.length !== PRIVATE_TOKEN_LEN) throw new Error('nonce must be 32 bytes');
+  if (scopeDigest.length !== PRIVATE_TOKEN_LEN) throw new Error('scope_digest must be 32 bytes');
+
+  return concatBytes(
+    new TextEncoder().encode('freebird:private-token-input:v4'),
+    new Uint8Array([issuerIdBytes.length]),
+    issuerIdBytes,
+    new Uint8Array([kidBytes.length]),
+    kidBytes,
+    nonce,
+    scopeDigest
+  );
+}
+
+/**
+ * Builds a V4 private-verification redemption token.
+ * Format: [version(1) | nonce(32) | scope_digest(32) | kid_len(1) | kid(var) |
+ * issuer_id_len(1) | issuer_id(var) | authenticator(32)]
+ */
+export function buildPrivateRedemptionToken(
+  nonce: Uint8Array,
+  scopeDigest: Uint8Array,
+  kid: string,
+  issuerId: string,
+  authenticator: Uint8Array
+): Uint8Array {
+  const kidBytes = new TextEncoder().encode(kid);
+  const issuerIdBytes = new TextEncoder().encode(issuerId);
+  if (kidBytes.length === 0 || kidBytes.length > 255) throw new Error('kid must be 1-255 bytes');
+  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) throw new Error('issuer_id must be 1-255 bytes');
+  if (nonce.length !== PRIVATE_TOKEN_LEN) throw new Error('nonce must be 32 bytes');
+  if (scopeDigest.length !== PRIVATE_TOKEN_LEN) throw new Error('scope_digest must be 32 bytes');
+  if (authenticator.length !== PRIVATE_TOKEN_LEN) throw new Error('authenticator must be 32 bytes');
+
+  const buf = new Uint8Array(1 + 32 + 32 + 1 + kidBytes.length + 1 + issuerIdBytes.length + 32);
+  let pos = 0;
+  buf[pos++] = REDEMPTION_TOKEN_VERSION_V4;
+  buf.set(nonce, pos); pos += 32;
+  buf.set(scopeDigest, pos); pos += 32;
+  buf[pos++] = kidBytes.length;
+  buf.set(kidBytes, pos); pos += kidBytes.length;
+  buf[pos++] = issuerIdBytes.length;
+  buf.set(issuerIdBytes, pos); pos += issuerIdBytes.length;
+  buf.set(authenticator, pos);
+  return buf;
 }
 
 /**
@@ -358,8 +440,13 @@ export function verifyDleq(
 
 // --- Helpers ---
 
-function base64UrlToBytes(base64: string): Uint8Array {
-  const binString = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
+export function base64UrlToBytes(base64: string): Uint8Array {
+  const normalized = base64.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - normalized.length % 4) % 4),
+    '='
+  );
+  const binString = atob(padded);
   return Uint8Array.from(binString, (m) => m.codePointAt(0)!);
 }
 

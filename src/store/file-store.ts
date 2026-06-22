@@ -31,6 +31,7 @@ interface SerializedTicket {
     timestamp: number;
     signatures: string[];
     witnessIds: string[];
+    canonical?: any;
     raw?: any;
   };
   durationHours: number;
@@ -365,7 +366,7 @@ export class FileSystemStore implements CloutStore {
     owner: string;
     expiry: number;
     proof: Uint8Array;
-    signature: { hash: string; timestamp: number; signatures: string[]; witnessIds: string[]; raw?: any };
+    signature: { hash: string; timestamp: number; signatures: string[]; witnessIds: string[]; canonical?: any; raw?: any };
     durationHours: number;
     delegatedFrom?: string;
   }): void {
@@ -379,6 +380,7 @@ export class FileSystemStore implements CloutStore {
         timestamp: ticket.signature.timestamp,
         signatures: ticket.signature.signatures,
         witnessIds: ticket.signature.witnessIds,
+        canonical: ticket.signature.canonical,
         raw: ticket.signature.raw
       },
       durationHours: ticket.durationHours,
@@ -397,7 +399,7 @@ export class FileSystemStore implements CloutStore {
     owner: string;
     expiry: number;
     proof: Uint8Array;
-    signature: { hash: string; timestamp: number; signatures: string[]; witnessIds: string[]; raw?: any };
+    signature: { hash: string; timestamp: number; signatures: string[]; witnessIds: string[]; canonical?: any; raw?: any };
     durationHours: number;
     delegatedFrom?: string;
   } | null {
@@ -434,6 +436,7 @@ export class FileSystemStore implements CloutStore {
         timestamp: serialized.signature.timestamp,
         signatures: serialized.signature.signatures,
         witnessIds: serialized.signature.witnessIds,
+        canonical: serialized.signature.canonical,
         raw: serialized.signature.raw
       },
       durationHours: serialized.durationHours,
