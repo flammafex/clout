@@ -99,6 +99,7 @@ services:
   freebird-issuer:
     build:
       context: https://git.carpocratian.org/sibyl/freebird.git
+      target: issuer
     image: freebird-issuer:latest
     ports:
       - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
@@ -124,6 +125,7 @@ services:
   freebird-verifier:
     build:
       context: https://git.carpocratian.org/sibyl/freebird.git
+      target: verifier
     image: freebird-verifier:latest
     container_name: freebird-verifier
     ports:
