@@ -63,7 +63,7 @@ ssh root@YOUR_SERVER_IP
 
 # Download and run setup script (or copy manually)
 # The script installs: Node.js 20, nginx, certbot, creates user/directories
-curl -O https://raw.githubusercontent.com/flammafex/clout/main/deploy/bare-metal/setup-server.sh
+curl -O https://git.carpocratian.org/sibyl/clout/main/deploy/bare-metal/setup-server.sh
 chmod +x setup-server.sh
 ./setup-server.sh
 ```

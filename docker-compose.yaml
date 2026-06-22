@@ -97,7 +97,9 @@ services:
   # FREEBIRD CLUSTER
   # ============================================================================
   freebird-issuer:
-    image: ghcr.io/flammafex/freebird-issuer:latest
+    build:
+      context: https://git.carpocratian.org/sibyl/freebird.git
+    image: freebird-issuer:latest
     ports:
       - "${FREEBIRD_ISSUER_PORT:-8081}:8081"
     environment:
@@ -120,7 +122,9 @@ services:
       retries: 3
 
   freebird-verifier:
-    image: ghcr.io/flammafex/freebird-verifier:latest
+    build:
+      context: https://git.carpocratian.org/sibyl/freebird.git
+    image: freebird-verifier:latest
     container_name: freebird-verifier
     ports:
       - "${FREEBIRD_VERIFIER_PORT:-8082}:8082"
@@ -278,7 +282,6 @@ services:
       context: https://git.carpocratian.org/sibyl/hypertoken.git
     image: hypertoken-relay:latest
     container_name: hypertoken-relay
-    command: ["node", "start-relay.js", "3000"]
     ports:
       - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
     networks:
