@@ -109,6 +109,14 @@ export class FreebirdBootstrap {
       console.log(`[Bootstrap] ✅ Dunbar pool created!`);
       console.log(`[Bootstrap] 📝 ${invitations.length} invitation codes saved`);
       console.log(`[Bootstrap] 🔧 Admin UI: ${freebirdAdmin.getAdminUiUrl()}`);
+      console.log(`\n[Bootstrap] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`[Bootstrap] 🎫 YOUR FIRST INVITATION CODE:`);
+      console.log(`[Bootstrap]    ${invitations[0].code}`);
+      console.log(`[Bootstrap]`);
+      console.log(`[Bootstrap]    Open http://localhost:3000 in your browser,`);
+      console.log(`[Bootstrap]    click "I have an invitation code", and paste it.`);
+      console.log(`[Bootstrap]    You'll become the instance owner automatically.`);
+      console.log(`[Bootstrap] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
     } catch (error: any) {
       console.warn(`[Bootstrap] Freebird setup failed: ${error.message}`);

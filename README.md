@@ -36,13 +36,17 @@ Open **http://localhost:3000** — you're now running your own Clout node.
 
 When you open the web UI, you'll be in **visitor mode** — you can see the instance owner's posts but can't post yourself. To become a member:
 
-1. **Generate your first invitation code** (as the instance operator):
-   ```bash
-   docker compose run --rm cli invite <your-browser-public-key>
+1. **Find your invitation code** — on first startup, the server prints one in the docker compose output:
    ```
-   Or use the **Owner** tab in the web UI to create invitations.
+   [Bootstrap] 🎫 YOUR FIRST INVITATION CODE:
+   [Bootstrap]    <code-here>
+   ```
+   You can also retrieve codes anytime with:
+   ```bash
+   docker compose exec clout cat /data/invitations.json
+   ```
 
-2. **Redeem the invitation** in the browser: click "Have an invite code?" on the visitor banner, enter the code, and your browser identity will be created automatically.
+2. **Redeem the invitation** in the browser: open http://localhost:3000, click "I have an invitation code" on the visitor banner, enter the code, and your browser identity will be created automatically.
 
 3. **Back up your identity** — after joining, a reminder banner will appear. Your identity lives only in your browser; without a backup, you can't recover your account on another device.
 
