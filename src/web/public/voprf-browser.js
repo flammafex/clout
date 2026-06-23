@@ -24,7 +24,7 @@ const B = p256.CURVE.b;
 const Z = BigInt(-10);         // Non-square for P-256 SSWU
 
 // VOPRF context must match Freebird server
-const VOPRF_CONTEXT = new TextEncoder().encode('freebird:v1');
+const VOPRF_CONTEXT = new TextEncoder().encode('freebird:v4');
 const VOPRF_DST = 'P256_XMD:SHA-256_SSWU_RO_';
 
 // Token format constants
