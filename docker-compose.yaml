@@ -138,6 +138,7 @@ services:
       - VERIFIER_ID=clout-verifier
       - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
       - REDIS_URL=redis://redis:6379
+      - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
     depends_on:
       freebird-issuer:
         condition: service_healthy
@@ -287,7 +288,7 @@ services:
       context: https://git.carpocratian.org/sibyl/hypertoken.git
     image: hypertoken-relay:latest
     container_name: hypertoken-relay
-    command: ["node", "dist/vendor/hypertoken/relay/start-relay.js", "3000"]
+    command: ["node", "-e", "import('./dist/network/UniversalRelayServer.js').then(m => { const s = new m.UniversalRelayServer({ port: 3000 }); s.start().then(() => console.log('[Relay] Listening on :3000')).catch(e => { console.error(e); process.exit(1); }); process.on('SIGTERM', () => { s.stop?.(); process.exit(0); }); });"]
     ports:
       - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
     networks:
