@@ -55,6 +55,16 @@ export class FreebirdBootstrap {
       // Always register Self as the Freebird owner (first registration wins)
       await freebirdAdmin.registerOwner(selfPublicKey);
 
+      // Grant the owner invitation quota so they can create invitations
+      // (registerOwner doesn't grant quota — we must do it explicitly)
+      try {
+        await freebirdAdmin.grantInvitationQuota(selfPublicKey, 100);
+        console.log(`[Bootstrap] Granted 100 invitation quota to owner`);
+      } catch (quotaError: any) {
+        console.warn(`[Bootstrap] Could not grant invitation quota: ${quotaError.message}`);
+        // Continue anyway — some Freebird versions may auto-grant on owner registration
+      }
+
       // Check if invitations already exist
       const existingInvites = await freebirdAdmin.listInvitations();
 
@@ -92,7 +102,26 @@ export class FreebirdBootstrap {
       }
 
       // Create the Dunbar pool (50 invitations - within Freebird's 1-100 limit)
-      const invitations = await freebirdAdmin.bootstrapDunbarPool(selfPublicKey, 50);
+      let invitations: Array<{ code: string; signature?: string }> = [];
+      try {
+        const created = await freebirdAdmin.bootstrapDunbarPool(selfPublicKey, 50);
+        invitations = created.map(i => ({ code: i.code, signature: i.signature }));
+      } catch (poolError: any) {
+        console.warn(`[Bootstrap] Dunbar pool creation failed: ${poolError.message}`);
+        // Fall back: some invitations may have been created before the failure.
+        // List them so the operator can still join.
+        const existing = await freebirdAdmin.listInvitations();
+        if (existing && existing.length > 0) {
+          invitations = existing.map(i => ({
+            code: i.code,
+            signature: i.signature ? normalizeSignatureToBase64Url(i.signature) : undefined
+          }));
+          console.log(`[Bootstrap] Recovered ${invitations.length} invitation(s) from Freebird`);
+        } else {
+          console.warn(`[Bootstrap] No invitations available. Use the Freebird Admin UI to create some.`);
+          return;
+        }
+      }
 
       // Store invitation-to-inviter and invitation-to-signature mappings
       for (const inv of invitations) {
@@ -101,13 +130,12 @@ export class FreebirdBootstrap {
 
       // Save invitation codes AND signatures to a file for admin reference
       this.invitationStore.saveBootstrapInvitations({
-        invitations: invitations.map(i => ({ code: i.code, signature: i.signature })),
+        invitations: invitations.map(i => ({ code: i.code, signature: i.signature || '' })),
         inviter: selfPublicKey,
         adminUrl: freebirdAdmin.getAdminUiUrl()
       });
 
-      console.log(`[Bootstrap] ✅ Dunbar pool created!`);
-      console.log(`[Bootstrap] 📝 ${invitations.length} invitation codes saved`);
+      console.log(`[Bootstrap] ✅ ${invitations.length} invitation codes saved`);
       console.log(`[Bootstrap] 🔧 Admin UI: ${freebirdAdmin.getAdminUiUrl()}`);
       console.log(`\n[Bootstrap] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
       console.log(`[Bootstrap] 🎫 YOUR FIRST INVITATION CODE:`);
