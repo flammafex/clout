@@ -1,0 +1,122 @@
+# ==============================================================================
+# Wrapper Dockerfile for Freebird
+#
+# The upstream Freebird Dockerfile is missing `COPY attester ./attester`
+# even though `attester` is listed as a workspace member in Cargo.toml.
+# This causes `cargo fetch` to fail. This wrapper clones the full repo
+# so all workspace members are present.
+#
+# Usage in docker-compose.yaml:
+#   build:
+#     context: .
+#     dockerfile: Dockerfile.freebird
+#     target: issuer   # or: verifier
+# ==============================================================================
+
+# ==============================================================================
+# Stage 1: Base Builder
+# ==============================================================================
+FROM rust:1-bookworm AS base-builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone the full repo (includes attester which the upstream Dockerfile misses)
+RUN git clone https://git.carpocratian.org/sibyl/freebird.git /app \
+    && rm -rf /app/.git
+
+# Pre-cache dependencies
+RUN cargo fetch
+
+# ==============================================================================
+# Stage 2: Issuer Builder
+# ==============================================================================
+FROM base-builder AS issuer-builder
+
+RUN cargo build --release -p freebird-issuer --bins
+
+# ==============================================================================
+# Stage 3: Verifier Builder
+# ==============================================================================
+FROM base-builder AS verifier-builder
+
+RUN cargo build --release -p freebird-verifier
+
+# ==============================================================================
+# Stage 4: Issuer Runtime
+# ==============================================================================
+FROM debian:bookworm-slim AS issuer
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN groupadd -r -g 1000 freebird && useradd -r -u 1000 -g freebird freebird
+
+RUN mkdir -p /data/keys /data/state && \
+    chown -R 1000:1000 /data && \
+    chmod 750 /data /data/keys /data/state
+
+COPY --from=issuer-builder /app/target/release/freebird-issuer /usr/local/bin/freebird-issuer
+COPY --from=issuer-builder /app/target/release/freebird-cli /usr/local/bin/freebird-cli
+COPY --from=issuer-builder /app/target/release/freebird-validate-config /usr/local/bin/freebird-validate-config
+
+RUN chmod 755 /usr/local/bin/freebird-issuer /usr/local/bin/freebird-cli /usr/local/bin/freebird-validate-config
+
+ENV BIND_ADDR=0.0.0.0:8081 \
+    ISSUER_SK_PATH=/data/keys/issuer_sk.bin \
+    KEY_ROTATION_STATE_PATH=/data/keys/key_rotation_state.json \
+    SYBIL_INVITE_PERSISTENCE_PATH=/data/state/invitations.json \
+    RUST_LOG=info
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+    CMD curl -f http://localhost:8081/.well-known/issuer || exit 1
+
+USER freebird
+
+VOLUME ["/data"]
+
+EXPOSE 8081
+
+CMD ["freebird-issuer"]
+
+# ==============================================================================
+# Stage 5: Verifier Runtime
+# ==============================================================================
+FROM debian:bookworm-slim AS verifier
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN groupadd -r -g 1000 freebird && useradd -r -u 1000 -g freebird freebird
+
+COPY --from=verifier-builder /app/target/release/freebird-verifier /usr/local/bin/freebird-verifier
+
+RUN chmod 755 /usr/local/bin/freebird-verifier
+
+ENV BIND_ADDR=0.0.0.0:8082 \
+    RUST_LOG=info
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:8082/health || exit 1
+
+USER freebird
+
+EXPOSE 8082
+
+CMD ["freebird-verifier"]

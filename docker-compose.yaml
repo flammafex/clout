@@ -98,7 +98,8 @@ services:
   # ============================================================================
   freebird-issuer:
     build:
-      context: https://git.carpocratian.org/sibyl/freebird.git
+      context: .
+      dockerfile: Dockerfile.freebird
       target: issuer
     image: freebird-issuer:latest
     ports:
@@ -124,7 +125,8 @@ services:
 
   freebird-verifier:
     build:
-      context: https://git.carpocratian.org/sibyl/freebird.git
+      context: .
+      dockerfile: Dockerfile.freebird
       target: verifier
     image: freebird-verifier:latest
     container_name: freebird-verifier
