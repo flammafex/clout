@@ -1,37 +1,23 @@
 import { p256 } from '@noble/curves/p256';
 import { sha256 } from '@noble/hashes/sha256';
+import { sha384 } from '@noble/hashes/sha512';
 import { concatBytes, bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import * as P256 from './p256.js';
-
-/**
- * Represents a partial evaluation from a single server in MPC threshold issuance
- */
-export interface PartialEvaluation {
-  index: number;        // Server's key share index (1-based)
-  value: Uint8Array;    // Encoded evaluated point (B_i)
-}
+import { BlindState } from '../types.js';
 
 // Constants from Rust implementation
 const DLEQ_DST_PREFIX = new TextEncoder().encode('DLEQ-P256-v1');
 const COMPRESSED_POINT_LEN = 33;
 const TOKEN_VERSION_V1 = 0x01;
 const TOKEN_VERSION_LEN = 1;
-const TOKEN_SIGNATURE_LEN = 64;
 const PROOF_LEN = 64; // 32 bytes (c) + 32 bytes (s)
-const RAW_TOKEN_LEN_V0 = COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 130 (legacy, no version byte)
 const RAW_TOKEN_LEN_V1 = TOKEN_VERSION_LEN + COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 131
-const TOKEN_LEN_V2 = RAW_TOKEN_LEN_V1 + TOKEN_SIGNATURE_LEN; // 195 (VOPRF + signature)
-const REDEMPTION_TOKEN_VERSION_V3 = 0x03;
 const REDEMPTION_TOKEN_VERSION_V4 = 0x04;
+const REDEMPTION_TOKEN_VERSION_V5 = 0x05;
 const PRIVATE_TOKEN_LEN = 32;
-
-/**
- * Internal state maintained between blinding and unblinding.
- */
-export interface BlindState {
-  r: bigint;  // Random scalar used for blinding
-  p: any;     // Original hashed point H(input)
-}
+const PUBLIC_BEARER_NONCE_LEN = 32;
+const PUBLIC_BEARER_TOKEN_KEY_ID_LEN = 32;
+const PUBLIC_BEARER_MAX_SIGNATURE_LEN = 512;
 
 /**
  * Blinds the input for the VOPRF protocol.
@@ -71,24 +57,17 @@ export function finalize(
   context: Uint8Array
 ): Uint8Array {
   // 1. Decode inputs
-  const fullTokenBytes = base64UrlToBytes(tokenB64);
+  const tokenBytes = base64UrlToBytes(tokenB64);
   const pubkeyBytes = base64UrlToBytes(issuerPubkeyB64);
-  const tokenBytes =
-    fullTokenBytes.length === TOKEN_LEN_V2
-      ? fullTokenBytes.slice(0, RAW_TOKEN_LEN_V1)
-      : fullTokenBytes;
 
-  if (
-    tokenBytes.length !== RAW_TOKEN_LEN_V1 &&
-    tokenBytes.length !== RAW_TOKEN_LEN_V0
-  ) {
+  if (tokenBytes.length !== RAW_TOKEN_LEN_V1) {
     throw new Error(
-      `Invalid token length: expected one of ${RAW_TOKEN_LEN_V0}, ${RAW_TOKEN_LEN_V1}, ${TOKEN_LEN_V2}; got ${fullTokenBytes.length}`
+      `Invalid token length: expected ${RAW_TOKEN_LEN_V1}; got ${tokenBytes.length}`
     );
   }
 
-  const offset = tokenBytes.length === RAW_TOKEN_LEN_V1 ? TOKEN_VERSION_LEN : 0;
-  if (offset === TOKEN_VERSION_LEN && tokenBytes[0] !== TOKEN_VERSION_V1) {
+  const offset = TOKEN_VERSION_LEN;
+  if (tokenBytes[0] !== TOKEN_VERSION_V1) {
     throw new Error(`Unsupported token version: ${tokenBytes[0]}`);
   }
 
@@ -107,6 +86,7 @@ export function finalize(
   const G = p256.ProjectivePoint.BASE;
 
   // 4. Verify DLEQ Proof
+  // Proves that log_G(Q) == log_A(B) (i.e., Issuer used the same private key)
   const isValid = verifyDleq(G, Q, A, B, proofBytes, context);
 
   if (!isValid) {
@@ -130,29 +110,8 @@ export function finalize(
 }
 
 /**
- * Compute PRF output from an evaluated (or aggregated) point and blind state.
- * Used in MPC flow where aggregation happens separately from DLEQ verification.
- *
- * Unblinds the evaluated point and derives the 32-byte PRF output.
+ * Builds the verifier/audience scope digest clients bind into V4 tokens.
  */
-export function computePrfOutput(
-  state: BlindState,
-  evaluatedPointBytes: Uint8Array,
-  context: Uint8Array
-): Uint8Array {
-  const B = P256.decodePoint(evaluatedPointBytes);
-  const rInv = P256.invertScalar(state.r);
-  const W = P256.multiply(B, rInv);
-
-  const wBytes = P256.encodePoint(W);
-  const finalizeInput = concatBytes(
-    new TextEncoder().encode('VOPRF-P256-SHA256:Finalize'),
-    context,
-    wBytes,
-  );
-  return sha256(finalizeInput);
-}
-
 export function buildScopeDigest(verifierId: string, audience: string): Uint8Array {
   const verifierIdBytes = new TextEncoder().encode(verifierId);
   const audienceBytes = new TextEncoder().encode(audience);
@@ -172,6 +131,9 @@ export function buildScopeDigest(verifierId: string, audience: string): Uint8Arr
   ));
 }
 
+/**
+ * Builds the public input that is blindly issued and privately re-evaluated.
+ */
 export function buildPrivateTokenInput(
   issuerId: string,
   kid: string,
@@ -201,11 +163,10 @@ export function buildPrivateTokenInput(
 }
 
 /**
- * Builds a V4 private-verification redemption token.
- * Format: [version(1) | nonce(32) | scope_digest(32) | kid_len(1) | kid(var) |
- * issuer_id_len(1) | issuer_id(var) | authenticator(32)]
+ * Builds a V4 redemption token for wire transmission.
+ * Format: [version(1) | nonce(32) | scope_digest(32) | kid_len(1) | kid(var) | issuer_id_len(1) | issuer_id(var) | authenticator(32)]
  */
-export function buildPrivateRedemptionToken(
+export function buildRedemptionToken(
   nonce: Uint8Array,
   scopeDigest: Uint8Array,
   kid: string,
@@ -234,165 +195,148 @@ export function buildPrivateRedemptionToken(
 }
 
 /**
- * Builds a V3 redemption token for wire transmission.
- * Format: [version(1) | output(32) | kid_len(1) | kid(var) | exp(8) | issuer_id_len(1) | issuer_id(var) | sig(64)]
- */
-export function buildRedemptionToken(
-  output: Uint8Array,  // 32 bytes (PRF output from finalize)
-  kid: string,
-  exp: bigint,         // i64
-  issuerId: string,
-  sig: Uint8Array      // 64 bytes
-): Uint8Array {
-  const kidBytes = new TextEncoder().encode(kid);
-  const issuerIdBytes = new TextEncoder().encode(issuerId);
-  if (kidBytes.length === 0 || kidBytes.length > 255) throw new Error('kid must be 1-255 bytes');
-  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) throw new Error('issuer_id must be 1-255 bytes');
-
-  const buf = new Uint8Array(1 + 32 + 1 + kidBytes.length + 8 + 1 + issuerIdBytes.length + 64);
-  let pos = 0;
-  buf[pos++] = REDEMPTION_TOKEN_VERSION_V3;
-  buf.set(output, pos); pos += 32;
-  buf[pos++] = kidBytes.length;
-  buf.set(kidBytes, pos); pos += kidBytes.length;
-  const expView = new DataView(buf.buffer, buf.byteOffset + pos, 8);
-  expView.setBigInt64(0, exp);
-  pos += 8;
-  buf[pos++] = issuerIdBytes.length;
-  buf.set(issuerIdBytes, pos); pos += issuerIdBytes.length;
-  buf.set(sig, pos);
-  return buf;
-}
-
-/**
- * Parses a V3 redemption token from wire bytes.
+ * Parses a V4 redemption token from wire bytes.
  */
 export function parseRedemptionToken(bytes: Uint8Array): {
-  output: Uint8Array;
+  nonce: Uint8Array;
+  scopeDigest: Uint8Array;
   kid: string;
-  exp: bigint;
   issuerId: string;
-  sig: Uint8Array;
+  authenticator: Uint8Array;
 } {
-  if (bytes.length < 109 || bytes.length > 512) throw new Error('invalid token length');
-  if (bytes[0] !== REDEMPTION_TOKEN_VERSION_V3) throw new Error('unsupported token version');
+  if (bytes.length < 101 || bytes.length > 512) throw new Error('invalid token length');
+  if (bytes[0] !== REDEMPTION_TOKEN_VERSION_V4) throw new Error('unsupported token version');
   let pos = 1;
-  const output = bytes.slice(pos, pos + 32); pos += 32;
+  const nonce = bytes.slice(pos, pos + 32); pos += 32;
+  const scopeDigest = bytes.slice(pos, pos + 32); pos += 32;
   const kidLen = bytes[pos++];
   if (kidLen === 0 || pos + kidLen > bytes.length) throw new Error('invalid kid_len');
   const kid = new TextDecoder().decode(bytes.slice(pos, pos + kidLen)); pos += kidLen;
-  if (pos + 8 > bytes.length) throw new Error('truncated');
-  const expView = new DataView(bytes.buffer, bytes.byteOffset + pos, 8);
-  const exp = expView.getBigInt64(0); pos += 8;
   const issuerIdLen = bytes[pos++];
   if (issuerIdLen === 0 || pos + issuerIdLen > bytes.length) throw new Error('invalid issuer_id_len');
   const issuerId = new TextDecoder().decode(bytes.slice(pos, pos + issuerIdLen)); pos += issuerIdLen;
-  if (bytes.length - pos !== 64) throw new Error('invalid sig length');
-  const sig = bytes.slice(pos, pos + 64);
-  return { output, kid, exp, issuerId, sig };
+  if (bytes.length - pos !== 32) throw new Error('invalid authenticator length');
+  const authenticator = bytes.slice(pos, pos + 32);
+  return { nonce, scopeDigest, kid, issuerId, authenticator };
 }
 
 /**
- * Aggregates partial evaluations from multiple servers using Lagrange interpolation.
- * Used in MPC threshold issuance to reconstruct the final evaluated point.
- *
- * Math:
- * - Each server i has a key share k_i and returns B_i = A * k_i
- * - We reconstruct T = A * k where k = Σ(λ_i * k_i)
- * - Since scalar multiplication is linear: T = Σ(λ_i * B_i)
- * - Lagrange coefficient: λ_i = ∏(j≠i) (x_j / (x_j - x_i)) mod N
- *
- * @param partials - Array of partial evaluations with server indices
- * @returns Aggregated evaluated point (encoded)
+ * Computes the strict V5 token key ID: SHA-256(pubkey_spki).
  */
-export function aggregate(partials: PartialEvaluation[]): Uint8Array {
-  if (partials.length === 0) {
-    throw new Error('Cannot aggregate zero partial evaluations');
+export function tokenKeyIdFromSpki(pubkeySpki: Uint8Array): Uint8Array {
+  return sha256(pubkeySpki);
+}
+
+export function tokenKeyIdToHex(tokenKeyId: Uint8Array): string {
+  if (tokenKeyId.length !== PUBLIC_BEARER_TOKEN_KEY_ID_LEN) {
+    throw new Error('token_key_id must be 32 bytes');
   }
+  return bytesToHex(tokenKeyId);
+}
 
-  // Special case: single server (non-MPC mode)
-  if (partials.length === 1) {
-    return partials[0].value;
+export function tokenKeyIdFromHex(tokenKeyIdHex: string): Uint8Array {
+  if (!/^[0-9a-f]{64}$/.test(tokenKeyIdHex)) {
+    throw new Error('token_key_id must be 64 lowercase hex characters');
   }
-
-  // Decode all partial points
-  const points = partials.map(p => ({
-    index: p.index,
-    point: P256.decodePoint(p.value)
-  }));
-
-  // Extract indices for Lagrange computation
-  const indices = points.map(p => BigInt(p.index));
-
-  // Compute Lagrange coefficients for each index
-  const coefficients = indices.map((xi, i) =>
-    computeLagrangeCoefficient(xi, indices)
-  );
-
-  // Aggregate: T = Σ(λ_i * P_i)
-  let result = p256.ProjectivePoint.ZERO;
-
-  for (let i = 0; i < points.length; i++) {
-    const weighted = P256.multiply(points[i].point, coefficients[i]);
-    result = result.add(weighted);
-  }
-
-  // Return encoded aggregated point
-  return P256.encodePoint(result);
+  return hexToBytes(tokenKeyIdHex);
 }
 
 /**
- * Computes Lagrange interpolation coefficient for index x_i.
+ * Builds the canonical 48-byte V5 public bearer pass message digest.
  *
- * Formula: λ_i = ∏(j≠i) (x_j / (x_j - x_i)) mod N
- *
- * We evaluate at x=0 for secret reconstruction:
- * λ_i = ∏(j≠i) (-x_j / (x_i - x_j)) mod N
- *     = ∏(j≠i) (x_j / (x_j - x_i)) mod N  (with sign handling)
- *
- * @param xi - The index for which to compute the coefficient
- * @param allIndices - All participating indices
- * @returns Lagrange coefficient λ_i mod N
+ * Pass this digest as the message to an RFC 9474
+ * RSABSSA-SHA384-PSS-Deterministic blind-signature implementation.
  */
-function computeLagrangeCoefficient(xi: bigint, allIndices: bigint[]): bigint {
-  let numerator = 1n;
-  let denominator = 1n;
-
-  const N = P256.getCurveOrder();
-
-  for (const xj of allIndices) {
-    if (xj === xi) continue;
-
-    // numerator *= xj
-    numerator = P256.modMul(numerator, xj);
-
-    // denominator *= (xj - xi)
-    const diff = P256.modSub(xj, xi);
-    denominator = P256.modMul(denominator, diff);
+export function buildPublicBearerMessage(
+  nonce: Uint8Array,
+  tokenKeyId: Uint8Array,
+  issuerId: string
+): Uint8Array {
+  const issuerIdBytes = new TextEncoder().encode(issuerId);
+  if (nonce.length !== PUBLIC_BEARER_NONCE_LEN) throw new Error('nonce must be 32 bytes');
+  if (tokenKeyId.length !== PUBLIC_BEARER_TOKEN_KEY_ID_LEN) {
+    throw new Error('token_key_id must be 32 bytes');
+  }
+  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) {
+    throw new Error('issuer_id must be 1-255 bytes');
   }
 
-  // λ_i = numerator / denominator mod N
-  // Division in modular arithmetic: a/b = a * b^(-1) mod N
-  const denomInverse = P256.invertScalar(denominator);
-  return P256.modMul(numerator, denomInverse);
+  return sha384(concatBytes(
+    new TextEncoder().encode('freebird:public-bearer-pass:v5'),
+    new Uint8Array([0x00]),
+    new Uint8Array([REDEMPTION_TOKEN_VERSION_V5]),
+    nonce,
+    tokenKeyId,
+    new Uint8Array([issuerIdBytes.length]),
+    issuerIdBytes
+  ));
+}
+
+/**
+ * Builds the V5 public bearer pass wire format.
+ * Format: [version(1) | nonce(32) | token_key_id(32) | issuer_id_len(1) | issuer_id(var) | sig_len(2,BE) | signature(var)]
+ */
+export function buildPublicBearerPass(
+  nonce: Uint8Array,
+  tokenKeyId: Uint8Array,
+  issuerId: string,
+  signature: Uint8Array
+): Uint8Array {
+  const issuerIdBytes = new TextEncoder().encode(issuerId);
+  if (nonce.length !== PUBLIC_BEARER_NONCE_LEN) throw new Error('nonce must be 32 bytes');
+  if (tokenKeyId.length !== PUBLIC_BEARER_TOKEN_KEY_ID_LEN) {
+    throw new Error('token_key_id must be 32 bytes');
+  }
+  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) {
+    throw new Error('issuer_id must be 1-255 bytes');
+  }
+  if (signature.length === 0 || signature.length > PUBLIC_BEARER_MAX_SIGNATURE_LEN) {
+    throw new Error('invalid signature length');
+  }
+
+  const buf = new Uint8Array(1 + 32 + 32 + 1 + issuerIdBytes.length + 2 + signature.length);
+  let pos = 0;
+  buf[pos++] = REDEMPTION_TOKEN_VERSION_V5;
+  buf.set(nonce, pos); pos += 32;
+  buf.set(tokenKeyId, pos); pos += 32;
+  buf[pos++] = issuerIdBytes.length;
+  buf.set(issuerIdBytes, pos); pos += issuerIdBytes.length;
+  buf[pos++] = (signature.length >> 8) & 0xff;
+  buf[pos++] = signature.length & 0xff;
+  buf.set(signature, pos);
+  return buf;
+}
+
+export function parsePublicBearerPass(bytes: Uint8Array): {
+  nonce: Uint8Array;
+  tokenKeyId: Uint8Array;
+  issuerId: string;
+  signature: Uint8Array;
+} {
+  if (bytes.length < 69 || bytes.length > 835) throw new Error('invalid token length');
+  if (bytes[0] !== REDEMPTION_TOKEN_VERSION_V5) throw new Error('unsupported token version');
+  let pos = 1;
+  const nonce = bytes.slice(pos, pos + 32); pos += 32;
+  const tokenKeyId = bytes.slice(pos, pos + 32); pos += 32;
+  const issuerIdLen = bytes[pos++];
+  if (issuerIdLen === 0 || pos + issuerIdLen > bytes.length) {
+    throw new Error('invalid issuer_id_len');
+  }
+  const issuerId = new TextDecoder().decode(bytes.slice(pos, pos + issuerIdLen)); pos += issuerIdLen;
+  if (pos + 2 > bytes.length) throw new Error('invalid signature length');
+  const sigLen = (bytes[pos++] << 8) | bytes[pos++];
+  if (sigLen === 0 || sigLen > PUBLIC_BEARER_MAX_SIGNATURE_LEN || pos + sigLen !== bytes.length) {
+    throw new Error('invalid signature length');
+  }
+  const signature = bytes.slice(pos, pos + sigLen);
+  return { nonce, tokenKeyId, issuerId, signature };
 }
 
 /**
  * Verifies a Chaum-Pedersen DLEQ proof (Fiat-Shamir transformed).
  * Matches Rust: crypto/src/voprf/dleq.rs
- *
- * Proves that log_G(Y) == log_A(B), i.e., the same scalar k was used
- * to compute Y = G * k and B = A * k.
- *
- * @param G - Generator point
- * @param Y - Public key (G * k)
- * @param A - Blinded input point
- * @param B - Evaluated point (A * k)
- * @param proofBytes - DLEQ proof (64 bytes: c || s)
- * @param context - Domain separation context
- * @returns true if proof is valid
  */
-export function verifyDleq(
+function verifyDleq(
   G: any, // Generator
   Y: any, // Public Key
   A: any, // Blinded Point
@@ -440,26 +384,11 @@ export function verifyDleq(
 
 // --- Helpers ---
 
-export function base64UrlToBytes(base64: string): Uint8Array {
+function base64UrlToBytes(base64: string): Uint8Array {
   const normalized = base64.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized.padEnd(
-    normalized.length + ((4 - normalized.length % 4) % 4),
-    '='
-  );
+  const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '=');
   const binString = atob(padded);
   return Uint8Array.from(binString, (m) => m.codePointAt(0)!);
-}
-
-export function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
 }
 
 function bytesToNumber(bytes: Uint8Array): bigint {

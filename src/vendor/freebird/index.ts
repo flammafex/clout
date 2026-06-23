@@ -1,0 +1,44 @@
+/**
+ * Freebird SDK
+ * Anonymous authentication using VOPRF (Verifiable Oblivious Pseudorandom Function).
+ *
+ * @module @freebird/sdk
+ */
+
+// Export the main client class
+export { FreebirdClient } from './client.js';
+
+// Export types needed for configuration and usage
+export type {
+  ClientConfig,
+  IssuerMetadata,
+  KeyDiscoveryMetadata,
+  PublicKeyInfo,
+  VerifierMetadata,
+  IssueRequest,
+  IssueResponse,
+  PublicIssueRequest,
+  PublicIssueResponse,
+  FreebirdToken,
+  SybilProof,
+  // Export internal types that might be useful for debugging
+  BlindState
+} from './types.js';
+
+// Optionally export low-level crypto for advanced use cases
+// (e.g. if a user wants to manually blind/unblind without the client wrapper)
+import * as voprf from './crypto/voprf.js';
+export const crypto = {
+  blind: voprf.blind,
+  finalize: voprf.finalize,
+  buildScopeDigest: voprf.buildScopeDigest,
+  buildPrivateTokenInput: voprf.buildPrivateTokenInput,
+  buildRedemptionToken: voprf.buildRedemptionToken,
+  parseRedemptionToken: voprf.parseRedemptionToken,
+  tokenKeyIdFromSpki: voprf.tokenKeyIdFromSpki,
+  tokenKeyIdToHex: voprf.tokenKeyIdToHex,
+  tokenKeyIdFromHex: voprf.tokenKeyIdFromHex,
+  buildPublicBearerMessage: voprf.buildPublicBearerMessage,
+  buildPublicBearerPass: voprf.buildPublicBearerPass,
+  parsePublicBearerPass: voprf.parsePublicBearerPass,
+};

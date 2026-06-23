@@ -8,6 +8,7 @@
  */
 
 import { Crypto } from '../crypto.js';
+import { sha256 } from '@noble/hashes/sha256';
 import type {
   WitnessClient,
   Attestation,
@@ -56,6 +57,77 @@ function sha256Hex(value: string, name: string): string {
   return normalized;
 }
 
+function bytesToLowerHex(bytes: ArrayLike<number>, name: string): string {
+  if (bytes.length !== 32) {
+    throw new Error(`${name} must be 32 bytes`);
+  }
+  return bytesToLowerHexAny(bytes, name);
+}
+
+function bytesToLowerHexAny(bytes: ArrayLike<number>, name: string): string {
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i];
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new Error(`${name} must contain byte values`);
+    }
+    hex += byte.toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+function lowerHexUnknown(value: unknown, name: string): string {
+  if (typeof value === 'string') {
+    const trimmed = value.startsWith('0x') || value.startsWith('0X')
+      ? value.slice(2)
+      : value;
+    return lowerHex(trimmed, name);
+  }
+
+  if (value instanceof Uint8Array) {
+    return bytesToLowerHexAny(value, name);
+  }
+
+  if (Array.isArray(value)) {
+    return bytesToLowerHexAny(value, name);
+  }
+
+  if (value && typeof value === 'object') {
+    const maybeData = (value as { data?: unknown }).data;
+    if (maybeData instanceof Uint8Array || Array.isArray(maybeData)) {
+      return bytesToLowerHexAny(maybeData, name);
+    }
+  }
+
+  throw new Error(`${name} must be lowercase hex`);
+}
+
+function sha256HexUnknown(value: unknown, name: string): string {
+  if (typeof value === 'string') {
+    const trimmed = value.startsWith('0x') || value.startsWith('0X')
+      ? value.slice(2)
+      : value;
+    return sha256Hex(trimmed, name);
+  }
+
+  if (value instanceof Uint8Array) {
+    return bytesToLowerHex(value, name);
+  }
+
+  if (Array.isArray(value)) {
+    return bytesToLowerHex(value, name);
+  }
+
+  if (value && typeof value === 'object') {
+    const maybeData = (value as { data?: unknown }).data;
+    if (maybeData instanceof Uint8Array || Array.isArray(maybeData)) {
+      return bytesToLowerHex(maybeData, name);
+    }
+  }
+
+  throw new Error(`${name} must be lowercase hex`);
+}
+
 function normalizeTimestampSeconds(timestamp: number): number {
   return timestamp > 4_200_000_000 ? Math.floor(timestamp / 1000) : timestamp;
 }
@@ -66,7 +138,7 @@ function normalizeSignatureSet(raw: any): SophiaWitnessSignedAttestation['signat
       kind: 'multisig',
       signatures: raw.map((signature: any, index: number) => ({
         witness_id: String(signature.witness_id),
-        signature: lowerHex(String(signature.signature), `signatures[${index}].signature`),
+        signature: lowerHexUnknown(signature.signature, `signatures[${index}].signature`),
       })),
     };
   }
@@ -76,7 +148,7 @@ function normalizeSignatureSet(raw: any): SophiaWitnessSignedAttestation['signat
       kind: 'multisig',
       signatures: raw.signatures.map((signature: any, index: number) => ({
         witness_id: String(signature.witness_id),
-        signature: lowerHex(String(signature.signature), `signatures[${index}].signature`),
+        signature: lowerHexUnknown(signature.signature, `signatures[${index}].signature`),
       })),
     };
   }
@@ -84,7 +156,7 @@ function normalizeSignatureSet(raw: any): SophiaWitnessSignedAttestation['signat
   if (raw?.kind === 'aggregated' && raw.signature && Array.isArray(raw.signers)) {
     return {
       kind: 'aggregated',
-      signature: lowerHex(String(raw.signature), 'signatures.signature'),
+      signature: lowerHexUnknown(raw.signature, 'signatures.signature'),
       signers: raw.signers.map(String),
     };
   }
@@ -94,7 +166,7 @@ function normalizeSignatureSet(raw: any): SophiaWitnessSignedAttestation['signat
       kind: 'multisig',
       signatures: raw.signatures.map((signature: any, index: number) => ({
         witness_id: String(signature.witness_id),
-        signature: lowerHex(String(signature.signature), `signatures[${index}].signature`),
+        signature: lowerHexUnknown(signature.signature, `signatures[${index}].signature`),
       })),
     };
   }
@@ -102,7 +174,7 @@ function normalizeSignatureSet(raw: any): SophiaWitnessSignedAttestation['signat
   if (raw?.signature && Array.isArray(raw.signers)) {
     return {
       kind: 'aggregated',
-      signature: lowerHex(String(raw.signature), 'signatures.signature'),
+      signature: lowerHexUnknown(raw.signature, 'signatures.signature'),
       signers: raw.signers.map(String),
     };
   }
@@ -110,18 +182,21 @@ function normalizeSignatureSet(raw: any): SophiaWitnessSignedAttestation['signat
   throw new Error('Witness signatures must be multisig or aggregated');
 }
 
-function normalizeSignedAttestation(raw: any): SophiaWitnessSignedAttestation {
+function normalizeSignedAttestation(raw: any, fallbackHash?: string): SophiaWitnessSignedAttestation {
   const signed = raw?.attestation?.attestation ? raw.attestation : raw;
   const attestation = signed?.attestation;
   if (!attestation) {
     throw new Error('Witness signed attestation missing attestation');
   }
+  const hashValue = attestation.hash ?? attestation.hash_hex ?? attestation.hashHex;
 
   return {
     contract_version: CONTRACT_VERSION,
     artifact_type: 'witness.signed_attestation',
     attestation: {
-      hash: sha256Hex(String(attestation.hash), 'attestation.hash'),
+      hash: hashValue === undefined && fallbackHash
+        ? sha256Hex(fallbackHash, 'fallbackHash')
+        : sha256HexUnknown(hashValue, 'attestation.hash'),
       timestamp: normalizeTimestampSeconds(Number(attestation.timestamp)),
       network_id: String(attestation.network_id ?? attestation.networkId),
       sequence: Number(attestation.sequence ?? 0),
@@ -339,7 +414,7 @@ export class WitnessAdapter implements WitnessClient {
   }
 
   private parseSignedAttestation(data: any, fallbackHash: string): Attestation {
-    const canonical = normalizeSignedAttestation(data?.attestation ?? data);
+    const canonical = normalizeSignedAttestation(data?.attestation ?? data, fallbackHash);
 
     return {
       hash: canonical.attestation.hash ?? fallbackHash,
@@ -1048,9 +1123,6 @@ export class WitnessAdapter implements WitnessClient {
 
   // Helper: SHA-256 of concatenated bytes (using SubtleCrypto when available)
   private sha256Concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-    // For synchronous operation, use a simple implementation
-    // In production, you'd want to use @noble/hashes or similar
-    const { sha256 } = require('@noble/hashes/sha256');
     const combined = new Uint8Array(a.length + b.length);
     combined.set(a, 0);
     combined.set(b, a.length);

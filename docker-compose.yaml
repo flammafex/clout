@@ -137,8 +137,14 @@ services:
       - BIND_ADDR=0.0.0.0:8082
       - VERIFIER_ID=clout-verifier
       - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
+      # V4 private-verification tokens require the verifier to recompute the
+      # authenticator with the issuer's VOPRF secret key. In this local compose
+      # stack, share the issuer key read-only with the verifier.
+      - VERIFIER_SK_PATH=/issuer-data/keys/issuer_sk.bin
       - REDIS_URL=redis://redis:6379
       - ADMIN_API_KEY=${FREEBIRD_ADMIN_KEY:-dev-admin-key-change-in-production-32chars}
+    volumes:
+      - freebird-issuer-data:/issuer-data:ro
     depends_on:
       freebird-issuer:
         condition: service_healthy
@@ -182,21 +188,21 @@ services:
         PRIV1=$$(echo "$$OUT1" | grep "Private key:" | awk '{print $$3}')
         PUB1=$$(echo "$$OUT1" | grep "Public key:" | awk '{print $$3}')
         TOKEN1=$$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-        echo "{\"id\": \"witness-1\", \"private_key\": \"$$PRIV1\", \"port\": 4001, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN1\", \"max_clock_skew\": 300}" > /data/witness1.json
+        echo "{\"id\": \"witness-1\", \"private_key\": \"$$PRIV1\", \"port\": 3000, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN1\", \"max_clock_skew\": 300}" > /data/witness1.json
 
         # Generate witness-2
         OUT2=$$(witness-node --generate-key)
         PRIV2=$$(echo "$$OUT2" | grep "Private key:" | awk '{print $$3}')
         PUB2=$$(echo "$$OUT2" | grep "Public key:" | awk '{print $$3}')
         TOKEN2=$$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-        echo "{\"id\": \"witness-2\", \"private_key\": \"$$PRIV2\", \"port\": 4002, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN2\", \"max_clock_skew\": 300}" > /data/witness2.json
+        echo "{\"id\": \"witness-2\", \"private_key\": \"$$PRIV2\", \"port\": 3000, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN2\", \"max_clock_skew\": 300}" > /data/witness2.json
 
         # Generate witness-3
         OUT3=$$(witness-node --generate-key)
         PRIV3=$$(echo "$$OUT3" | grep "Private key:" | awk '{print $$3}')
         PUB3=$$(echo "$$OUT3" | grep "Public key:" | awk '{print $$3}')
         TOKEN3=$$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-        echo "{\"id\": \"witness-3\", \"private_key\": \"$$PRIV3\", \"port\": 4003, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN3\", \"max_clock_skew\": 300}" > /data/witness3.json
+        echo "{\"id\": \"witness-3\", \"private_key\": \"$$PRIV3\", \"port\": 3000, \"host\": \"0.0.0.0\", \"network_id\": \"docker-net\", \"signing_auth_token\": \"$$TOKEN3\", \"max_clock_skew\": 300}" > /data/witness3.json
 
         echo "📝 Creating network.json..."
         cat > /data/network.json <<EOF
@@ -204,9 +210,9 @@ services:
           "id": "docker-net",
           "threshold": 2,
           "witnesses": [
-            { "id": "witness-1", "pubkey": "$$PUB1", "endpoint": "http://witness-1:4001", "auth_token": "$$TOKEN1" },
-            { "id": "witness-2", "pubkey": "$$PUB2", "endpoint": "http://witness-2:4002", "auth_token": "$$TOKEN2" },
-            { "id": "witness-3", "pubkey": "$$PUB3", "endpoint": "http://witness-3:4003", "auth_token": "$$TOKEN3" }
+            { "id": "witness-1", "pubkey": "$$PUB1", "endpoint": "http://witness-1.internal:3000", "auth_token": "$$TOKEN1" },
+            { "id": "witness-2", "pubkey": "$$PUB2", "endpoint": "http://witness-2.internal:3000", "auth_token": "$$TOKEN2" },
+            { "id": "witness-3", "pubkey": "$$PUB3", "endpoint": "http://witness-3.internal:3000", "auth_token": "$$TOKEN3" }
           ],
           "federation_peers": [],
           "external_anchors": { "enabled": false, "providers": [] }
@@ -224,9 +230,17 @@ services:
         condition: service_completed_successfully
     volumes:
       - witness-config:/data
-    command: ["witness-node", "--config", "/data/witness1.json"]
+    command: ["witness-node", "--config", "/data/witness1.json", "--host", "0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     networks:
-      - clout-net
+      clout-net:
+        aliases:
+          - witness-1.internal
 
   witness-2:
     build:
@@ -237,9 +251,17 @@ services:
         condition: service_completed_successfully
     volumes:
       - witness-config:/data
-    command: ["witness-node", "--config", "/data/witness2.json"]
+    command: ["witness-node", "--config", "/data/witness2.json", "--host", "0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     networks:
-      - clout-net
+      clout-net:
+        aliases:
+          - witness-2.internal
 
   witness-3:
     build:
@@ -250,9 +272,17 @@ services:
         condition: service_completed_successfully
     volumes:
       - witness-config:/data
-    command: ["witness-node", "--config", "/data/witness3.json"]
+    command: ["witness-node", "--config", "/data/witness3.json", "--host", "0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     networks:
-      - clout-net
+      clout-net:
+        aliases:
+          - witness-3.internal
 
   witness-gateway:
     build:
@@ -265,11 +295,11 @@ services:
       witness-setup:
         condition: service_completed_successfully
       witness-1:
-        condition: service_started
+        condition: service_healthy
       witness-2:
-        condition: service_started
+        condition: service_healthy
       witness-3:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - witness-config:/config
     environment:

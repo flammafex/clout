@@ -35,9 +35,11 @@ export async function requestDayPass(publicKeyBytes, options = {}) {
 
   console.log('[DayPass] Starting privacy-preserving token flow...');
 
-  // Step 1: Blind the public key locally
-  console.log('[DayPass] Blinding public key locally...');
-  const { blinded, blindedB64 } = VOPRF.blind(publicKeyBytes);
+  // Step 1: Fetch issuer/verifier metadata and blind the canonical V4 token input locally.
+  console.log('[DayPass] Fetching Freebird issuer metadata...');
+  const issuerInfo = await getIssuerInfo({ apiBase });
+  console.log('[DayPass] Blinding Freebird V4 token input locally...');
+  const { blinded, blindedB64 } = VOPRF.blindV4(issuerInfo);
 
   // Step 2: Request token via server proxy
   // Send user_public_key so backend can check if user is registered (for Day Pass renewal)
@@ -64,13 +66,18 @@ export async function requestDayPass(publicKeyBytes, options = {}) {
   }
 
   const { data: issueData } = await issueResponse.json();
-  const { token: tokenB64, issuer_pubkey: issuerPubkeyB64 } = issueData;
+  const { token: rawTokenB64, issuer_pubkey: issuerPubkeyB64, issuer_id: issuerId, kid } = issueData;
 
-  // Step 3: Verify the token locally using DLEQ proof
-  console.log('[DayPass] Verifying token locally...');
+  // Step 3: Verify the raw issuer response locally and construct a V4 redemption token.
+  console.log('[DayPass] Verifying token locally and building V4 redemption token...');
   let tokenBytes;
+  let tokenB64;
   try {
-    tokenBytes = VOPRF.finalize(blinded, tokenB64, issuerPubkeyB64);
+    tokenBytes = VOPRF.finalizeV4(blinded, rawTokenB64, issuerPubkeyB64, {
+      issuer_id: issuerId,
+      kid,
+    });
+    tokenB64 = VOPRF.bytesToBase64Url(tokenBytes);
     console.log('[DayPass] Token verified successfully');
   } catch (error) {
     console.error('[DayPass] Token verification failed:', error);

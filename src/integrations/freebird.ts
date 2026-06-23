@@ -10,8 +10,8 @@
 
 import { Crypto } from '../crypto.js';
 import type { FreebirdClient, PublicKey, TorConfig, FreebirdToken } from '../types.js';
-import * as voprf from '../vendor/freebird/voprf.js';
-import type { BlindState } from '../vendor/freebird/voprf.js';
+import { crypto as freebirdCrypto } from '../vendor/freebird/index.js';
+import type { BlindState } from '../vendor/freebird/index.js';
 import { TorProxy } from '../tor.js';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
@@ -19,7 +19,7 @@ import { bytesToHex } from '@noble/hashes/utils';
 export type SybilMode = 'none' | 'pow' | 'invitation' | 'registered' | 'federated_trust';
 export type FreebirdSybilProof =
   | { type: 'none' }
-  | { type: 'pow'; challenge: string; nonce: number; hash: string }
+  | { type: 'proof_of_work'; nonce: number; input: string; timestamp: number }
   | { type: 'invitation'; code: string; signature: string }
   | { type: 'registered_user'; user_id: string }
   | {
@@ -69,6 +69,32 @@ interface PendingTokenState {
   scopeDigest: Uint8Array;
   issuerId: string;
   kid: string;
+}
+
+export interface RawIssueResponse {
+  token: string;
+  kid: string;
+  issuer_id: string;
+  sybil_info?: {
+    required: boolean;
+    passed: boolean;
+    cost: number;
+  };
+}
+
+function base64UrlToBytes(base64: string): Uint8Array {
+  const normalized = base64.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '=');
+  const binString = atob(padded);
+  return Uint8Array.from(binString, m => m.codePointAt(0)!);
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 export interface FreebirdAdapterConfig {
@@ -411,18 +437,18 @@ export class FreebirdAdapter implements FreebirdClient {
       case 'pow': {
         // Request a PoW challenge from the issuer
         const challengeData = metadata.sybil?.pow;
-        if (!challengeData) {
-          throw new Error('[Freebird] PoW mode requested but issuer did not provide challenge');
+        if (!challengeData?.challenge) {
+          throw new Error('[Freebird] PoW mode requires issuer metadata sybil.pow.challenge; upstream issuer contract is unsupported');
         }
-        const { nonce, hash } = await this.solveProofOfWork(
+        const { nonce } = await this.solveProofOfWork(
           challengeData.challenge,
           challengeData.difficulty || 4
         );
         return {
-          type: 'pow',
-          challenge: challengeData.challenge,
+          type: 'proof_of_work',
           nonce,
-          hash
+          input: challengeData.challenge,
+          timestamp: Math.floor(Date.now() / 1000),
         };
       }
 
@@ -498,7 +524,7 @@ export class FreebirdAdapter implements FreebirdClient {
         return {
           type: 'federated_trust',
           source_issuer_id: this.federatedToken.sourceIssuerId,
-          source_token_b64: voprf.bytesToBase64Url(this.federatedToken.token),
+          source_token_b64: bytesToBase64Url(this.federatedToken.token),
           token_exp: this.federatedToken.expiresAt,
           token_issued_at: this.federatedToken.issuedAt
         };
@@ -561,8 +587,8 @@ export class FreebirdAdapter implements FreebirdClient {
         throw new Error('[Freebird] Verifier metadata missing required scope fields');
       }
 
-      const scopeDigest = voprf.base64UrlToBytes(verifierMetadata.scope_digest_b64);
-      const expectedScopeDigest = voprf.buildScopeDigest(
+      const scopeDigest = base64UrlToBytes(verifierMetadata.scope_digest_b64);
+      const expectedScopeDigest = freebirdCrypto.buildScopeDigest(
         verifierMetadata.verifier_id,
         verifierMetadata.audience
       );
@@ -610,15 +636,15 @@ export class FreebirdAdapter implements FreebirdClient {
     // Use production VOPRF blinding if at least one issuer is available
     if (this.metadata.size > 0) {
       const issuerMetadata = Array.from(this.metadata.values())[0];
-      const scopeDigest = voprf.base64UrlToBytes(this.verifierMetadata!.scope_digest_b64);
+      const scopeDigest = base64UrlToBytes(this.verifierMetadata!.scope_digest_b64);
       const nonce = Crypto.randomBytes(32);
-      const inputBytes = voprf.buildPrivateTokenInput(
+      const inputBytes = freebirdCrypto.buildPrivateTokenInput(
         issuerMetadata.issuer_id,
         issuerMetadata.voprf.kid,
         nonce,
         scopeDigest
       );
-      const { blinded, state } = voprf.blind(inputBytes, this.context);
+      const { blinded, state } = freebirdCrypto.blind(inputBytes, this.context);
 
       // Store state indexed by blinded value for later finalization
       const blindedHex = Crypto.toHex(blinded);
@@ -666,6 +692,53 @@ export class FreebirdAdapter implements FreebirdClient {
     return this.issueTokenInternal(blindedValue, sybilProof);
   }
 
+  /**
+   * Proxy a browser-blinded VOPRF request to the issuer and return the raw
+   * issuer response. The browser owns the blind state and must finalize this
+   * into a V4 redemption token before presenting it to Clout/Freebird verifier.
+   */
+  async issueRawTokenForProxy(
+    blindedValue: Uint8Array,
+    sybilProof?: FreebirdSybilProof
+  ): Promise<RawIssueResponse> {
+    await this.init();
+
+    if (this.metadata.size === 0) {
+      throw new Error('[Freebird] Cannot proxy raw issuance: issuer unavailable');
+    }
+    if (this.issuerEndpoints.length > 1) {
+      throw new Error(
+        '[Freebird] Multi-issuer/MPC proxy issuance is disabled: configure a single V4 issuer.'
+      );
+    }
+
+    const url = this.issuerEndpoints[0];
+    const metadata = this.metadata.get(url);
+    if (!metadata) {
+      throw new Error('[Freebird] Issuer metadata unavailable for proxy issuance');
+    }
+
+    const response = await this.fetch(`${url}/v1/oprf/issue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        blinded_element_b64: bytesToBase64Url(blindedValue),
+        sybil_proof: sybilProof ?? await this.buildSybilProof(metadata),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`[Freebird] Raw proxy issuance failed: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json() as RawIssueResponse;
+    if (data.kid !== metadata.voprf.kid || data.issuer_id !== metadata.issuer_id) {
+      throw new Error('[Freebird] Issuer metadata changed during proxy issuance');
+    }
+    return data;
+  }
+
   private async issueTokenInternal(
     blindedValue: Uint8Array,
     sybilProofOverride?: FreebirdSybilProof
@@ -680,6 +753,12 @@ export class FreebirdAdapter implements FreebirdClient {
     // Note: state may be null when operating as a proxy (browser has the blind state)
     if (this.metadata.size > 0) {
       try {
+        if (this.issuerEndpoints.length > 1) {
+          throw new Error(
+            '[Freebird] Multi-issuer/MPC issuance is disabled: the current Freebird SDK does not expose per-partial DLEQ verification. Configure a single V4 issuer.'
+          );
+        }
+
         // Build sybil proof once (uses first available issuer's metadata for PoW challenge)
         const firstMetadata = Array.from(this.metadata.values())[0];
         const sybilProof = sybilProofOverride ?? await this.buildSybilProof(firstMetadata);
@@ -696,7 +775,7 @@ export class FreebirdAdapter implements FreebirdClient {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                blinded_element_b64: voprf.bytesToBase64Url(blindedValue),
+                blinded_element_b64: bytesToBase64Url(blindedValue),
                 sybil_proof: sybilProof
               })
             });
@@ -781,8 +860,6 @@ export class FreebirdAdapter implements FreebirdClient {
           this.blindStates.delete(blindedHex);
         }
 
-        const firstResp = validResponses[0];
-
         // Single issuer: use voprf.finalize() for DLEQ verification + unblinding
         if (this.issuerEndpoints.length === 1 && validResponses.length === 1) {
           const resp = validResponses[0];
@@ -791,7 +868,7 @@ export class FreebirdAdapter implements FreebirdClient {
             // Full flow: verify DLEQ, unblind, build V4 private-verification token
             let output: Uint8Array;
             try {
-              output = voprf.finalize(pending.blindState, resp.tokenB64, resp.pubkey, this.context);
+              output = freebirdCrypto.finalize(pending.blindState, resp.tokenB64, resp.pubkey, this.context);
             } catch (e) {
               throw new Error(`[Freebird] DLEQ verification/unblinding failed: ${e}`);
             }
@@ -800,7 +877,7 @@ export class FreebirdAdapter implements FreebirdClient {
               throw new Error('[Freebird] Issuer metadata changed during issuance');
             }
 
-            const redemptionToken = voprf.buildPrivateRedemptionToken(
+            const redemptionToken = freebirdCrypto.buildRedemptionToken(
               pending.nonce,
               pending.scopeDigest,
               resp.kid,
@@ -809,71 +886,20 @@ export class FreebirdAdapter implements FreebirdClient {
             );
 
             this.lastTokenInfo = {
-              token_b64: voprf.bytesToBase64Url(redemptionToken),
+              token_b64: bytesToBase64Url(redemptionToken),
               issuer_id: resp.issuerId,
               exp: resp.exp,
             };
             console.log('[Freebird] ✅ VOPRF token issued, verified, and unblinded (single issuer)');
             return redemptionToken;
           } else {
-            // Proxy mode: return raw token (browser handles finalization)
-            const tokenBytes = this.base64UrlToBytes(resp.tokenB64);
-            this.lastTokenInfo = {
-              token_b64: resp.tokenB64,
-              issuer_id: resp.issuerId,
-              exp: resp.exp,
-            };
-            console.log('[Freebird] ✅ VOPRF token issued (proxy mode, single issuer)');
-            return tokenBytes;
+            throw new Error(
+              '[Freebird] Proxy/raw OPRF issuance is not supported by this adapter path; finalize client-side with the Freebird SDK and construct a V4 redemption token.'
+            );
           }
         }
 
-        // Multiple issuers: aggregate partial evaluations
-        const partials = validResponses.map(r => ({
-          index: r.index,
-          value: r.evaluatedPoint
-        }));
-
-        const aggregatedPoint = voprf.aggregate(partials);
-
-        if (pending) {
-          // Full flow: unblind aggregated point, build V4 private-verification token
-          const output = voprf.computePrfOutput(pending.blindState, aggregatedPoint, this.context);
-          const redemptionToken = voprf.buildPrivateRedemptionToken(
-            pending.nonce,
-            pending.scopeDigest,
-            firstResp.kid,
-            firstResp.issuerId,
-            output
-          );
-
-          this.lastTokenInfo = {
-            token_b64: voprf.bytesToBase64Url(redemptionToken),
-            issuer_id: firstResp.issuerId,
-            exp: firstResp.exp,
-          };
-
-          console.log(
-            `[Freebird] ✅ MPC token issued, aggregated, and unblinded ` +
-            `(${validResponses.length}/${this.issuerEndpoints.length} issuers)`
-          );
-
-          return redemptionToken;
-        } else {
-          // Proxy mode: return aggregated raw token (browser handles finalization)
-          this.lastTokenInfo = {
-            token_b64: voprf.bytesToBase64Url(aggregatedPoint),
-            issuer_id: firstResp.issuerId,
-            exp: firstResp.exp,
-          };
-
-          console.log(
-            `[Freebird] ✅ MPC token aggregated ` +
-            `(${validResponses.length}/${this.issuerEndpoints.length} issuers, proxy mode)`
-          );
-
-          return aggregatedPoint;
-        }
+        throw new Error('[Freebird] Unexpected issuer response count for single-issuer issuance');
       } catch (error) {
         // Re-throw errors from threshold check or other security failures
         if (pending) {
@@ -895,7 +921,7 @@ export class FreebirdAdapter implements FreebirdClient {
    * Helper to decode base64url to bytes
    */
   private base64UrlToBytes(base64: string): Uint8Array {
-    return voprf.base64UrlToBytes(base64);
+    return base64UrlToBytes(base64);
   }
 
   /**
@@ -915,7 +941,7 @@ export class FreebirdAdapter implements FreebirdClient {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            token_b64: voprf.bytesToBase64Url(token),
+            token_b64: bytesToBase64Url(token),
           })
         });
 
@@ -923,6 +949,13 @@ export class FreebirdAdapter implements FreebirdClient {
           const data = await response.json();
           return data.ok === true;
         }
+
+        const errorText = await response.text().catch(() => '');
+        console.warn(
+          `[Freebird] Token verification rejected by server: ${response.status}` +
+          (errorText ? ` - ${errorText}` : '')
+        );
+        return false;
       } catch (error) {
         console.warn('[Freebird] Token verification via server failed:', error);
         // Fall through to local verification
@@ -1011,6 +1044,14 @@ export class FreebirdAdapter implements FreebirdClient {
 
     // Return first available issuer's metadata
     return Array.from(this.metadata.values())[0];
+  }
+
+  /**
+   * Get verifier metadata used to construct V4 private-verification tokens.
+   */
+  async getVerifierMetadata(): Promise<VerifierMetadata | null> {
+    await this.init();
+    return this.verifierMetadata;
   }
 }
 

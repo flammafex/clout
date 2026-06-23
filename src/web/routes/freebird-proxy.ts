@@ -141,8 +141,11 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
         });
       }
 
-      // Get issuer metadata
+      // Get issuer/verifier metadata needed for browser-side V4 token construction.
       const metadata = await adapter.getIssuerMetadata();
+      const verifierMetadata = typeof (adapter as any).getVerifierMetadata === 'function'
+        ? await adapter.getVerifierMetadata()
+        : null;
 
       if (!metadata) {
         return res.status(503).json({
@@ -155,7 +158,11 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
         success: true,
         data: {
           issuer_id: metadata.issuer_id,
+          kid: metadata.voprf?.kid,
           pubkey: metadata.voprf?.pubkey,
+          verifier_id: verifierMetadata?.verifier_id,
+          audience: verifierMetadata?.audience,
+          scope_digest_b64: verifierMetadata?.scope_digest_b64,
           sybil_mode: metadata.sybil?.mode || 'unknown'
         }
       });
@@ -348,10 +355,17 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
         }
       }
 
-      // Issue the token via Freebird
-      const tokenBytes = sybilProof
-        ? await adapter.issueTokenWithSybilProof(blindedBytes, sybilProof)
-        : await adapter.issueToken(blindedBytes);
+      // Proxy raw issuer response to the browser. The browser owns the blind
+      // state and finalizes this into a V4 redemption token before minting.
+      const issueResult = typeof (adapter as any).issueRawTokenForProxy === 'function'
+        ? await adapter.issueRawTokenForProxy(blindedBytes, sybilProof)
+        : {
+            token: bytesToBase64Url(sybilProof
+              ? await adapter.issueTokenWithSybilProof(blindedBytes, sybilProof)
+              : await adapter.issueToken(blindedBytes)),
+            issuer_id: metadata.issuer_id,
+            kid: metadata.voprf?.kid,
+          };
 
       // Best-effort mapping capture: after invitation-backed issuance succeeds,
       // resolve invitee_id and persist it for future registered renewals.
@@ -372,14 +386,16 @@ export function createFreebirdProxyRoutes(config: FreebirdProxyConfig): Router {
       // Registration is finalized only after successful /daypass/mint.
       // Do not mark users as registered at token issuance time.
 
-      // Convert to base64url
-      const token_b64 = bytesToBase64Url(tokenBytes);
-
       res.json({
         success: true,
         data: {
-          token: token_b64,
-          issuer_pubkey: metadata.voprf.pubkey
+          token: issueResult.token,
+          issuer_pubkey: metadata.voprf.pubkey,
+          issuer_id: issueResult.issuer_id,
+          kid: issueResult.kid,
+          scope_digest_b64: typeof (adapter as any).getVerifierMetadata === 'function'
+            ? (await adapter.getVerifierMetadata())?.scope_digest_b64
+            : undefined
         }
       });
     } catch (error: any) {

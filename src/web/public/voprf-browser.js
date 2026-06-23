@@ -36,6 +36,8 @@ const PROOF_LEN = 64;
 const RAW_TOKEN_LEN_V0 = COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 130
 const RAW_TOKEN_LEN_V1 = TOKEN_VERSION_LEN + COMPRESSED_POINT_LEN * 2 + PROOF_LEN; // 131
 const TOKEN_LEN_V2 = RAW_TOKEN_LEN_V1 + TOKEN_SIGNATURE_LEN; // 195
+const PRIVATE_TOKEN_LEN = 32;
+const REDEMPTION_TOKEN_VERSION_V4 = 0x04;
 
 // DLEQ verification domain separator
 const DLEQ_DST_PREFIX = new TextEncoder().encode('DLEQ-P256-v1');
@@ -80,6 +82,37 @@ export function blind(publicKey) {
   return {
     blinded,
     blindedB64: bytesToBase64Url(blinded)
+  };
+}
+
+/**
+ * Blind the canonical Freebird V4 private-token input.
+ *
+ * @param {{ issuer_id: string, kid: string, scope_digest_b64: string }} metadata
+ * @returns {{ blinded: Uint8Array, blindedB64: string }} Blinded value
+ */
+export function blindV4(metadata) {
+  const nonce = crypto.getRandomValues(new Uint8Array(PRIVATE_TOKEN_LEN));
+  const scopeDigest = base64UrlToBytes(metadata.scope_digest_b64);
+  const input = buildPrivateTokenInput(metadata.issuer_id, metadata.kid, nonce, scopeDigest);
+  const inputPoint = hashToCurve(input, VOPRF_CONTEXT);
+  const r = randomScalar();
+  const blindedPoint = inputPoint.multiply(r);
+  const blinded = encodePoint(blindedPoint);
+  const blindedHex = bytesToHex(blinded);
+
+  blindStates.set(blindedHex, {
+    r,
+    p: inputPoint,
+    nonce,
+    scopeDigest,
+    kid: metadata.kid,
+    issuerId: metadata.issuer_id,
+  });
+
+  return {
+    blinded,
+    blindedB64: bytesToBase64Url(blinded),
   };
 }
 
@@ -156,6 +189,66 @@ export function finalize(blindedValue, tokenB64, issuerPubkeyB64) {
 }
 
 /**
+ * Finalize a raw issuer VOPRF response into a Freebird V4 redemption token.
+ *
+ * @param {Uint8Array} blindedValue - The blinded value sent to the proxy
+ * @param {string} tokenB64 - Raw issuer token from /v1/oprf/issue
+ * @param {string} issuerPubkeyB64 - Issuer VOPRF public key
+ * @param {{ issuer_id: string, kid: string }} issueMetadata - Issuer response metadata
+ * @returns {Uint8Array} V4 redemption token bytes
+ */
+export function finalizeV4(blindedValue, tokenB64, issuerPubkeyB64, issueMetadata) {
+  const blindedHex = bytesToHex(blindedValue);
+  const state = blindStates.get(blindedHex);
+
+  if (!state) {
+    throw new Error('No blind state found for this blinded value. Did you call blindV4() first?');
+  }
+  if (!state.nonce || !state.scopeDigest || !state.kid || !state.issuerId) {
+    throw new Error('Blind state is not a V4 Freebird token state');
+  }
+  if (issueMetadata.kid !== state.kid || issueMetadata.issuer_id !== state.issuerId) {
+    throw new Error('Issuer metadata changed during token issuance');
+  }
+
+  const fullTokenBytes = base64UrlToBytes(tokenB64);
+  const pubkeyBytes = base64UrlToBytes(issuerPubkeyB64);
+
+  if (fullTokenBytes.length !== RAW_TOKEN_LEN_V1 || fullTokenBytes[0] !== TOKEN_VERSION_V1) {
+    throw new Error(`Invalid VOPRF token length/version: got ${fullTokenBytes.length}`);
+  }
+
+  const A_bytes = fullTokenBytes.slice(1, 34);
+  const B_bytes = fullTokenBytes.slice(34, 67);
+  const proofBytes = fullTokenBytes.slice(67, 131);
+  const A = decodePoint(A_bytes);
+  const B_point = decodePoint(B_bytes);
+  const Q = decodePoint(pubkeyBytes);
+  const G = p256.ProjectivePoint.BASE;
+
+  if (!verifyDleq(G, Q, A, B_point, proofBytes)) {
+    throw new Error('VOPRF verification failed: Invalid DLEQ proof from issuer');
+  }
+
+  const rInv = pow(state.r, N - 2n, N);
+  const W = B_point.multiply(rInv);
+  const authenticator = sha256(concatBytes(
+    new TextEncoder().encode('VOPRF-P256-SHA256:Finalize'),
+    VOPRF_CONTEXT,
+    encodePoint(W),
+  ));
+
+  blindStates.delete(blindedHex);
+  return buildRedemptionToken(
+    state.nonce,
+    state.scopeDigest,
+    state.kid,
+    state.issuerId,
+    authenticator,
+  );
+}
+
+/**
  * Get the current blind state for a blinded value.
  * Useful for debugging or checking if a blind operation was started.
  *
@@ -194,8 +287,55 @@ export function bytesToBase64Url(bytes) {
 }
 
 export function base64UrlToBytes(base64) {
-  const binString = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
+  const normalized = base64.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), '=');
+  const binString = atob(padded);
   return Uint8Array.from(binString, (m) => m.codePointAt(0));
+}
+
+function buildPrivateTokenInput(issuerId, kid, nonce, scopeDigest) {
+  const issuerIdBytes = new TextEncoder().encode(issuerId);
+  const kidBytes = new TextEncoder().encode(kid);
+  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) {
+    throw new Error('issuer_id must be 1-255 bytes');
+  }
+  if (kidBytes.length === 0 || kidBytes.length > 255) {
+    throw new Error('kid must be 1-255 bytes');
+  }
+  if (nonce.length !== PRIVATE_TOKEN_LEN) throw new Error('nonce must be 32 bytes');
+  if (scopeDigest.length !== PRIVATE_TOKEN_LEN) throw new Error('scope_digest must be 32 bytes');
+
+  return concatBytes(
+    new TextEncoder().encode('freebird:private-token-input:v4'),
+    new Uint8Array([issuerIdBytes.length]),
+    issuerIdBytes,
+    new Uint8Array([kidBytes.length]),
+    kidBytes,
+    nonce,
+    scopeDigest,
+  );
+}
+
+function buildRedemptionToken(nonce, scopeDigest, kid, issuerId, authenticator) {
+  const kidBytes = new TextEncoder().encode(kid);
+  const issuerIdBytes = new TextEncoder().encode(issuerId);
+  if (kidBytes.length === 0 || kidBytes.length > 255) throw new Error('kid must be 1-255 bytes');
+  if (issuerIdBytes.length === 0 || issuerIdBytes.length > 255) throw new Error('issuer_id must be 1-255 bytes');
+  if (nonce.length !== PRIVATE_TOKEN_LEN) throw new Error('nonce must be 32 bytes');
+  if (scopeDigest.length !== PRIVATE_TOKEN_LEN) throw new Error('scope_digest must be 32 bytes');
+  if (authenticator.length !== PRIVATE_TOKEN_LEN) throw new Error('authenticator must be 32 bytes');
+
+  const buf = new Uint8Array(1 + 32 + 32 + 1 + kidBytes.length + 1 + issuerIdBytes.length + 32);
+  let pos = 0;
+  buf[pos++] = REDEMPTION_TOKEN_VERSION_V4;
+  buf.set(nonce, pos); pos += 32;
+  buf.set(scopeDigest, pos); pos += 32;
+  buf[pos++] = kidBytes.length;
+  buf.set(kidBytes, pos); pos += kidBytes.length;
+  buf[pos++] = issuerIdBytes.length;
+  buf.set(issuerIdBytes, pos); pos += issuerIdBytes.length;
+  buf.set(authenticator, pos);
+  return buf;
 }
 
 // ============================================================================
@@ -414,7 +554,9 @@ function hashToScalar(bytes) {
 
 export default {
   blind,
+  blindV4,
   finalize,
+  finalizeV4,
   hasBlindState,
   clearBlindState,
   bytesToBase64Url,
