@@ -135,6 +135,7 @@ services:
     environment:
       - RUST_LOG=info
       - BIND_ADDR=0.0.0.0:8082
+      - VERIFIER_ID=clout-verifier
       - ISSUER_URL=http://freebird-issuer:8081/.well-known/issuer
       - REDIS_URL=redis://redis:6379
     depends_on:
@@ -286,6 +287,7 @@ services:
       context: https://git.carpocratian.org/sibyl/hypertoken.git
     image: hypertoken-relay:latest
     container_name: hypertoken-relay
+    command: ["node", "dist/vendor/hypertoken/relay/start-relay.js", "3000"]
     ports:
       - "${HYPERTOKEN_RELAY_PORT:-3001}:3000"
     networks:
