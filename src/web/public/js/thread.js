@@ -12,6 +12,7 @@ import { apiCall } from './api.js';
 import { $, $$, escapeHtml, escapeInlineJsString, formatRelativeTime, renderAvatar } from './ui.js';
 import { renderReactionsBar } from './reactions.js';
 import { renderPostContent, recalculateTrustForPosts } from './feed.js';
+import * as router from './router.js';
 
 /**
  * Check if current user is a visitor (no browser identity)
@@ -21,9 +22,26 @@ function isVisitorMode() {
 }
 
 /**
- * View a thread
+ * View a thread — navigates to #/thread/:postId. The router then calls
+ * loadThread(postId) to perform the actual fetch + render. This split
+ * avoids an infinite loop (navigate → hashchange → loadThread) while
+ * keeping the back button and deep links working.
+ *
+ * @param {string} postId
  */
-export async function viewThread(postId) {
+export function viewThread(postId) {
+  if (!postId) return;
+  router.navigate(`#/thread/${postId}`);
+}
+
+/**
+ * Load and render a thread (called by the router on #/thread/:postId).
+ *
+ * @param {string[]} params - route params; params[0] is the postId
+ */
+export async function loadThread(params) {
+  const postId = Array.isArray(params) ? params[0] : params;
+  if (!postId) return;
   try {
     const response = await fetch(`/api/thread/${postId}`);
     const result = await response.json();
@@ -47,13 +65,15 @@ export async function viewThread(postId) {
 
     const data = result.data;
 
-    // If the post was resolved through an edit chain, update the URL
+    // If the post was resolved through an edit chain, update the URL hash
+    // silently (replaceState, not navigate) so the loader isn't re-triggered.
     if (data.resolved && data.parent) {
       const newPostId = data.parent.id;
-      const newUrl = new URL(window.location);
-      newUrl.searchParams.set('thread', newPostId);
-      window.history.replaceState({}, '', newUrl);
-      console.log(`[Thread] Resolved edited post ${data.originalId.slice(0, 8)}... -> ${newPostId.slice(0, 8)}...`);
+      const newHash = `#/thread/${newPostId}`;
+      if (window.location.hash !== newHash) {
+        window.history.replaceState(null, '', newHash);
+        console.log(`[Thread] Resolved edited post ${data.originalId.slice(0, 8)}... -> ${newPostId.slice(0, 8)}...`);
+      }
     }
 
     // Recalculate trust data using browser's Dark Social Graph

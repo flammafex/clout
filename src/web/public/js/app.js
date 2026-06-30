@@ -2,7 +2,9 @@
  * Clout Web UI - Main Entry Point
  *
  * This module initializes the application and wires together all the modules.
- * It exports a global window.cloutApp object for onclick handlers in HTML.
+ * HTML-facing interactions are wired via event delegation (data-action
+ * attributes, see setupActionDelegation); a window.cloutApp global is also
+ * exported for modules that still reference it directly.
  */
 
 // Import all modules
@@ -11,7 +13,8 @@ import { apiCall, submitSignedPost } from './api.js';
 import {
   $, $$, showLoading, showResult, updateStatus, escapeHtml,
   formatRelativeTime, renderAvatar, getReputationColor, getWeightLabel,
-  copyToClipboard, switchToTab, startDayPassTimer, setupAvatarErrorHandling, showToast
+  copyToClipboard, switchToTab, startDayPassTimer, setupAvatarErrorHandling, showToast,
+  trapFocus, releaseFocus
 } from './ui.js';
 import {
   loadFeed, loadVisitorFeed, loadFeedWithCurrentFilter, setFeedFilter,
@@ -20,15 +23,14 @@ import {
 } from './feed.js';
 import {
   createPost, startReply, cancelReply, startEditPost, cancelEdit,
-  retractPost, setupMediaUpload, setupCharCounter, clearMediaPreview,
-  setupAttachmentSelector, setupLinkPreview, clearLinkPreview
+  retractPost, setupCharCounter, setupComposeHandlers
 } from './posts.js';
 import {
   toggleReaction, toggleBookmark, toggleCW,
   openEmojiPicker, closeEmojiPicker, filterEmojis, selectEmoji,
   expandReactions
 } from './reactions.js';
-import { viewThread } from './thread.js';
+import { viewThread, loadThread } from './thread.js';
 import {
   loadTrustedUsers, trustUser, quickTrust, muteUser, unmuteUser, untrustUser,
   editNickname, updateTrustWeightDisplay, loadTrustRequests, sendTrustRequest,
@@ -57,6 +59,7 @@ import {
   loadAdminMembers, prefillGrantQuota, grantQuota,
   ownerCreateInvitations, loadAdminInvitations
 } from './admin.js';
+import * as router from './router.js';
 
 // =========================================================================
 // Create requireMembership wrapper
@@ -65,6 +68,7 @@ import {
 function requireMembership() {
   if (!state.initialized || state.isVisitor) {
     showInvitePopover();
+    trapFocus($('invite-popover'));
     return false;
   }
   return true;
@@ -78,20 +82,58 @@ function setupTabs() {
   $$('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const tab = btn.dataset.tab;
-
-      $$('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
-      $$('.tab-content').forEach(content => content.classList.remove('active'));
-      $(`${tab}-tab`).classList.add('active');
-
-      if (tab === 'feed') { state.isVisitor ? loadVisitorFeed() : loadFeed(); }
-      if (tab === 'slides') loadSlides();
-      if (tab === 'settings') { loadSettings(); loadDelegationStatus(); }
-      if (tab === 'trust') { loadTrustedUsers(); loadTrustRequests(); loadStats(); loadSettings(); }
-      if (tab === 'profile') { loadProfile(); loadIdentity(); }
-      if (tab === 'owner') { loadOwnerInfo(); }
+      if (!tab) return;
+      // Routing the tab switch through the router updates the URL hash,
+      // which fires hashchange → switchToTab + loader. This gives us
+      // deep-linkable tabs and working back/forward buttons.
+      router.navigate(`#/${tab}`);
     });
+  });
+}
+
+/**
+ * Register tab loaders with the router. Each loader is invoked by the
+ * router after switchToTab() when the corresponding hash route is active.
+ * Mirrors the loader calls that previously lived inline in setupTabs().
+ */
+function registerRouterLoaders() {
+  router.registerLoader('feed', () => {
+    state.isVisitor ? loadVisitorFeed() : loadFeed();
+  });
+  router.registerLoader('compose', () => {
+    // Compose tab has no async loader; char counter / media upload are
+    // wired once at bootstrap.
+  });
+  router.registerLoader('trust', () => {
+    loadTrustedUsers();
+    loadTrustRequests();
+    loadStats();
+    loadSettings();
+  });
+  router.registerLoader('slides', () => {
+    loadSlides();
+  });
+  router.registerLoader('thread', (params) => {
+    loadThread(params);
+  });
+  router.registerLoader('profile', () => {
+    loadProfile();
+    loadIdentity();
+  });
+  router.registerLoader('settings', () => {
+    loadSettings();
+    loadDelegationStatus();
+  });
+  router.registerLoader('owner', () => {
+    loadOwnerInfo();
+  });
+  router.registerLoader('tag', (params) => {
+    const tag = params && params[0] ? decodeURIComponent(params[0]) : null;
+    if (tag) {
+      filterByTag(tag);
+    } else {
+      state.isVisitor ? loadVisitorFeed() : loadFeed();
+    }
   });
 }
 
@@ -115,11 +157,11 @@ function setupMobileMoreSheet() {
   backdrop?.addEventListener('click', closeSheet);
   ownerBtn?.addEventListener('click', () => {
     closeSheet();
-    switchToTab('owner');
+    router.navigate('#/owner');
   });
   settingsBtn?.addEventListener('click', () => {
     closeSheet();
-    switchToTab('settings');
+    router.navigate('#/settings');
   });
 }
 
@@ -689,42 +731,93 @@ function openComposeModal(draftText = '') {
   if (!requireMembership()) return;
   const modal = $('compose-modal');
   const body = $('compose-modal-body');
-  const postTabSection = $('post-tab').querySelector('.section');
 
-  // MOVE (not clone) the post-tab section into the modal to avoid duplicate IDs
-  body.appendChild(postTabSection);
+  // Clone the compose template into the modal body. This replaces the
+  // previous DOM-transplant pattern (which physically moved #post-tab's
+  // .section into the modal and back, risking orphaning on exception).
+  // The clone uses the same IDs as #post-tab; posts.js resolves them via
+  // composeRoot()/composeEl() which scopes to the modal body while open.
+  const template = $('compose-template');
+  body.innerHTML = '';
+  if (template && template.content) {
+    body.appendChild(document.importNode(template.content, true));
+    setupComposeHandlers(body);
+  }
 
   if (draftText) {
-    const textarea = $('post-content');
+    const textarea = body.querySelector('#post-content');
     if (textarea) textarea.value = draftText;
   }
 
   modal.classList.add('active');
+  trapFocus(modal);
 }
 
 function closeComposeModal() {
   const modal = $('compose-modal');
   const body = $('compose-modal-body');
-  const postTabSection = body.querySelector('.section');
 
-  // Move the section back to #post-tab
-  if (postTabSection) {
-    $('post-tab').appendChild(postTabSection);
-  }
+  // Drop the cloned form. #post-tab keeps its own copy, so nothing is
+  // orphaned and no DOM transplant-back is needed.
+  body.innerHTML = '';
 
   modal.classList.remove('active');
+  releaseFocus(modal);
 }
 
 // =========================================================================
-// Export global API for onclick handlers
+// Focus-management wrappers for popovers / backup modal
 // =========================================================================
+
+function openInvitePopoverWithFocus() {
+  showInvitePopover();
+  trapFocus($('invite-popover'));
+}
+
+function closeInvitePopoverWithFocus() {
+  releaseFocus($('invite-popover'));
+  closeInvitePopover();
+}
+
+function openRestorePopoverWithFocus() {
+  showRestorePopover();
+  trapFocus($('restore-popover'));
+}
+
+function closeRestorePopoverWithFocus() {
+  releaseFocus($('restore-popover'));
+  closeRestorePopover();
+}
+
+function openBackupModalWithFocus() {
+  // Save the trigger before promptIdentityBackup focuses the password input
+  trapFocus($('backup-modal'));
+  promptIdentityBackup();
+}
+
+function closeBackupModalWithFocus() {
+  releaseFocus($('backup-modal'));
+  closeBackupModal();
+}
+
+// =========================================================================
+// Export global API
+// =========================================================================
+//
+// NOTE: This god object historically existed so inline onclick handlers in
+// index.html / feed.js could reach module functions. Event delegation
+// (setupActionDelegation above) now handles the HTML-facing surface via
+// data-action attributes, so most of these are no longer called from HTML.
+// It is kept for now because some modules (e.g. reactions.js inline handlers,
+// service worker) still reference window.cloutApp directly. Methods that are
+// confirmed unused can be gradually removed over time.
 
 window.cloutApp = {
   // State (for debugging)
   getState: () => state,
 
   // UI helpers
-  switchToTab,
+  switchToTab: (tab) => router.navigate(`#/${tab}`),
   copyToClipboard,
   showToast,
 
@@ -805,20 +898,20 @@ window.cloutApp = {
   switchIdentity,
 
   // Invite
-  showInvitePopover,
-  closeInvitePopover,
+  showInvitePopover: openInvitePopoverWithFocus,
+  closeInvitePopover: closeInvitePopoverWithFocus,
   redeemInvite,
 
   // Restore Identity
-  showRestorePopover,
-  closeRestorePopover,
+  showRestorePopover: openRestorePopoverWithFocus,
+  closeRestorePopover: closeRestorePopoverWithFocus,
   restoreFromFile,
 
   // Identity Backup
-  promptIdentityBackup,
+  promptIdentityBackup: openBackupModalWithFocus,
   showBackupReminder,
   dismissBackupReminder,
-  closeBackupModal,
+  closeBackupModal: closeBackupModalWithFocus,
   downloadBackup,
 
   // Owner Admin
@@ -856,6 +949,74 @@ window.copyToClipboard = (elementId) => {
 };
 
 // =========================================================================
+// Event delegation for data-action handlers
+// =========================================================================
+//
+// Replaces inline onclick="window.cloutApp.X()" handlers with a single
+// delegated click listener. Elements declare `data-action="X"` plus
+// `data-*` arguments; the dispatcher reads them and calls the matching
+// window.cloutApp method (which preserves requireMembership wrapping).
+//
+// Because the dispatcher uses e.target.closest('[data-action]'), clicks on a
+// child button with its own data-action never reach the parent's action —
+// so the old event.stopPropagation() calls are no longer needed.
+//
+// `data-action="none"` is a sentinel for elements (e.g. external link
+// previews) that should opt out of any ancestor action and just follow their
+// default behavior.
+
+function setupActionDelegation() {
+  // Map of action -> argument extractor. Actions not listed here take no args.
+  const argExtractors = {
+    switchToTab: (el) => [el.dataset.tab],
+    copyToClipboard: (el) => [el.dataset.elementId],
+    filterByTag: (el) => [el.dataset.tag],
+    viewThread: (el) => [el.dataset.postId],
+    quickTrust: (el) => [el.dataset.author],
+    muteUser: (el) => [el.dataset.author, el.dataset.displayName],
+    startEditPost: (el) => [el.dataset.postId],
+    retractPost: (el) => [el.dataset.postId],
+    toggleBookmark: (el) => [el.dataset.postId],
+    startReply: (el) => [el.dataset.postId, el.dataset.authorName],
+    toggleCW: (el) => [el.dataset.cwId],
+  };
+
+  const dispatch = (target) => {
+    const action = target.dataset.action;
+    if (!action || action === 'none') return false;
+    // copyToClipboard uses the legacy element-id-based global wrapper.
+    if (action === 'copyToClipboard') {
+      window.copyToClipboard(target.dataset.elementId);
+      return true;
+    }
+    const fn = window.cloutApp[action];
+    if (typeof fn !== 'function') return false;
+    const args = argExtractors[action] ? argExtractors[action](target) : [];
+    fn(...args);
+    return true;
+  };
+
+  // Click delegation (bubble phase).
+  document.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
+    if (dispatch(target)) {
+      e.preventDefault();
+    }
+  });
+
+  // Keyboard a11y: activate role="button" data-action elements via Enter/Space.
+  // Re-dispatches as a click so the same dispatch path runs.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target.closest('[data-action][role="button"]');
+    if (!target) return;
+    e.preventDefault();
+    target.click();
+  });
+}
+
+// =========================================================================
 // App Bootstrap
 // =========================================================================
 
@@ -867,35 +1028,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Setup event delegation for error handling (XSS-safe, no inline handlers)
   setupAvatarErrorHandling();
   setupMediaErrorHandling();
+  setupActionDelegation();
 
   setupTabs();
   setupMobileMoreSheet();
   setupMobileHeaderBehavior();
+  // Wire the #post-tab compose form (char counter, media upload, link
+  // preview, CW toggle). The compose modal clones the same template and
+  // re-wires via setupComposeHandlers() on each open. The create-post-btn
+  // is handled by data-action="createPost" delegation, so no per-root
+  // click wiring is needed here.
+  setupComposeHandlers($('post-tab'));
   setupCharCounter();
-  setupMediaUpload();
-  setupAttachmentSelector();
-  setupLinkPreview();
   setupSettings(requireMembership);
+
+  // Register tab loaders with the router, then initialize the router so
+  // hashchange is wired and any deep link present on load is dispatched.
+  registerRouterLoaders();
+  router.init();
 
   // Event listeners
   $('init-btn').addEventListener('click', initializeClout);
-  $('create-post-btn').addEventListener('click', () => createPost(requireMembership, showInvitePopover));
+  // create-post-btn is wired via data-action="createPost" delegation.
   $('trust-btn').addEventListener('click', () => sendTrustRequest(requireMembership));
   $('send-slide-btn').addEventListener('click', () => sendSlide(requireMembership));
   $('refresh-slides-btn').addEventListener('click', loadSlides);
 
   // Visitor banner - show invite popover
-  $('visitor-join-btn').addEventListener('click', showInvitePopover);
-  $('visitor-restore-btn').addEventListener('click', showRestorePopover);
+  $('visitor-join-btn').addEventListener('click', openInvitePopoverWithFocus);
+  $('visitor-restore-btn').addEventListener('click', openRestorePopoverWithFocus);
 
   $('back-to-feed-btn').addEventListener('click', () => {
-    $$('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelector('.tab-btn[data-tab="feed"]').classList.add('active');
-    $$('.tab-content').forEach(content => content.classList.remove('active'));
-    $('feed-tab').classList.add('active');
-
-    document.querySelector('.tab-btn[data-tab="thread"]').style.display = 'none';
-    loadFeed();
+    // Navigating to #/feed switches the tab + loads the feed via the
+    // router. The thread nav button is hidden by the router on non-thread
+    // routes.
+    router.navigate('#/feed');
   });
 
   // Slide message character counter
@@ -903,13 +1070,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     $('slide-char-count').textContent = $('slide-message').value.length;
   });
 
-  // Content warning toggle
-  $('post-cw-enabled').addEventListener('change', (e) => {
-    $('cw-input-wrapper').style.display = e.target.checked ? 'block' : 'none';
-    if (e.target.checked) {
-      $('post-cw-text').focus();
-    }
-  });
+  // Content warning toggle for #post-tab is wired by setupComposeHandlers();
+  // the compose-modal clone is wired on each open.
 
   // Trust weight slider
   const trustWeightSlider = $('trust-weight');
@@ -995,24 +1157,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Popover backdrop-click-to-close
   $('invite-popover')?.addEventListener('click', (e) => {
-    if (e.target === $('invite-popover')) $('invite-popover').style.display = 'none';
+    if (e.target === $('invite-popover')) closeInvitePopoverWithFocus();
   });
   $('restore-popover')?.addEventListener('click', (e) => {
-    if (e.target === $('restore-popover')) $('restore-popover').style.display = 'none';
+    if (e.target === $('restore-popover')) closeRestorePopoverWithFocus();
   });
 
   // Backup reminder buttons
   $('backup-now-btn')?.addEventListener('click', () => {
-    promptIdentityBackup();
+    openBackupModalWithFocus();
   });
   $('backup-dismiss-btn')?.addEventListener('click', () => {
     dismissBackupReminder();
   });
 
   // Backup modal
-  $('backup-modal-close')?.addEventListener('click', closeBackupModal);
+  $('backup-modal-close')?.addEventListener('click', closeBackupModalWithFocus);
   $('backup-modal')?.addEventListener('click', (e) => {
-    if (e.target === $('backup-modal')) closeBackupModal();
+    if (e.target === $('backup-modal')) closeBackupModalWithFocus();
   });
   $('backup-download-btn')?.addEventListener('click', downloadBackup);
 
@@ -1024,15 +1186,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     // Close backup modal if open
     if ($('backup-modal')?.classList.contains('active')) {
-      closeBackupModal();
+      closeBackupModalWithFocus();
     }
     const invitePopover = $('invite-popover');
     if (invitePopover && invitePopover.style.display !== 'none') {
-      invitePopover.style.display = 'none';
+      closeInvitePopoverWithFocus();
     }
     const restorePopover = $('restore-popover');
     if (restorePopover && restorePopover.style.display !== 'none') {
-      restorePopover.style.display = 'none';
+      closeRestorePopoverWithFocus();
     }
   });
 

@@ -1,0 +1,231 @@
+/* Clout Web UI Styles - pwa layer
+   Visitor banner, offline indicator, offline-mode dimming, install banner,
+   standalone display-mode, visitor-mode element hiding, identity backup reminder,
+   prefers-reduced-motion. Loaded last. */
+
+@layer pwa {
+
+/* Visitor banner */
+.visitor-banner {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  margin-left: 72px;
+  margin-right: 240px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+  border: 1px solid var(--primary);
+  border-radius: 12px;
+  padding: 1rem 1.5rem;
+}
+
+.visitor-banner-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.visitor-icon {
+  font-size: 1.75rem;
+  flex-shrink: 0;
+}
+
+.visitor-text {
+  flex: 1;
+  min-width: 200px;
+}
+
+.visitor-text strong {
+  display: block;
+  color: var(--text);
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.visitor-text span {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.visitor-banner .btn {
+  flex-shrink: 0;
+}
+
+.visitor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.visitor-actions .btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 600px) {
+  .visitor-banner-content {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .visitor-text {
+    min-width: auto;
+  }
+
+  .visitor-banner .btn {
+    width: 100%;
+  }
+
+  .visitor-actions {
+    flex-direction: column;
+  }
+}
+/* =========================================================================
+   PWA Styles
+   ========================================================================= */
+
+/* Offline indicator */
+.offline-indicator {
+  background: #ef4444;
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Offline mode - dim interactive elements */
+body.offline .btn-primary,
+body.offline .btn-action,
+body.offline #create-post-btn,
+body.offline #trust-btn,
+body.offline #send-slide-btn {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+body.offline .btn-primary::after,
+body.offline .btn-action::after {
+  content: ' (offline)';
+  font-size: 0.75em;
+}
+
+/* PWA Install Banner (optional - for custom install prompt) */
+.pwa-install-banner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  z-index: 1000;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.pwa-install-banner .pwa-text {
+  flex: 1;
+}
+
+.pwa-install-banner .pwa-text h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+}
+
+.pwa-install-banner .pwa-text p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.pwa-install-banner .pwa-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pwa-install-banner .btn-dismiss {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* Standalone mode adjustments (when installed as PWA) */
+@media (display-mode: standalone) {
+  /* Hide browser-specific elements */
+  .browser-only {
+    display: none;
+  }
+
+  /* Add safe area padding for notched devices */
+  .container {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+}
+/* Visitor mode — hide member-only elements with !important to override media queries */
+.visitor-mode .inline-search-fallback-container,
+.visitor-mode .inline-compose,
+.visitor-mode .compose-fab,
+.visitor-mode .mobile-compose-fab,
+.visitor-mode .feed-tabs,
+.visitor-mode .feed-sort-row,
+.visitor-mode .sidebar-feed-legend,
+.visitor-mode .sidebar-search {
+  display: none !important;
+}
+/* Identity backup reminder */
+.backup-reminder {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  padding: 1rem;
+}
+.backup-reminder-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.backup-reminder-icon {
+  font-size: 1.5rem;
+}
+.backup-reminder-text {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.backup-reminder-text strong {
+  color: #f59e0b;
+}
+.backup-reminder-text span {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+} /* end @layer pwa */

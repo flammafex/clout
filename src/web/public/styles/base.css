@@ -1,0 +1,774 @@
+/* Clout Web UI Styles - base layer
+   Reset, design tokens (:root), typography defaults, and generic
+   primitive components (buttons, inputs, sections, tabs, badges, toasts).
+   Also declares the layer order for the whole stylesheet. */
+
+@layer base, layout, feed, trust, profile, modals, admin, pwa;
+
+@layer base {
+/* Clout Web UI Styles */
+
+/* =========================================================================
+   @font-face — self-hosted fonts (latin subset)
+   Fonts are self-hosted for censorship resistance: no external dependency
+   on Google Fonts CDN. Files live in /fonts/. Only the latin unicode-range
+   is bundled; fallback system fonts cover other scripts.
+   ========================================================================= */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('/fonts/space-grotesk-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'DM Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/dm-sans-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/jetbrains-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Brand palette */
+  --primary: #6366f1;
+  --primary-dark: #4f46e5;
+  --secondary: #8b5cf6;
+  --accent: #22d3ee;
+  --primary-hover: #4338ca;
+  --success: #10b981;
+  --error: #ef4444;
+  --warning: #f59e0b;
+
+  /* Surfaces */
+  --bg: #0f172a;
+  --bg-card: #1e293b;
+  --bg-secondary: #1e293b;
+  --bg-tertiary: #334155;
+  --bg-hover: #334155;
+  --surface: #0b1220;
+  --text: #f1f5f9;
+  --text-dim: #94a3b8;
+  --border: #334155;
+
+  /* Hop-distance semantic colors (used in feed borders, reputation badges,
+     trust explainer, and the sidebar legend in index.html) */
+  --hop-self: var(--primary);
+  --hop-1: #22c55e;
+  --hop-2: #eab308;
+  --hop-3: #f97316;
+
+  /* Typography — font families */
+  --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Inconsolata', 'Fira Code', monospace;
+
+  /* Typography — type scale (modular, 1.125 ratio) */
+  --text-xs: 0.75rem;    /* 12px — badges, hints */
+  --text-sm: 0.875rem;   /* 14px — secondary text, meta */
+  --text-base: 1rem;     /* 16px — body, inputs */
+  --text-lg: 1.125rem;   /* 18px — emphasized body */
+  --text-xl: 1.25rem;    /* 20px — card headers */
+  --text-2xl: 1.5rem;    /* 24px — section h2 */
+  --text-3xl: 2rem;      /* 32px — page h2 */
+  --text-4xl: 2.5rem;    /* 40px — hero h1 */
+
+  /* Typography — line heights */
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  /* Typography — letter spacing */
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.05em;
+  --tracking-wider: 0.08em;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: var(--leading-relaxed);
+  /* Background atmosphere: layered radial gradient mesh + subtle noise.
+     The mesh uses slightly lighter shades of the existing palette at very
+     low opacity — adds depth without distracting from feed content.
+     The noise overlay breaks up flat areas. Fixed attachment keeps the
+     atmosphere stable during scroll (no repaint cost after first paint). */
+  background-image:
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(99, 102, 241, 0.08), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 10%, rgba(139, 92, 246, 0.06), transparent),
+    radial-gradient(ellipse 70% 60% at 50% 100%, rgba(34, 211, 238, 0.04), transparent),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+
+
+h1 {
+  font-family: var(--font-display);
+  font-size: var(--text-4xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  margin-bottom: 0.5rem;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+h2 {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  color: var(--text);
+}
+
+.subtitle {
+  color: var(--text-dim);
+  font-size: var(--text-lg);
+}
+
+.status-row {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--text-sm);
+}
+
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--error);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.status-dot.active {
+  background: var(--success);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.day-pass-timer {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+
+.day-pass-timer #day-pass-countdown {
+  font-family: var(--font-mono);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.section {
+  background: var(--bg-card);
+  border-radius: 12px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+/* Headings h3/h4 inherit the display font from h1/h2 via font-family
+   cascade; they use the display face for consistent heading voice. */
+h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+}
+
+.help-text {
+  color: var(--text-dim);
+  margin-bottom: 1.5rem;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 1rem 1.5rem;
+  cursor: pointer;
+  font-size: var(--text-base);
+  font-family: var(--font-body);
+  border-bottom: 3px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+/* Buttons */
+.btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: var(--text-base);
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.btn:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn-primary {
+  background: var(--primary);
+}
+
+.btn-secondary {
+  background: var(--bg-hover);
+}
+
+.btn-small {
+  padding: 0.5rem 1rem;
+  font-size: var(--text-sm);
+}
+
+.btn-copy {
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-copy:hover {
+  background: var(--border);
+}
+
+/* Form Elements */
+.form-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.input, .textarea, .select {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: var(--text-base);
+  font-family: var(--font-body);
+  margin-bottom: 1rem;
+}
+
+.textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.input:focus, .textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.char-count {
+  text-align: right;
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  margin-bottom: 1rem;
+}
+.empty-state {
+  text-align: center;
+  color: var(--text-dim);
+  padding: 3rem;
+  font-size: var(--text-lg);
+}
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+}
+
+.stat-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.stat-label {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.stat-value {
+  font-size: var(--text-4xl);
+  font-weight: 700;
+  font-family: var(--font-display);
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Info Box */
+.info-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 6px;
+  padding: 1.5rem;
+}
+
+.info-box h3 {
+  margin-bottom: 1rem;
+  color: var(--primary);
+}
+
+.info-box ul {
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.info-box li {
+  margin-bottom: 0.5rem;
+}
+/* Result Messages */
+.result-message {
+  padding: 1rem;
+  border-radius: 6px;
+  margin-top: 1rem;
+  border: 1px solid;
+}
+
+.result-message:empty {
+  display: none;
+}
+
+.result-message.success {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.result-message.error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--error);
+  color: var(--error);
+}
+/* Slides */
+.slides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.slide-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--secondary);
+  border-radius: 8px;
+  padding: 1rem;
+  transition: all 0.2s ease;
+}
+
+.slide-item:hover {
+  border-left-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+}
+
+.slide-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.slide-sender {
+  font-weight: 600;
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.slide-timestamp {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+}
+
+.slide-message {
+  color: var(--text);
+  line-height: var(--leading-relaxed);
+  margin-bottom: 0.75rem;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.form-group {
+  margin-bottom: 1.5rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: var(--border);
+}
+
+.help-text {
+  color: var(--text-dim);
+  margin-bottom: 1.5rem;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+.checkbox-text {
+  font-weight: 500;
+}
+
+.help-text-small {
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  margin: 0.5rem 0 0 0;
+}
+
+.help-text-success {
+  color: #22c55e;
+  margin-bottom: 1rem;
+}
+
+/* Settings Styles */
+.settings-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.settings-card h3 {
+  margin: 0 0 1rem 0;
+  color: var(--text);
+  font-size: var(--text-xl);
+}
+
+.setting-item {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.setting-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.setting-item label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.select {
+  width: 100%;
+  padding: 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: var(--text-base);
+  font-family: var(--font-body);
+}
+
+.range {
+  width: 100%;
+  margin: 0.5rem 0;
+  accent-color: var(--primary);
+}
+/* =========================================================================
+   TRUST-CENTRIC UI IMPROVEMENTS
+   ========================================================================= */
+
+/* Empty State - Helpful */
+.empty-state-helpful {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 2px dashed var(--border);
+}
+
+.empty-state-helpful .empty-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.empty-state-helpful h4 {
+  font-size: var(--text-xl);
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+
+.empty-state-helpful p {
+  color: var(--text-dim);
+  margin-bottom: 1.5rem;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.empty-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+/* Small Button */
+.btn-small {
+  padding: 0.35rem 0.75rem;
+  font-size: var(--text-xs);
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: all 0.2s;
+}
+
+.btn-small:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Loading Spinner */
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  color: var(--text-dim);
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 0.75rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Tab Badge (Notifications) */
+.tab-badge {
+  display: inline-block;
+  background: var(--error);
+  color: white;
+  font-size: var(--text-xs);
+  padding: 0.15rem 0.4rem;
+  border-radius: 10px;
+  margin-left: 0.25rem;
+  font-weight: 600;
+  font-family: var(--font-body);
+}
+/* Danger button */
+.btn-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid #ef4444;
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+/* Warning text */
+.warning {
+  color: #f59e0b !important;
+}
+
+/* =========================================================================
+   BOOKMARKS
+   ========================================================================= */
+
+/* =========================================================================
+   NOTIFICATION BADGES
+   ========================================================================= */
+
+.tab-badge {
+  background: var(--error);
+  color: white;
+  font-size: var(--text-xs);
+  padding: 0.1rem 0.4rem;
+  border-radius: 1rem;
+  margin-left: 0.25rem;
+  font-weight: 600;
+  font-family: var(--font-body);
+  min-width: 1.2rem;
+  text-align: center;
+}
+/* Toast notifications */
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.toast {
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
+  font-weight: 500;
+  opacity: 0;
+  transform: translateY(1rem);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: auto;
+  max-width: 90vw;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast-info {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.toast-success {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.toast-error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+} /* end @layer base */

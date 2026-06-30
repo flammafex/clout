@@ -12,11 +12,50 @@
 
 import * as state from './state.js';
 import { apiCall, uploadMediaFile, submitSignedPost, API_BASE } from './api.js';
-import { $, $$, showResult, formatFileSize, isInvitationRequiredError, startDayPassTimer } from './ui.js';
+import { $, formatFileSize, isInvitationRequiredError, startDayPassTimer } from './ui.js';
 import { loadFeed, loadFeedWithCurrentFilter } from './feed.js';
 
 // Track which attachment type is active: 'media' or 'link'
 let activeAttachmentType = 'media';
+
+// =========================================================================
+// Compose-root-aware element lookup
+// =========================================================================
+//
+// The compose form exists in TWO places in the DOM: the #post-tab panel
+// (reached via #/compose) and a clone of <template id="compose-template">
+// that is inserted into #compose-modal-body each time the compose modal
+// opens. Both copies use the SAME element IDs (so the markup stays in
+// sync). To avoid getElementById returning the wrong copy, all compose
+// lookups must scope to the *active compose root*: the modal body when
+// the modal is open, otherwise #post-tab.
+
+function composeRoot() {
+  const modal = document.getElementById('compose-modal');
+  if (modal && modal.classList.contains('active')) {
+    return document.getElementById('compose-modal-body');
+  }
+  return document.getElementById('post-tab');
+}
+
+function composeEl(id) {
+  return composeRoot().querySelector('#' + id);
+}
+
+/**
+ * Scoped equivalent of ui.showResult for the active compose form's
+ * #post-result element. showResult() uses getElementById, which would
+ * resolve to the #post-tab copy even while the modal is open.
+ */
+function showComposeResult(message, isSuccess) {
+  const el = composeEl('post-result');
+  if (!el) return;
+  el.textContent = message;
+  el.className = `result-message ${isSuccess ? 'success' : 'error'}`;
+  el.setAttribute('aria-live', 'polite');
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 5000);
+}
 
 /**
  * Create a new post
@@ -30,24 +69,24 @@ export async function createPost(requireMembership, showInvitePopover) {
     return;
   }
 
-  const content = $('post-content').value.trim();
-  const nsfw = $('post-nsfw').checked;
-  const cwEnabled = $('post-cw-enabled').checked;
-  const contentWarning = cwEnabled ? $('post-cw-text').value.trim() : null;
+  const content = composeEl('post-content').value.trim();
+  const nsfw = composeEl('post-nsfw').checked;
+  const cwEnabled = composeEl('post-cw-enabled').checked;
+  const contentWarning = cwEnabled ? composeEl('post-cw-text').value.trim() : null;
 
   if (!content && !state.pendingMedia && !state.pendingLink) {
-    showResult('post-result', 'Please enter some content or attach media/link', false);
+    showComposeResult('Please enter some content or attach media/link', false);
     return;
   }
 
   if (cwEnabled && !contentWarning) {
-    showResult('post-result', 'Please enter a content warning description', false);
+    showComposeResult('Please enter a content warning description', false);
     return;
   }
 
   try {
-    $('create-post-btn').disabled = true;
-    $('create-post-btn').textContent = 'Posting...';
+    composeEl('create-post-btn').disabled = true;
+    composeEl('create-post-btn').textContent = 'Posting...';
 
     // Build post options
     const options = { nsfw };
@@ -75,7 +114,7 @@ export async function createPost(requireMembership, showInvitePopover) {
     const hasMedia = state.pendingMedia !== null;
     const hasLink = state.pendingLink !== null;
     const attachmentType = hasMedia ? 'media' : (hasLink ? 'link preview' : '');
-    showResult('post-result',
+    showComposeResult(
       state.replyingTo
         ? (attachmentType ? `Reply with ${attachmentType} posted!` : 'Reply posted!')
         : (attachmentType ? `Post with ${attachmentType} created!` : 'Post created successfully!'),
@@ -83,12 +122,12 @@ export async function createPost(requireMembership, showInvitePopover) {
     );
 
     // Reset form
-    $('post-content').value = '';
-    $('char-count').textContent = '0';
-    $('post-nsfw').checked = false;
-    $('post-cw-enabled').checked = false;
-    $('post-cw-text').value = '';
-    $('cw-input-wrapper').style.display = 'none';
+    composeEl('post-content').value = '';
+    composeEl('char-count').textContent = '0';
+    composeEl('post-nsfw').checked = false;
+    composeEl('post-cw-enabled').checked = false;
+    composeEl('post-cw-text').value = '';
+    composeEl('cw-input-wrapper').style.display = 'none';
     clearMediaPreview();
     clearLinkPreview();
 
@@ -106,11 +145,11 @@ export async function createPost(requireMembership, showInvitePopover) {
     if (isInvitationRequiredError(error)) {
       showInvitePopover();
     } else {
-      showResult('post-result', `Error: ${error.message}`, false);
+      showComposeResult(`Error: ${error.message}`, false);
     }
   } finally {
-    $('create-post-btn').disabled = false;
-    $('create-post-btn').textContent = 'Post';
+    composeEl('create-post-btn').disabled = false;
+    composeEl('create-post-btn').textContent = 'Post';
   }
 }
 
@@ -125,10 +164,10 @@ export function startReply(postId, author, requireMembership) {
   // Open compose modal (replaces dead tab-switching code)
   window.cloutApp.openComposeModal();
 
-  $('post-content').placeholder = `Reply to ${author}...`;
-  $('post-content').focus();
+  composeEl('post-content').placeholder = `Reply to ${author}...`;
+  composeEl('post-content').focus();
 
-  const helpText = document.querySelector('.help-text');
+  const helpText = composeRoot().querySelector('.help-text');
   helpText.innerHTML = `Replying to post ${postId.slice(0, 8)}... <button onclick="window.cloutApp.cancelReply()" class="btn btn-small">Cancel</button>`;
 }
 
@@ -137,8 +176,8 @@ export function startReply(postId, author, requireMembership) {
  */
 export function cancelReply() {
   state.setReplyingTo(null);
-  $('post-content').placeholder = "What's on your mind?";
-  const helpText = document.querySelector('.help-text');
+  composeEl('post-content').placeholder = "What's on your mind?";
+  const helpText = composeRoot().querySelector('.help-text');
   helpText.textContent = 'Share your thoughts with your trust network';
 }
 
@@ -160,14 +199,14 @@ export function startEditPost(postId, requireMembership) {
   // Open compose modal (replaces dead tab-switching code)
   window.cloutApp.openComposeModal();
 
-  $('post-content').value = currentContent;
-  $('post-content').placeholder = 'Edit your post...';
-  $('char-count').textContent = currentContent.length;
-  $('post-content').focus();
+  composeEl('post-content').value = currentContent;
+  composeEl('post-content').placeholder = 'Edit your post...';
+  composeEl('char-count').textContent = currentContent.length;
+  composeEl('post-content').focus();
 
-  const helpText = document.querySelector('.help-text');
+  const helpText = composeRoot().querySelector('.help-text');
   helpText.innerHTML = `Editing post ${postId.slice(0, 8)}... <button onclick="window.cloutApp.cancelEdit()" class="btn btn-small">Cancel</button>`;
-  $('create-post-btn').textContent = 'Save Edit';
+  composeEl('create-post-btn').textContent = 'Save Edit';
 }
 
 /**
@@ -175,12 +214,12 @@ export function startEditPost(postId, requireMembership) {
  */
 export function cancelEdit() {
   state.setEditingPost(null);
-  $('post-content').value = '';
-  $('post-content').placeholder = "What's on your mind?";
-  $('char-count').textContent = '0';
-  const helpText = document.querySelector('.help-text');
+  composeEl('post-content').value = '';
+  composeEl('post-content').placeholder = "What's on your mind?";
+  composeEl('char-count').textContent = '0';
+  const helpText = composeRoot().querySelector('.help-text');
   helpText.textContent = 'Share your thoughts with your trust network';
-  $('create-post-btn').textContent = 'Post';
+  composeEl('create-post-btn').textContent = 'Post';
 }
 
 /**
@@ -189,19 +228,19 @@ export function cancelEdit() {
 async function saveEdit(requireMembership) {
   if (!state.editingPost) return;
 
-  const content = $('post-content').value.trim();
-  const nsfw = $('post-nsfw').checked;
-  const cwEnabled = $('post-cw-enabled').checked;
-  const contentWarning = cwEnabled ? $('post-cw-text').value.trim() : null;
+  const content = composeEl('post-content').value.trim();
+  const nsfw = composeEl('post-nsfw').checked;
+  const cwEnabled = composeEl('post-cw-enabled').checked;
+  const contentWarning = cwEnabled ? composeEl('post-cw-text').value.trim() : null;
 
   if (!content) {
-    showResult('post-result', 'Please enter some content', false);
+    showComposeResult('Please enter some content', false);
     return;
   }
 
   try {
-    $('create-post-btn').disabled = true;
-    $('create-post-btn').textContent = 'Saving...';
+    composeEl('create-post-btn').disabled = true;
+    composeEl('create-post-btn').textContent = 'Saving...';
 
     // Get browser identity for signing
     if (!window.CloutIdentity || !window.CloutCrypto) {
@@ -246,21 +285,21 @@ async function saveEdit(requireMembership) {
       contentWarning
     });
 
-    showResult('post-result', 'Post edited successfully!', true);
-    $('post-content').value = '';
-    $('char-count').textContent = '0';
-    $('post-nsfw').checked = false;
-    $('post-cw-enabled').checked = false;
-    $('post-cw-text').value = '';
-    $('cw-input-wrapper').style.display = 'none';
+    showComposeResult('Post edited successfully!', true);
+    composeEl('post-content').value = '';
+    composeEl('char-count').textContent = '0';
+    composeEl('post-nsfw').checked = false;
+    composeEl('post-cw-enabled').checked = false;
+    composeEl('post-cw-text').value = '';
+    composeEl('cw-input-wrapper').style.display = 'none';
 
     cancelEdit();
     await loadFeed();
   } catch (error) {
-    showResult('post-result', `Error: ${error.message}`, false);
+    showComposeResult(`Error: ${error.message}`, false);
   } finally {
-    $('create-post-btn').disabled = false;
-    $('create-post-btn').textContent = 'Post';
+    composeEl('create-post-btn').disabled = false;
+    composeEl('create-post-btn').textContent = 'Post';
   }
 }
 
@@ -316,13 +355,16 @@ export async function retractPost(postId, requireMembership) {
 // =========================================================================
 
 /**
- * Setup media upload handlers
+ * Setup media upload handlers on a given compose root.
+ * @param {ParentNode} root - #post-tab or the cloned modal body.
  */
-export function setupMediaUpload() {
-  const dropZone = $('media-drop-zone');
-  const fileInput = $('media-input');
-  const browseBtn = $('media-browse-btn');
-  const removeBtn = $('media-remove-btn');
+export function setupMediaUpload(root) {
+  const dropZone = root.querySelector('#media-drop-zone');
+  const fileInput = root.querySelector('#media-input');
+  const browseBtn = root.querySelector('#media-browse-btn');
+  const removeBtn = root.querySelector('#media-remove-btn');
+
+  if (!dropZone || !fileInput || !browseBtn || !removeBtn) return;
 
   browseBtn.addEventListener('click', (e) => {
     e.preventDefault();
@@ -371,12 +413,12 @@ async function handleMediaFile(file) {
   ];
 
   if (!allowedTypes.includes(file.type)) {
-    showResult('post-result', `Unsupported file type: ${file.type}`, false);
+    showComposeResult(`Unsupported file type: ${file.type}`, false);
     return;
   }
 
   if (file.size > 100 * 1024 * 1024) {
-    showResult('post-result', 'File too large. Maximum size is 100MB.', false);
+    showComposeResult('File too large. Maximum size is 100MB.', false);
     return;
   }
 
@@ -388,12 +430,12 @@ async function handleMediaFile(file) {
  * Show media preview
  */
 function showMediaPreview(file) {
-  const preview = $('media-preview');
-  const dropZone = $('media-drop-zone');
-  const previewContent = $('media-preview-content');
+  const preview = composeEl('media-preview');
+  const dropZone = composeEl('media-drop-zone');
+  const previewContent = composeEl('media-preview-content');
 
-  $('media-preview-name').textContent = file.name;
-  $('media-preview-size').textContent = formatFileSize(file.size);
+  composeEl('media-preview-name').textContent = file.name;
+  composeEl('media-preview-size').textContent = formatFileSize(file.size);
 
   previewContent.innerHTML = '';
 
@@ -428,9 +470,9 @@ function showMediaPreview(file) {
  * Upload media to server
  */
 async function uploadMedia(file) {
-  const progressContainer = $('media-upload-progress');
-  const progressFill = $('progress-fill');
-  const progressText = $('progress-text');
+  const progressContainer = composeEl('media-upload-progress');
+  const progressFill = composeEl('progress-fill');
+  const progressText = composeEl('progress-text');
 
   progressContainer.style.display = 'block';
   progressFill.style.width = '0%';
@@ -460,51 +502,87 @@ async function uploadMedia(file) {
  * Clear media preview
  */
 export function clearMediaPreview() {
-  const preview = $('media-preview');
-  const dropZone = $('media-drop-zone');
-  const previewContent = $('media-preview-content');
-  const progressContainer = $('media-upload-progress');
-  const fileInput = $('media-input');
+  const preview = composeEl('media-preview');
+  const dropZone = composeEl('media-drop-zone');
+  const previewContent = composeEl('media-preview-content');
+  const progressContainer = composeEl('media-upload-progress');
+  const fileInput = composeEl('media-input');
 
-  preview.style.display = 'none';
-  dropZone.style.display = 'block';
-  previewContent.innerHTML = '';
-  progressContainer.style.display = 'none';
-  fileInput.value = '';
+  if (preview) preview.style.display = 'none';
+  if (dropZone) dropZone.style.display = 'block';
+  if (previewContent) previewContent.innerHTML = '';
+  if (progressContainer) progressContainer.style.display = 'none';
+  if (fileInput) fileInput.value = '';
   state.setPendingMedia(null);
 }
 
 /**
- * Setup character counter
+ * Setup character counter for the profile bio field (global, once).
+ * The post-content char counter is wired per compose-root by
+ * setupComposeHandlers() because the compose form is duplicated between
+ * #post-tab and the compose-modal clone.
  */
 export function setupCharCounter() {
-  const textarea = $('post-content');
-  const counter = $('char-count');
-
-  textarea.addEventListener('input', () => {
-    counter.textContent = textarea.value.length;
-  });
-
   const bioTextarea = $('profile-bio');
   const bioCounter = $('bio-char-count');
-  bioTextarea.addEventListener('input', () => {
-    bioCounter.textContent = bioTextarea.value.length;
-  });
+  if (bioTextarea && bioCounter) {
+    bioTextarea.addEventListener('input', () => {
+      bioCounter.textContent = bioTextarea.value.length;
+    });
+  }
+}
+
+/**
+ * Wire all compose-form interactions on a given root (#post-tab or a
+ * cloned template subtree). Call once at bootstrap for #post-tab and
+ * again each time the compose modal clones the template.
+ *
+ * The create-post-btn is intentionally NOT wired here — it uses
+ * data-action="createPost" and is handled by the global click-delegation
+ * dispatcher in app.js, so it works for both the #post-tab button and
+ * the modal clone without per-root wiring.
+ *
+ * @param {ParentNode} root
+ */
+export function setupComposeHandlers(root) {
+  if (!root) return;
+
+  // Char counter
+  const textarea = root.querySelector('#post-content');
+  const counter = root.querySelector('#char-count');
+  if (textarea && counter) {
+    textarea.addEventListener('input', () => {
+      counter.textContent = textarea.value.length;
+    });
+  }
+
+  // Content warning toggle
+  const cwToggle = root.querySelector('#post-cw-enabled');
+  const cwWrapper = root.querySelector('#cw-input-wrapper');
+  const cwText = root.querySelector('#post-cw-text');
+  if (cwToggle && cwWrapper) {
+    cwToggle.addEventListener('change', (e) => {
+      cwWrapper.style.display = e.target.checked ? 'block' : 'none';
+      if (e.target.checked && cwText) cwText.focus();
+    });
+  }
+
+  setupMediaUpload(root);
+  setupAttachmentSelector(root);
+  setupLinkPreview(root);
 }
 
 // =========================================================================
-// Link Preview
+// Attachment Selector & Link Preview
 // =========================================================================
 
 /**
- * Setup attachment type selector (media vs link)
+ * Setup attachment type selector (media vs link) on a given compose root.
+ * @param {ParentNode} root
  */
-export function setupAttachmentSelector() {
-  const mediaBtn = $('attach-media-btn');
-  const linkBtn = $('attach-link-btn');
-  const mediaSection = $('media-upload-section');
-  const linkSection = $('link-input-section');
-
+export function setupAttachmentSelector(root) {
+  const mediaBtn = root.querySelector('#attach-media-btn');
+  const linkBtn = root.querySelector('#attach-link-btn');
   if (!mediaBtn || !linkBtn) return;
 
   mediaBtn.addEventListener('click', () => {
@@ -522,10 +600,10 @@ export function setupAttachmentSelector() {
 function switchAttachmentType(type) {
   activeAttachmentType = type;
 
-  const mediaBtn = $('attach-media-btn');
-  const linkBtn = $('attach-link-btn');
-  const mediaSection = $('media-upload-section');
-  const linkSection = $('link-input-section');
+  const mediaBtn = composeEl('attach-media-btn');
+  const linkBtn = composeEl('attach-link-btn');
+  const mediaSection = composeEl('media-upload-section');
+  const linkSection = composeEl('link-input-section');
 
   if (type === 'media') {
     mediaBtn.classList.add('active');
@@ -545,12 +623,13 @@ function switchAttachmentType(type) {
 }
 
 /**
- * Setup link preview handlers
+ * Setup link preview handlers on a given compose root.
+ * @param {ParentNode} root
  */
-export function setupLinkPreview() {
-  const urlInput = $('link-url-input');
-  const fetchBtn = $('link-fetch-btn');
-  const removeBtn = $('link-remove-btn');
+export function setupLinkPreview(root) {
+  const urlInput = root.querySelector('#link-url-input');
+  const fetchBtn = root.querySelector('#link-fetch-btn');
+  const removeBtn = root.querySelector('#link-remove-btn');
 
   if (!urlInput || !fetchBtn) return;
 
@@ -566,23 +645,25 @@ export function setupLinkPreview() {
     }
   });
 
-  removeBtn.addEventListener('click', () => {
-    clearLinkPreview();
-  });
+  if (removeBtn) {
+    removeBtn.addEventListener('click', () => {
+      clearLinkPreview();
+    });
+  }
 }
 
 /**
  * Fetch OpenGraph metadata for a URL
  */
 async function fetchLinkPreview() {
-  const urlInput = $('link-url-input');
-  const fetchBtn = $('link-fetch-btn');
-  const statusDiv = $('link-fetch-status');
-  const statusText = $('link-fetch-text');
+  const urlInput = composeEl('link-url-input');
+  const fetchBtn = composeEl('link-fetch-btn');
+  const statusDiv = composeEl('link-fetch-status');
+  const statusText = composeEl('link-fetch-text');
 
   const url = urlInput.value.trim();
   if (!url) {
-    showResult('post-result', 'Please enter a URL', false);
+    showComposeResult('Please enter a URL', false);
     return;
   }
 
@@ -590,7 +671,7 @@ async function fetchLinkPreview() {
   try {
     new URL(url);
   } catch {
-    showResult('post-result', 'Please enter a valid URL', false);
+    showComposeResult('Please enter a valid URL', false);
     return;
   }
 
@@ -627,11 +708,11 @@ async function fetchLinkPreview() {
  * Show link preview in the form
  */
 function showLinkPreview(data) {
-  const preview = $('link-preview');
-  const imageDiv = $('link-preview-image');
-  const siteDiv = $('link-preview-site');
-  const titleDiv = $('link-preview-title');
-  const descDiv = $('link-preview-description');
+  const preview = composeEl('link-preview');
+  const imageDiv = composeEl('link-preview-image');
+  const siteDiv = composeEl('link-preview-site');
+  const titleDiv = composeEl('link-preview-title');
+  const descDiv = composeEl('link-preview-description');
 
   // Images not used - hide the div
   if (imageDiv) imageDiv.style.display = 'none';
@@ -648,13 +729,13 @@ function showLinkPreview(data) {
  * Clear link preview
  */
 export function clearLinkPreview() {
-  const urlInput = $('link-url-input');
-  const preview = $('link-preview');
-  const statusDiv = $('link-fetch-status');
-  const imageDiv = $('link-preview-image');
-  const siteDiv = $('link-preview-site');
-  const titleDiv = $('link-preview-title');
-  const descDiv = $('link-preview-description');
+  const urlInput = composeEl('link-url-input');
+  const preview = composeEl('link-preview');
+  const statusDiv = composeEl('link-fetch-status');
+  const imageDiv = composeEl('link-preview-image');
+  const siteDiv = composeEl('link-preview-site');
+  const titleDiv = composeEl('link-preview-title');
+  const descDiv = composeEl('link-preview-description');
 
   if (urlInput) urlInput.value = '';
   if (preview) preview.style.display = 'none';

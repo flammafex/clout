@@ -11,7 +11,7 @@
 import * as state from './state.js';
 import { apiCall, API_BASE } from './api.js';
 import {
-  $, $$, showLoading, showResult, escapeHtml, escapeInlineJsString, formatRelativeTime,
+  $, $$, showLoading, showResult, escapeHtml, formatRelativeTime,
   renderAvatar, getReputationColor, switchToTab, renderMarkdown
 } from './ui.js';
 import { renderReactionsBar } from './reactions.js';
@@ -396,17 +396,28 @@ export async function loadFeed(append = false) {
           <h4>Your feed is quiet</h4>
           <p>Posts from people in your trust circle will appear here.</p>
           <div class="empty-actions">
-            <button class="btn btn-primary" onclick="window.cloutApp.switchToTab('trust')">Add Someone to Trust</button>
-            <button class="btn btn-secondary" onclick="window.cloutApp.openComposeModal()">Write Your First Post</button>
+            <button class="btn btn-primary" data-action="switchToTab" data-tab="trust">Add Someone to Trust</button>
+            <button class="btn btn-secondary" data-action="openComposeModal">Write Your First Post</button>
           </div>
         </div>
       `;
       return;
     }
 
-    // Render posts - use virtual scrolling for large feeds
+    // Render posts.
+    //
+    // NOTE: Virtual scrolling is intentionally disabled. The VirtualScroller
+    // class (above) uses a fixed itemHeight=180 for positioning, but real feed
+    // items vary widely in height (media, content warnings, long markdown, link
+    // previews can be 400-800px+). The fixed-height assumption caused gaps,
+    // overlaps, and scroll jumps. Most feeds don't exceed the >20 post
+    // threshold where virtual scrolling would even engage, and the correctness
+    // bug is worse than the perf cost of rendering all items directly. The
+    // VirtualScroller class is retained for a future dynamic-measurement
+    // rewrite; for now we always render via the standard path.
     const config = state.getVirtualScrollConfig();
-    const useVirtualScroll = config.enabled && filteredPosts.length > 20;
+    const useVirtualScroll = false;
+    void config; // config retained for future re-enablement
 
     if (useVirtualScroll) {
       const scroller = getVirtualScroller(feedList);
@@ -430,7 +441,7 @@ export async function loadFeed(append = false) {
 
           feedList.insertAdjacentHTML('beforeend', `
             <div class="load-more-container">
-              <button class="btn btn-secondary load-more-btn" onclick="window.cloutApp.loadMorePosts()">
+              <button class="btn btn-secondary load-more-btn" data-action="loadMorePosts">
                 Load More
               </button>
             </div>
@@ -460,7 +471,7 @@ export async function loadFeed(append = false) {
       if (state.feedHasMore) {
         feedList.insertAdjacentHTML('beforeend', `
           <div class="load-more-container">
-            <button class="btn btn-secondary load-more-btn" onclick="window.cloutApp.loadMorePosts()">
+            <button class="btn btn-secondary load-more-btn" data-action="loadMorePosts">
               Load More
             </button>
           </div>
@@ -528,7 +539,7 @@ export async function loadVisitorFeed() {
           <h4>Welcome to Clout</h4>
           <p>${data.message || 'Clout is an invitation-only network. Get an invitation from someone you know to join the conversation.'}</p>
           <div class="empty-actions">
-            <button class="btn btn-primary" onclick="window.cloutApp.showInvitePopover()">&#x1F39F; I Have an Invitation</button>
+            <button class="btn btn-primary" data-action="showInvitePopover">&#x1F39F; I Have an Invitation</button>
           </div>
           <p class="help-text" style="margin-top: 1rem;">
             Don't have an invitation? Ask someone in the network to invite you.
@@ -547,7 +558,7 @@ export async function loadVisitorFeed() {
             <h4>Welcome to Clout</h4>
             <p>This network is waiting for its first post. Join with an invitation code!</p>
             <div class="empty-actions">
-              <button class="btn btn-primary" onclick="window.cloutApp.showInvitePopover()">&#x1F39F; I Have an Invitation</button>
+              <button class="btn btn-primary" data-action="showInvitePopover">&#x1F39F; I Have an Invitation</button>
             </div>
           </div>
         `;
@@ -559,8 +570,8 @@ export async function loadVisitorFeed() {
           <h4>Your feed is quiet</h4>
           <p>Posts from people in your trust circle will appear here.</p>
           <div class="empty-actions">
-            <button class="btn btn-primary" onclick="window.cloutApp.switchToTab('trust')">Add Someone to Trust</button>
-            <button class="btn btn-secondary" onclick="window.cloutApp.openComposeModal()">Write Your First Post</button>
+            <button class="btn btn-primary" data-action="switchToTab" data-tab="trust">Add Someone to Trust</button>
+            <button class="btn btn-secondary" data-action="openComposeModal">Write Your First Post</button>
           </div>
         </div>
       `;
@@ -672,7 +683,7 @@ async function loadFeedByTag(tag) {
           <div class="empty-icon">🏷️</div>
           <h4>No posts from "${escapeHtml(tag)}"</h4>
           <p>Posts from users tagged "${escapeHtml(tag)}" will appear here.</p>
-          <button class="btn btn-secondary" onclick="window.cloutApp.filterByTag('${escapeInlineJsString(tag)}')">Clear Filter</button>
+          <button class="btn btn-secondary" data-action="filterByTag" data-tag="${escapeHtml(tag)}">Clear Filter</button>
         </div>
       `;
       return;
@@ -703,7 +714,7 @@ async function loadTagFilterPills() {
     wrapper.style.display = 'flex';
     container.innerHTML = data.tags.map(tag => `
       <button class="tag-pill${state.currentTagFilter === tag.tag ? ' active' : ''}"
-              onclick="window.cloutApp.filterByTag('${escapeInlineJsString(tag.tag)}')"
+              data-action="filterByTag" data-tag="${escapeHtml(tag.tag)}"
               title="${tag.count} users">
         ${escapeHtml(tag.tag)}
       </button>
@@ -840,7 +851,7 @@ export async function searchPosts() {
       $('feed-list').innerHTML = `
         <div class="empty-state">
           <p>No posts found for "${escapeHtml(query)}"</p>
-          <button class="btn btn-small" onclick="window.cloutApp.clearSearch()">Clear Search</button>
+          <button class="btn btn-small" data-action="clearSearch">Clear Search</button>
         </div>
       `;
       return;
@@ -902,7 +913,7 @@ export function renderFeedItem(post, fullFeatures = true) {
 
   // Quick trust button (+ next to author) - hide for visitors
   const quickTrustBtn = (!visitor && !isYou && !isDirectTrust && fullFeatures)
-    ? `<button class="btn-trust-quick" onclick="event.stopPropagation(); window.cloutApp.quickTrust('${escapeInlineJsString(post.author)}')" title="Add to your circle">+</button>`
+    ? `<button class="btn-trust-quick" data-action="quickTrust" data-author="${escapeHtml(post.author)}" title="Add to your circle">+</button>`
     : '';
 
   // Reputation badge (hop distance) - hide for visitors
@@ -914,13 +925,13 @@ export function renderFeedItem(post, fullFeatures = true) {
 
   // Mute/Redact button - hide for visitors
   const muteBtn = (!visitor && !isYou && fullFeatures)
-    ? `<button class="btn-action btn-mute" onclick="event.stopPropagation(); window.cloutApp.muteUser('${escapeInlineJsString(post.author)}', '${escapeInlineJsString(post.authorDisplayName || '')}')" title="Redact this user">Redact</button>`
+    ? `<button class="btn-action btn-mute" data-action="muteUser" data-author="${escapeHtml(post.author)}" data-display-name="${escapeHtml(post.authorDisplayName || '')}" title="Redact this user">Redact</button>`
     : '';
 
   // Author actions (Revise/Retract) - hide for visitors
   const authorActions = (!visitor && post.isAuthor && fullFeatures)
-    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${escapeInlineJsString(post.id)}')" title="Revise post">Revise</button>
-       <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${escapeInlineJsString(post.id)}')" title="Retract post">Retract</button>`
+    ? `<button class="btn-action" data-action="startEditPost" data-post-id="${escapeHtml(post.id)}" title="Revise post">Revise</button>
+       <button class="btn-action btn-retract" data-action="retractPost" data-post-id="${escapeHtml(post.id)}" title="Retract post">Retract</button>`
     : '';
 
   const editedIndicator = post.isEdited ? '<span class="edited-badge" title="This post has been edited">edited</span>' : '';
@@ -936,19 +947,19 @@ export function renderFeedItem(post, fullFeatures = true) {
 
   // Save button - hide for visitors
   const saveBtn = visitor ? '' : `
-    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${escapeInlineJsString(post.id)}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" data-action="toggleBookmark" data-post-id="${escapeHtml(post.id)}" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
       ${post.isBookmarked ? 'Saved' : 'Save'}
     </button>`;
 
   // Reply button - hide for visitors
   const replyBtn = visitor ? '' : `
-    <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${escapeInlineJsString(post.id)}', '${escapeInlineJsString(authorName)}')">Reply</button>`;
+    <button class="btn-action" data-action="startReply" data-post-id="${escapeHtml(post.id)}" data-author-name="${escapeHtml(authorName)}">Reply</button>`;
 
   const authorAvatar = post.authorAvatar || '&#x1F464;';
 
   return `
-    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasLink ? 'has-link' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" onclick="window.cloutApp.viewThread('${escapeInlineJsString(post.id)}')" style="cursor: pointer;">
-      <div class="feed-item-wrapper">
+    <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasLink ? 'has-link' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" role="button" tabindex="0" aria-label="Open post thread" data-action="viewThread" data-post-id="${escapeHtml(post.id)}" style="cursor: pointer;">
+      <div class="feed-item-wrapper" role="article">
         <div class="feed-avatar">${renderAvatar(authorAvatar)}</div>
         <div class="feed-post-content">
           <div class="feed-header">
@@ -964,10 +975,10 @@ export function renderFeedItem(post, fullFeatures = true) {
               ${hasCW ? `<span class="cw-badge">CW: ${escapeHtml(post.contentWarning)}</span>` : ''}
             </div>
           </div>
-          ${post.replyTo ? `<div class="feed-reply-indicator">&#x21B3; Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); window.cloutApp.viewThread('${escapeInlineJsString(post.resolvedReplyTo || post.replyTo)}')">View parent</a></div>` : ''}
+          ${post.replyTo ? `<div class="feed-reply-indicator">&#x21B3; Reply to ${post.replyTo.slice(0, 8)}... <a href="#" data-action="viewThread" data-post-id="${escapeHtml(post.resolvedReplyTo || post.replyTo)}">View parent</a></div>` : ''}
           ${hasCW ? `
             <div class="cw-wrapper" id="${cwId}">
-              <button class="cw-reveal-btn" onclick="event.stopPropagation(); window.cloutApp.toggleCW('${escapeInlineJsString(cwId)}')">
+              <button class="cw-reveal-btn" data-action="toggleCW" data-cw-id="${escapeHtml(cwId)}">
                 &#x26A0;&#xFE0F; ${escapeHtml(post.contentWarning)} - Click to reveal
               </button>
               <div class="cw-content" style="display: none;">
@@ -1009,7 +1020,7 @@ function isLinkPreviewExpired(link) {
  */
 function renderLinkPreviewCard(link, expired = false) {
   if (expired) {
-    return `<div class="post-link-expired"><span class="post-link-expired-icon">&#x1F517;</span><span class="post-link-expired-text">Link preview expired</span><a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-expired-url" onclick="event.stopPropagation();">${escapeHtml(link.url)}</a></div>`;
+    return `<div class="post-link-expired"><span class="post-link-expired-icon">&#x1F517;</span><span class="post-link-expired-text">Link preview expired</span><a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-expired-url" data-action="none">${escapeHtml(link.url)}</a></div>`;
   }
 
   const hostname = (() => {
@@ -1020,7 +1031,7 @@ function renderLinkPreviewCard(link, expired = false) {
     }
   })();
 
-  return `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-preview" onclick="event.stopPropagation();"><div class="post-link-preview-content"><div class="post-link-preview-site">${escapeHtml(link.siteName || hostname)}</div><div class="post-link-preview-title">${escapeHtml(link.title || 'Untitled')}</div>${link.description ? `<div class="post-link-preview-description">${escapeHtml(link.description)}</div>` : ''}<div class="post-link-preview-url">${escapeHtml(hostname)}</div></div></a>`;
+  return `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener" class="post-link-preview" data-action="none"><div class="post-link-preview-content"><div class="post-link-preview-site">${escapeHtml(link.siteName || hostname)}</div><div class="post-link-preview-title">${escapeHtml(link.title || 'Untitled')}</div>${link.description ? `<div class="post-link-preview-description">${escapeHtml(link.description)}</div>` : ''}<div class="post-link-preview-url">${escapeHtml(hostname)}</div></div></a>`;
 }
 
 /**

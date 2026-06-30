@@ -7,46 +7,15 @@
  * - Background sync queue for offline actions (future)
  */
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const STATIC_CACHE = `clout-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `clout-dynamic-${CACHE_VERSION}`;
 
-// Static assets to cache on install
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/styles.css',
-  '/clout.webp',
-  '/js/app.js',
-  '/js/admin.js',
-  '/js/api.js',
-  '/js/feed.js',
-  '/js/invite.js',
-  '/js/notifications.js',
-  '/js/posts.js',
-  '/js/profile.js',
-  '/js/reactions.js',
-  '/js/slides.js',
-  '/js/state.js',
-  '/js/thread.js',
-  '/js/trust.js',
-  '/js/ui.js',
-  '/clout-modules.js',
-  '/crypto-browser.js',
-  '/identity-browser.js',
-  '/user-data-browser.js',
-  '/daypass-browser.js',
-  '/voprf-browser.js',
-  '/manifest.json',
-  '/vendor/noble/hashes-sha256.js',
-  '/vendor/noble/hashes-hkdf.js',
-  '/vendor/noble/hashes-utils.js',
-  '/vendor/noble/curves-ed25519.js',
-  '/vendor/noble/curves-p256.js',
-  '/vendor/noble/ciphers-chacha.js',
-  '/vendor/noble/ciphers-webcrypto.js',
-  '/vendor/qrcode.min.js'
-];
+// Manifest of static assets to precache on install. Generated at build time
+// by scripts/generate-sw-assets.mjs from the contents of src/web/public/.
+// The service worker fetches this on install so the precache list stays in
+// sync with actual files automatically — no manual edits required.
+const SW_ASSETS_URL = '/sw-assets.json';
 
 // API routes that should use network-first strategy
 const API_ROUTES = ['/api/'];
@@ -56,10 +25,17 @@ self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker...');
 
   event.waitUntil(
-    caches.open(STATIC_CACHE)
-      .then((cache) => {
-        console.log('[SW] Caching static assets...');
-        return cache.addAll(STATIC_ASSETS);
+    fetch(SW_ASSETS_URL)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ${SW_ASSETS_URL}: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((assets) => {
+        console.log(`[SW] Caching ${assets.length} static assets from manifest...`);
+        const cacheList = assets.concat([SW_ASSETS_URL]);
+        return caches.open(STATIC_CACHE).then((cache) => cache.addAll(cacheList));
       })
       .then(() => {
         console.log('[SW] Static assets cached');

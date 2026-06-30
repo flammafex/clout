@@ -10,6 +10,75 @@ import * as state from './state.js';
 export const $ = (id) => document.getElementById(id);
 export const $$ = (selector) => document.querySelectorAll(selector);
 
+// =========================================================================
+// Focus management for modals/dialogs
+// =========================================================================
+
+let lastFocusedElement = null;
+
+/**
+ * Move focus into a container and trap Tab key within it.
+ * Saves the currently-focused element so it can be restored by releaseFocus().
+ */
+export function trapFocus(container) {
+  if (!container) return;
+  // Save the currently focused element to restore later
+  lastFocusedElement = document.activeElement;
+
+  // Move focus to the first focusable element in the container
+  const focusable = container.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusable.length > 0) {
+    focusable[0].focus();
+  }
+
+  // Trap Tab key within the container.
+  // Re-query focusable elements on each Tab press so dynamically
+  // added/removed content (e.g. compose modal section moved in/out) is picked up.
+  const trapHandler = (e) => {
+    if (e.key !== 'Tab') return;
+    const focusableNow = container.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusableNow.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = focusableNow[0];
+    const last = focusableNow[focusableNow.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
+  container.addEventListener('keydown', trapHandler);
+  container._focusTrapHandler = trapHandler;
+}
+
+/**
+ * Remove focus trap and restore focus to the element that was focused
+ * before trapFocus() was called.
+ */
+export function releaseFocus(container) {
+  if (!container) return;
+  if (container._focusTrapHandler) {
+    container.removeEventListener('keydown', container._focusTrapHandler);
+    delete container._focusTrapHandler;
+  }
+  if (lastFocusedElement) {
+    lastFocusedElement.focus();
+    lastFocusedElement = null;
+  }
+}
+
 /**
  * Show loading spinner in a container
  */
@@ -216,11 +285,21 @@ export async function copyToClipboard(text) {
 }
 
 /**
- * Switch to a specific tab
+ * Switch to a specific tab by toggling the `.active` class directly.
+ *
+ * This performs the DOM toggle only — it does NOT call tab loaders or
+ * update the URL hash. The router (router.js) calls this and then invokes
+ * the appropriate loader. Callers that need a tab switch without a history
+ * entry (e.g. focusing the feed before a search) may also call this.
  */
 export function switchToTab(tabName) {
   const tabBtn = document.querySelector(`.tab-btn[data-tab="${tabName}"]`);
-  if (tabBtn) tabBtn.click();
+  if (!tabBtn) return;
+  $$('.tab-btn').forEach(b => b.classList.remove('active'));
+  tabBtn.classList.add('active');
+  $$('.tab-content').forEach(content => content.classList.remove('active'));
+  const panel = $(`${tabName}-tab`);
+  if (panel) panel.classList.add('active');
 }
 
 /**

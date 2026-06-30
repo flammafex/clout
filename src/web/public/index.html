@@ -15,7 +15,15 @@
   <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
   <link rel="apple-touch-icon" href="/icons/icon.svg">
 
-  <link rel="stylesheet" href="styles.css">
+  <!-- Stylesheets split by concern; load order matches @layer order declared in base.css -->
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/layout.css">
+  <link rel="stylesheet" href="styles/feed.css">
+  <link rel="stylesheet" href="styles/trust.css">
+  <link rel="stylesheet" href="styles/profile.css">
+  <link rel="stylesheet" href="styles/modals.css">
+  <link rel="stylesheet" href="styles/admin.css">
+  <link rel="stylesheet" href="styles/pwa.css">
   <script src="/vendor/qrcode.min.js"></script>
 
   <!-- Import map for @noble/* crypto libraries (browser-compatible builds) -->
@@ -57,7 +65,7 @@
     <!-- Invite Required Popover -->
     <div id="invite-popover" class="popover" role="dialog" aria-modal="true" style="display: none;">
       <div class="popover-content">
-        <button class="popover-close" onclick="window.cloutApp.closeInvitePopover()">×</button>
+        <button class="popover-close" data-action="closeInvitePopover">×</button>
         <h3>🎟️ Join Clout</h3>
         <p>Clout is an invitation-only network. Redeem your invitation to create your identity and join the conversation.</p>
 
@@ -65,7 +73,7 @@
           <h4>Have an invitation code?</h4>
           <div class="invite-input-group">
             <input type="text" id="invite-code-input" class="input" placeholder="Enter invitation code">
-            <button id="redeem-invite-btn" class="btn btn-primary" onclick="window.cloutApp.redeemInvite()">Join Network</button>
+            <button id="redeem-invite-btn" class="btn btn-primary" data-action="redeemInvite">Join Network</button>
           </div>
           <div id="invite-result" class="result-message"></div>
         </div>
@@ -86,7 +94,7 @@
     <!-- Restore Identity Popover -->
     <div id="restore-popover" class="popover" role="dialog" aria-modal="true" style="display: none;">
       <div class="popover-content">
-        <button class="popover-close" onclick="window.cloutApp.closeRestorePopover()">×</button>
+        <button class="popover-close" data-action="closeRestorePopover">×</button>
         <h3>🔑 Restore Identity</h3>
         <p>Restore your Clout identity from a backup file.</p>
 
@@ -95,7 +103,7 @@
           <div class="restore-input-group">
             <input type="file" id="restore-file-input" class="input" accept=".backup">
             <input type="password" id="restore-password-input" class="input" placeholder="Backup password">
-            <button id="restore-file-btn" class="btn btn-primary" onclick="window.cloutApp.restoreFromFile()">Restore</button>
+            <button id="restore-file-btn" class="btn btn-primary" data-action="restoreFromFile">Restore</button>
           </div>
         </div>
 
@@ -221,7 +229,7 @@
 
         <!-- New Posts Banner -->
         <div id="new-posts-banner" class="new-posts-banner" style="display: none;">
-          <button onclick="window.cloutApp.loadNewPosts()">&#x2B06;&#xFE0F; <span id="new-posts-count">0</span> new posts - Click to load</button>
+          <button data-action="loadNewPosts">&#x2B06;&#xFE0F; <span id="new-posts-count">0</span> new posts - Click to load</button>
         </div>
 
         <div id="feed-result" class="result-message"></div>
@@ -330,7 +338,7 @@
               <p class="help-text-small">Content marked NSFW will only be visible to users who have enabled NSFW in settings</p>
             </div>
 
-            <button id="create-post-btn" class="btn btn-primary">Post</button>
+            <button id="create-post-btn" class="btn btn-primary" data-action="createPost">Post</button>
           </div>
 
           <div id="post-result" class="result-message" style="display: none;"></div>
@@ -521,13 +529,13 @@
                 </select>
               </div>
 
-              <button id="delegate-btn" class="btn btn-primary" onclick="window.cloutApp.delegatePass()">Delegate Day Pass</button>
+              <button id="delegate-btn" class="btn btn-primary" data-action="delegatePass">Delegate Day Pass</button>
               <div id="delegate-result" class="result-message" style="display: none;"></div>
             </div>
 
             <div id="accept-delegation-section" style="display: none;">
               <p class="help-text-success">You have a pending Day Pass delegation!</p>
-              <button id="accept-delegation-btn" class="btn btn-primary" onclick="window.cloutApp.acceptDelegation()">Accept Delegation</button>
+              <button id="accept-delegation-btn" class="btn btn-primary" data-action="acceptDelegation">Accept Delegation</button>
               <div id="accept-result" class="result-message" style="display: none;"></div>
             </div>
           </div>
@@ -623,8 +631,8 @@
               <div class="public-key-box">
                 <code id="identity-public-key">Loading...</code>
                 <div class="key-actions">
-                  <button class="btn btn-small" onclick="copyToClipboard('identity-public-key')">Copy</button>
-                  <button class="btn btn-small" onclick="toggleQRCode()">QR Code</button>
+                  <button class="btn btn-small" data-action="copyToClipboard" data-element-id="identity-public-key">Copy</button>
+                  <button class="btn btn-small" data-action="toggleQRCode">QR Code</button>
                 </div>
               </div>
 
@@ -778,12 +786,12 @@
 
             <!-- Create Invitation -->
             <div class="create-invite-section">
-              <button id="create-member-invite-btn" class="btn btn-primary" onclick="window.cloutApp.createMemberInvitation()">Generate Invitation Code</button>
+              <button id="create-member-invite-btn" class="btn btn-primary" data-action="createMemberInvitation">Generate Invitation Code</button>
               <div id="member-invite-result" class="result-message"></div>
               <div id="member-created-code" class="member-code-display" style="display: none;">
                 <p>Share this code with someone you vouch for:</p>
                 <code id="member-invite-code"></code>
-                <button class="btn btn-small" onclick="window.cloutApp.copyMemberCode()">Copy</button>
+                <button class="btn btn-small" data-action="copyMemberCode">Copy</button>
               </div>
             </div>
 
@@ -827,7 +835,7 @@
             <div class="public-key-box">
               <code id="owner-public-key">Loading...</code>
               <div class="key-actions">
-                <button class="btn btn-small" onclick="copyToClipboard('owner-public-key')">Copy</button>
+                <button class="btn btn-small" data-action="copyToClipboard" data-element-id="owner-public-key">Copy</button>
               </div>
             </div>
           </div>
@@ -842,7 +850,7 @@
               <div id="owner-pgp-key-container">
                 <pre id="owner-pgp-key" class="pgp-key-display">No PGP key configured</pre>
               </div>
-              <button class="btn btn-small" id="copy-pgp-key-btn" onclick="copyToClipboard('owner-pgp-key')" style="display: none;">Copy PGP Key</button>
+              <button class="btn btn-small" id="copy-pgp-key-btn" data-action="copyToClipboard" data-element-id="owner-pgp-key" style="display: none;">Copy PGP Key</button>
             </div>
 
             <div class="contact-section">
@@ -860,7 +868,7 @@
               <h4>Browser Identity Backup</h4>
               <p class="help-text-small">Save your browser identity to this server for safekeeping. If you ever clear your browser data, you can restore it here.</p>
               <div class="backup-controls">
-                <button id="backup-identity-btn" class="btn btn-primary" onclick="window.cloutApp.backupBrowserIdentity()">Backup Identity to Server</button>
+                <button id="backup-identity-btn" class="btn btn-primary" data-action="backupBrowserIdentity">Backup Identity to Server</button>
                 <div id="backup-result" class="result-message"></div>
               </div>
             </div>
@@ -872,7 +880,7 @@
                 <select id="restore-identity-select" class="input">
                   <option value="">Select a saved identity...</option>
                 </select>
-                <button id="restore-identity-btn" class="btn" onclick="window.cloutApp.restoreFromServer()">Restore</button>
+                <button id="restore-identity-btn" class="btn" data-action="restoreFromServer">Restore</button>
               </div>
               <div id="restore-result" class="result-message"></div>
             </div>
@@ -889,7 +897,7 @@
               <p class="help-text-small">Find which invitation code a user redeemed. Use this to revoke access in Freebird Admin.</p>
               <div class="lookup-user-form">
                 <input type="text" id="lookup-user-pubkey" class="input" placeholder="User's public key (64 hex chars)">
-                <button id="lookup-user-btn" class="btn btn-primary" onclick="window.cloutApp.lookupUser()">Lookup</button>
+                <button id="lookup-user-btn" class="btn btn-primary" data-action="lookupUser">Lookup</button>
               </div>
               <div id="lookup-user-result" class="result-message"></div>
             </div>
@@ -899,7 +907,7 @@
               <h4>👥 Members & Quota</h4>
               <p class="help-text-small">Manage member invitation quotas. Members with quota can invite others to join.</p>
               <div class="members-controls">
-                <button id="refresh-members-btn" class="btn btn-secondary" onclick="window.cloutApp.loadAdminMembers()">Refresh Members</button>
+                <button id="refresh-members-btn" class="btn btn-secondary" data-action="loadAdminMembers">Refresh Members</button>
               </div>
               <div id="admin-members-list" class="admin-list">
                 <p class="empty-state">Click "Refresh Members" to load the member list.</p>
@@ -909,7 +917,7 @@
                 <div class="form-row">
                   <input type="text" id="grant-quota-pubkey" class="input" placeholder="Member's public key (64 hex chars)">
                   <input type="number" id="grant-quota-amount" class="input input-small" placeholder="Amount" min="1" max="100" value="5">
-                  <button id="grant-quota-btn" class="btn btn-primary" onclick="window.cloutApp.grantQuota()">Grant</button>
+                  <button id="grant-quota-btn" class="btn btn-primary" data-action="grantQuota">Grant</button>
                 </div>
                 <div id="grant-quota-result" class="result-message"></div>
               </div>
@@ -923,7 +931,7 @@
                 <div class="form-row">
                   <input type="number" id="owner-invite-count" class="input input-small" placeholder="Count" min="1" max="100" value="1">
                   <input type="number" id="owner-invite-days" class="input input-small" placeholder="Days" min="1" max="365" value="30">
-                  <button id="owner-create-invite-btn" class="btn btn-primary" onclick="window.cloutApp.ownerCreateInvitations()">Create</button>
+                  <button id="owner-create-invite-btn" class="btn btn-primary" data-action="ownerCreateInvitations">Create</button>
                 </div>
                 <div id="owner-invite-result" class="result-message"></div>
                 <div id="owner-created-codes" class="owner-codes-display" style="display: none;">
@@ -938,7 +946,7 @@
               <h4>📋 All Invitations</h4>
               <p class="help-text-small">View all invitations created in this instance.</p>
               <div class="invitations-controls">
-                <button id="refresh-invitations-btn" class="btn btn-secondary" onclick="window.cloutApp.loadAdminInvitations()">Refresh Invitations</button>
+                <button id="refresh-invitations-btn" class="btn btn-secondary" data-action="loadAdminInvitations">Refresh Invitations</button>
               </div>
               <div id="admin-invitations-list" class="admin-list">
                 <p class="empty-state">Click "Refresh Invitations" to load all invitations.</p>
@@ -963,10 +971,10 @@
         <div class="sidebar-widget sidebar-feed-legend">
           <h4>Feed Legend</h4>
           <div class="legend-levels">
-            <div class="legend-item"><span class="legend-color" style="background: var(--primary)"></span><div class="legend-text"><strong>Self</strong><span class="legend-desc">Your own posts</span></div></div>
-            <div class="legend-item"><span class="legend-color" style="background: #22c55e"></span><div class="legend-text"><strong>Direct (1 hop)</strong><span class="legend-desc">People you personally trust</span></div></div>
-            <div class="legend-item"><span class="legend-color" style="background: #eab308"></span><div class="legend-text"><strong>Friends of Friends (2 hops)</strong><span class="legend-desc">Vouched for by someone you trust</span></div></div>
-            <div class="legend-item"><span class="legend-color" style="background: #f97316"></span><div class="legend-text"><strong>Extended Network (3 hops)</strong><span class="legend-desc">Within your wider web of trust</span></div></div>
+            <div class="legend-item"><span class="legend-color" style="background: var(--hop-self)"></span><div class="legend-text"><strong>Self</strong><span class="legend-desc">Your own posts</span></div></div>
+            <div class="legend-item"><span class="legend-color" style="background: var(--hop-1)"></span><div class="legend-text"><strong>Direct (1 hop)</strong><span class="legend-desc">People you personally trust</span></div></div>
+            <div class="legend-item"><span class="legend-color" style="background: var(--hop-2)"></span><div class="legend-text"><strong>Friends of Friends (2 hops)</strong><span class="legend-desc">Vouched for by someone you trust</span></div></div>
+            <div class="legend-item"><span class="legend-color" style="background: var(--hop-3)"></span><div class="legend-text"><strong>Extended Network (3 hops)</strong><span class="legend-desc">Within your wider web of trust</span></div></div>
           </div>
         </div>
 
@@ -1000,7 +1008,7 @@
 
       </div>
 
-      <button id="mobile-compose-fab" class="mobile-compose-fab" onclick="window.cloutApp.openComposeModal()" title="Create post">+</button>
+      <button id="mobile-compose-fab" class="mobile-compose-fab" data-action="openComposeModal" title="Create post">+</button>
 
       <div id="mobile-more-sheet" class="mobile-more-sheet" style="display: none;">
         <div id="mobile-more-backdrop" class="mobile-more-backdrop"></div>
@@ -1013,6 +1021,120 @@
     </div>
   </div>
 
+  <!-- Compose Template
+       Cloned into #compose-modal-body each time the compose modal opens.
+       Kept in sync with the #post-tab .section markup below. Elements use
+       the same IDs as #post-tab; lookups in posts.js scope to the active
+       compose root (modal body when open, #post-tab otherwise) so the
+       duplicate IDs are unambiguous. -->
+  <template id="compose-template">
+    <div class="section">
+      <h2>📝 Create Post</h2>
+      <p class="help-text">Share your thoughts with your trust network</p>
+
+      <div class="form-card">
+        <textarea
+          id="post-content"
+          placeholder="What's on your mind?"
+          class="textarea"
+          maxlength="500"
+        ></textarea>
+        <div class="char-count">
+          <span id="char-count">0</span>/500
+        </div>
+
+        <!-- Attachment Type Selector -->
+        <div class="attachment-type-selector">
+          <span class="attachment-label">Attach:</span>
+          <button type="button" id="attach-media-btn" class="attachment-btn active" title="Attach media file">
+            <span class="attachment-icon">📎</span> Media
+          </button>
+          <button type="button" id="attach-link-btn" class="attachment-btn" title="Attach link preview">
+            <span class="attachment-icon">🔗</span> Link
+          </button>
+        </div>
+
+        <!-- Media Upload Section -->
+        <div id="media-upload-section" class="media-upload-section">
+          <div id="media-drop-zone" class="media-drop-zone">
+            <input type="file" id="media-input" accept="image/*,video/*,audio/*,application/pdf" style="display: none;">
+            <div class="drop-zone-content">
+              <span class="drop-icon">📎</span>
+              <span class="drop-text">Drop media here or <button type="button" id="media-browse-btn" class="btn-link">browse</button></span>
+              <span class="drop-hint">Images, videos, audio, PDFs (max 100MB)</span>
+            </div>
+          </div>
+
+          <!-- Media Preview -->
+          <div id="media-preview" class="media-preview" style="display: none;">
+            <div class="media-preview-header">
+              <span id="media-preview-name">filename.jpg</span>
+              <span id="media-preview-size">0 KB</span>
+              <button type="button" id="media-remove-btn" class="btn-remove" title="Remove media">✕</button>
+            </div>
+            <div id="media-preview-content" class="media-preview-content"></div>
+            <div id="media-upload-progress" class="media-upload-progress" style="display: none;">
+              <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill"></div>
+              </div>
+              <span id="progress-text">Uploading...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Link Preview Section -->
+        <div id="link-input-section" class="link-input-section" style="display: none;">
+          <div class="link-input-wrapper">
+            <input type="url" id="link-url-input" class="input" placeholder="Paste a URL to preview...">
+            <button type="button" id="link-fetch-btn" class="btn btn-small">Preview</button>
+          </div>
+          <p class="help-text-small">Link previews expire after 24 hours</p>
+
+          <!-- Link Preview -->
+          <div id="link-preview" class="link-preview-card" style="display: none;">
+            <button type="button" id="link-remove-btn" class="btn-remove" title="Remove link">✕</button>
+            <div id="link-preview-image" class="link-preview-image"></div>
+            <div class="link-preview-content">
+              <div id="link-preview-site" class="link-preview-site"></div>
+              <div id="link-preview-title" class="link-preview-title"></div>
+              <div id="link-preview-description" class="link-preview-description"></div>
+            </div>
+          </div>
+
+          <!-- Link Fetch Status -->
+          <div id="link-fetch-status" class="link-fetch-status" style="display: none;">
+            <span id="link-fetch-text">Fetching preview...</span>
+          </div>
+        </div>
+
+        <!-- Content Warning -->
+        <div class="content-warning-section">
+          <label class="checkbox-label">
+            <input type="checkbox" id="post-cw-enabled">
+            <span class="checkbox-text">Add Content Warning</span>
+          </label>
+          <div id="cw-input-wrapper" class="cw-input-wrapper" style="display: none;">
+            <input type="text" id="post-cw-text" class="input" placeholder="e.g., spoilers, politics, food" maxlength="50">
+            <p class="help-text-small">Content will be hidden behind this warning until clicked</p>
+          </div>
+        </div>
+
+        <!-- NSFW Toggle -->
+        <div class="nsfw-toggle">
+          <label class="checkbox-label">
+            <input type="checkbox" id="post-nsfw">
+            <span class="checkbox-text">Mark as NSFW (Not Safe For Work)</span>
+          </label>
+          <p class="help-text-small">Content marked NSFW will only be visible to users who have enabled NSFW in settings</p>
+        </div>
+
+        <button id="create-post-btn" class="btn btn-primary" data-action="createPost">Post</button>
+      </div>
+
+      <div id="post-result" class="result-message" style="display: none;"></div>
+    </div>
+  </template>
+
   <!-- Compose Modal -->
   <div id="compose-modal" class="compose-modal-overlay">
     <div class="compose-modal" role="dialog" aria-modal="true" aria-label="Compose post">
@@ -1021,7 +1143,7 @@
         <button class="compose-modal-close" id="compose-modal-close" aria-label="Close">&times;</button>
       </div>
       <div class="compose-modal-body" id="compose-modal-body">
-        <!-- #post-tab content moved here on open, moved back on close -->
+        <!-- Template #compose-template cloned here on open; cleared on close. -->
       </div>
     </div>
   </div>

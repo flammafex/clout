@@ -11,7 +11,7 @@
   "scripts": {
     "clean": "rm -rf dist build coverage .nyc_output tmp temp && find . -name '*.tsbuildinfo' -type f -delete",
     "build": "tsc && npm run copy-static",
-    "copy-static": "mkdir -p dist/src/web && mkdir -p dist/src/vendor/hypertoken && cp -r src/web/public dist/src/web/ 2>/dev/null || true && cp -r src/vendor/hypertoken/pkg dist/src/vendor/hypertoken/ 2>/dev/null || true",
+    "copy-static": "node scripts/generate-sw-assets.mjs && mkdir -p dist/src/web && mkdir -p dist/src/vendor/hypertoken && cp -r src/web/public dist/src/web/ 2>/dev/null || true && cp -r src/vendor/hypertoken/pkg dist/src/vendor/hypertoken/ 2>/dev/null || true",
     "dev": "tsc --watch",
     "web": "npm run build && node dist/src/web/server.js",
     "web:dev": "tsc && npm run copy-static && node dist/src/web/server.js",
