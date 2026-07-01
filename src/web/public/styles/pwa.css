@@ -50,6 +50,21 @@
   font-size: 0.9rem;
 }
 
+/* Constrain images (instance logo, header art) inside the banner so they
+   never overflow the container, and center them for the stacked layout. */
+.visitor-banner img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.visitor-text p {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
 .visitor-banner .btn {
   flex-shrink: 0;
 }
