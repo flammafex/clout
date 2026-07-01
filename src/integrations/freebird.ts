@@ -718,9 +718,20 @@ export class FreebirdAdapter implements FreebirdClient {
       throw new Error('[Freebird] Issuer metadata unavailable for proxy issuance');
     }
 
-    const response = await this.fetch(`${url}/v1/oprf/issue`, {
+    const isRenewal = sybilProof?.type === 'registered_user';
+    const endpoint = isRenewal ? '/v1/oprf/renew' : '/v1/oprf/issue';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (isRenewal) {
+      const adminKey = process.env.FREEBIRD_ADMIN_KEY;
+      if (!adminKey) {
+        throw new Error('[Freebird] Cannot renew token: FREEBIRD_ADMIN_KEY not configured');
+      }
+      headers['X-Admin-Key'] = adminKey;
+    }
+
+    const response = await this.fetch(`${url}${endpoint}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         blinded_element_b64: bytesToBase64Url(blindedValue),
         sybil_proof: sybilProof ?? await this.buildSybilProof(metadata),
@@ -771,9 +782,20 @@ export class FreebirdAdapter implements FreebirdClient {
           }
 
           try {
-            const response = await this.fetch(`${url}/v1/oprf/issue`, {
+            const isRenewal = sybilProof.type === 'registered_user';
+            const endpoint = isRenewal ? '/v1/oprf/renew' : '/v1/oprf/issue';
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (isRenewal) {
+              const adminKey = process.env.FREEBIRD_ADMIN_KEY;
+              if (!adminKey) {
+                throw new Error('[Freebird] Cannot renew token: FREEBIRD_ADMIN_KEY not configured');
+              }
+              headers['X-Admin-Key'] = adminKey;
+            }
+
+            const response = await this.fetch(`${url}${endpoint}`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers,
               body: JSON.stringify({
                 blinded_element_b64: bytesToBase64Url(blindedValue),
                 sybil_proof: sybilProof
