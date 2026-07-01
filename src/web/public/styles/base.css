@@ -771,4 +771,10 @@ h3, h4 {
   color: #ef4444;
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
+
+/* Hidden utility — used by the PWA install button (and elsewhere) to keep an
+   element out of the layout until it is programmatically revealed. */
+.hidden {
+  display: none !important;
+}
 } /* end @layer base */

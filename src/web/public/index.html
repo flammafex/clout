@@ -1171,6 +1171,16 @@
     </div>
   </div>
 
+  <footer class="site-footer">
+    <p>🙌 <a href="https://witnesses.now">Witness</a> timestamps and 🕊️ <a href="https://freebird.bot">Freebird</a> tokens provided by<br>
+    💀 <a href="https://metacan.org">The Metacan City</a></p>
+    <p><a href="https://git.carpocratian.org/sibyl/clout">Source</a></p>
+    <button id="install-btn" class="btn btn-secondary hidden" style="margin-top: 1rem;">
+      Install App
+    </button>
+  </footer>
+  </div>
+
   <script type="module" src="js/app.js"></script>
 
   <!-- Service Worker Registration -->
@@ -1221,6 +1231,26 @@
       window.addEventListener('offline', updateOnlineStatus);
       updateOnlineStatus();
     }
+
+    // PWA install prompt
+    let deferredInstallPrompt = null;
+    const installBtn = document.getElementById('install-btn');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      if (installBtn) installBtn.classList.remove('hidden');
+    });
+    installBtn?.addEventListener('click', async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      console.log('[PWA] Install prompt outcome:', outcome);
+      deferredInstallPrompt = null;
+      installBtn.classList.add('hidden');
+    });
+    window.addEventListener('appinstalled', () => {
+      if (installBtn) installBtn.classList.add('hidden');
+    });
   </script>
 </body>
 </html>

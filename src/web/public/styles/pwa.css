@@ -91,6 +91,44 @@
   }
 }
 /* =========================================================================
+   SITE FOOTER
+   ========================================================================= */
+
+.site-footer {
+  max-width: 1100px;
+  margin: 2rem auto 0;
+  padding: 1.5rem 1.5rem 1rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.site-footer p {
+  margin-bottom: 0.5rem;
+}
+
+.site-footer a {
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.site-footer a:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+/* Mobile: clear the fixed bottom nav (.app-rail-left) so the footer isn't
+   covered. #main-app already gets padding-bottom: 132px on mobile, but the
+   footer is a sibling of #main-app inside .container and needs its own gap. */
+@media (max-width: 768px) {
+  .site-footer {
+    padding-bottom: calc(90px + env(safe-area-inset-bottom));
+  }
+}
+/* =========================================================================
    PWA Styles
    ========================================================================= */
 
