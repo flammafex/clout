@@ -69,6 +69,7 @@ export function createInstanceRoutes(config: InstanceRoutesConfig): Router {
         description: process.env.INSTANCE_DESCRIPTION || 'An uncensorable social network instance',
         pgpKey: process.env.INSTANCE_PGP_KEY || null,
         contact: process.env.INSTANCE_CONTACT || null,
+        icon: process.env.INSTANCE_ICON || '/church.svg',
         witnessDomain,
         isOwner,
         ownerPublicKey: ownerKey ? ownerKey.slice(0, 16) + '...' : null

@@ -264,7 +264,12 @@ async function updateBrowserDayPassTimer() {
 async function loadInstanceInfo() {
   try {
     const result = await apiCall('/instance');
-    // Instance info stored for internal use; header is removed
+    // Update the rail instance icon (defaults to /church.svg in index.html;
+    // overwritten here when the instance exposes a custom icon).
+    const iconEl = document.getElementById('rail-instance-icon');
+    if (iconEl && result.icon) {
+      iconEl.src = result.icon;
+    }
   } catch (error) {
     console.warn('[App] Could not load instance info:', error.message);
   }
