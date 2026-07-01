@@ -834,6 +834,25 @@
     width: 100%;
     justify-content: flex-start;
   }
+
+  /* Tighten the helpful empty-state (incl. the visitor "Welcome to Clout"
+     card) on small screens — the default 3rem 2rem padding is heavy on
+     ~320px viewports and makes the card feel cramped next to the grid. */
+  .empty-state-helpful {
+    padding: 2rem 1.25rem;
+  }
+
+  /* Reduce feed-item chrome on mobile so post content has more room next
+     to the 48px avatar. */
+  .feed-item {
+    padding: 1rem;
+  }
+
+  .feed-item:hover {
+    /* translateX on touch devices can cause a faint horizontal overflow;
+       drop it on mobile where hover isn't meaningful anyway. */
+    transform: none;
+  }
 }
 
 /* =========================================================================

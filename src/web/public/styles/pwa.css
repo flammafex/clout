@@ -5,16 +5,20 @@
 
 @layer pwa {
 
-/* Visitor banner */
+/* Visitor banner
+   Sits outside the app-shell grid, full-width within the container. Instead of
+   mirroring the rail widths with fixed margins (which broke alignment on wide
+   screens and left a stray 72px left margin on tablet), we cap the banner at the
+   same max-width as .app-shell and center it — so it always aligns with the grid
+   below and never goes "too thin": it simply fills the available column down to
+   the smallest screens. */
 .visitor-banner {
-  margin-top: 1rem;
-  margin-bottom: 1rem;
-  margin-left: 72px;
-  margin-right: 240px;
+  margin: 1rem auto;
+  max-width: 1100px;
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
   border: 1px solid var(--primary);
   border-radius: 12px;
-  padding: 1rem 1.5rem;
+  padding: 1.25rem 1.5rem;
 }
 
 .visitor-banner-content {
@@ -64,7 +68,11 @@
   justify-content: center;
 }
 
-@media (max-width: 600px) {
+/* Stack the banner content vertically at the same breakpoint where the app shell
+   collapses to a single column (768px). Previously this fired at 600px, leaving
+   an awkward 600–768px gap where the banner stayed horizontal while the rest of
+   the UI was already in mobile mode. */
+@media (max-width: 768px) {
   .visitor-banner-content {
     flex-direction: column;
     text-align: center;
