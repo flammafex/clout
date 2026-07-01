@@ -146,6 +146,8 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         link,
         nsfw,
         contentWarning,
+        authorDisplayName,
+        authorAvatar,
         ephemeralPublicKey,
         ephemeralKeyProof
       } = req.body;
@@ -270,6 +272,10 @@ export function createSubmitRoutes(config: SubmitRoutesConfig): Router {
         } : undefined,
         // OpenGraph link preview (mutually exclusive with media)
         link: link || undefined,
+        // Author profile snapshot (piggybacked on the post so peers/visitors
+        // can render display name + avatar without a server-side profile store)
+        authorDisplayName: authorDisplayName || undefined,
+        authorAvatar: authorAvatar || undefined,
         // Include Day Pass as authorship proof
         authorshipProof: authorshipProofBytes
       };
