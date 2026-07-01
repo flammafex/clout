@@ -133,7 +133,11 @@
   background: var(--primary);
   color: white;
   cursor: pointer;
-  display: flex;
+  /* Hidden on desktop: the inline-compose at the top of the feed and the
+     Create Post tab cover composing. The .mobile-compose-fab handles mobile.
+     Keeping the rest of the styling intact so the .visitor-mode rule and any
+     future re-enablement still get the right look. */
+  display: none;
   align-items: center;
   justify-content: center;
   margin-bottom: 0.75rem;

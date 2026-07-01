@@ -563,9 +563,14 @@ function updateTabVisibility(isVisitor) {
     if (tabBtn) tabBtn.style.display = isVisitor ? 'none' : '';
   });
 
-  // Hide compose elements for visitors
+  // Hide compose elements for visitors.
+  // NOTE: .compose-fab is hidden via CSS (display: none in layout.css) on all
+  // viewports — desktop uses inline-compose + Create Post tab, mobile uses
+  // .mobile-compose-fab. The .visitor-mode rule in pwa.css also hides it with
+  // !important, so no JS handling is needed here; touching its inline style
+  // would only override the stylesheet rule and re-expose it.
   const composeFab = $('compose-fab-btn');
-  if (composeFab) composeFab.style.display = isVisitor ? 'none' : '';
+  if (composeFab && isVisitor) composeFab.style.display = 'none';
 
   const mobileComposeFab = $('mobile-compose-fab');
   if (mobileComposeFab) mobileComposeFab.style.display = isVisitor ? 'none' : '';
@@ -573,12 +578,17 @@ function updateTabVisibility(isVisitor) {
   const inlineCompose = $('inline-compose');
   if (inlineCompose) inlineCompose.style.display = isVisitor ? 'none' : '';
 
-  // Hide sidebar search and inline search fallback for visitors
+  // Hide sidebar search for visitors
   const sidebarSearch = document.querySelector('.sidebar-search');
   if (sidebarSearch) sidebarSearch.style.display = isVisitor ? 'none' : '';
 
-  const inlineSearchFallback = document.querySelector('.inline-search-fallback-container');
-  if (inlineSearchFallback) inlineSearchFallback.style.display = isVisitor ? 'none' : '';
+  // NOTE: .inline-search-fallback-container is intentionally NOT touched here.
+  // Its visibility is fully controlled by CSS media queries in layout.css
+  // (display: flex !important at 769–1200px, display: none !important at ≤768px)
+  // and by the .visitor-mode rule in pwa.css. Previously this block cleared the
+  // inline display:none for non-visitors, which exposed the fallback search on
+  // desktop (>1200px) alongside the sidebar search — producing two search bars.
+  // Leaving the inline style alone lets the CSS handle every breakpoint.
 
   // Hide hop tabs, sort row, and feed legend for visitors
   const hopTabs = $('feed-hop-tabs');
