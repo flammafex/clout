@@ -688,4 +688,13 @@ export interface CloutStore {
   
   /** Initialize storage (load from disk/db) */
   init(): Promise<void>;
+
+  /** Retrieve saved deletions (optional, for persistence) */
+  getDeletions?(): Promise<PostDeletePackage[]>;
+  /** Retrieve saved bookmarks (optional, for persistence) */
+  getBookmarks?(): Promise<string[]>;
+  /** Persist a bookmark (optional) */
+  addBookmark?(postId: string): Promise<void>;
+  /** Remove a bookmark (optional) */
+  removeBookmark?(postId: string): Promise<void>;
 }

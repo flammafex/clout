@@ -9,14 +9,10 @@ import { Command } from './command.js';
 import { IdentityCommand } from './commands/identity.js';
 import { ConfigCommand } from './commands/config.js';
 import { CloutCommand } from './commands/clout.js';
-import { tryLoadWasm } from '../vendor/hypertoken/WasmBridge.js';
 
 const VERSION = '0.1.0';
 
 async function main() {
-  // Initialize WASM backend for Chronicle (7x performance boost)
-  await tryLoadWasm();
-
   const args = process.argv.slice(2);
 
   // Show help if no arguments

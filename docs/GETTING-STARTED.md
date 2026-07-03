@@ -51,30 +51,18 @@ This is the primary use case. You run your own infrastructure and become the ori
 
 ### Step 1: Start the Relay Server
 
-The relay server is built into Clout:
+The relay server is built into Clout's vendored HyperToken code:
 
 ```bash
 # Build Clout
 npm install
 npm run build
+
+# Start the relay server (defaults to port 8080)
+node dist/src/vendor/hypertoken/relay/start-relay.js 3000
 ```
 
-Create `start-relay.js`:
-```javascript
-import { RelayServer } from './dist/src/index.js';
-
-const relay = new RelayServer({
-  port: 3000,
-  host: '0.0.0.0'
-});
-
-await relay.start();
-console.log('Relay listening on ws://0.0.0.0:3000');
-```
-
-```bash
-node start-relay.js
-```
+Or run via Docker Compose (see below), which starts the relay as a separate service.
 
 ### Step 2: Set Up Witness (Timestamping)
 
@@ -402,19 +390,24 @@ The relay server handles:
 - **Peer Discovery**: Returns list of connected peers
 - **Message Forwarding**: Routes messages to unreachable peers
 
+```bash
+# Start the relay server (defaults to port 8080)
+node dist/src/vendor/hypertoken/relay/start-relay.js 3000
+
+# With verbose logging
+node dist/src/vendor/hypertoken/relay/start-relay.js 3000 --verbose
+```
+
+Or programmatically:
 ```typescript
-import { RelayServer } from 'clout';
+import { RelayServer } from './dist/src/vendor/hypertoken/relay/RelayServer.js';
 
-const relay = new RelayServer({
-  port: 3000,
-  host: '0.0.0.0'
-});
-
+const relay = new RelayServer({ port: 3000, verbose: true });
 await relay.start();
 
 // Check stats
 console.log(relay.getStats());
-// { connectedClients: 5, clients: [...] }
+// { clients: 5, peerIds: [...] }
 ```
 
 The relay is **optional infrastructure** - it helps with connectivity but doesn't control content.
@@ -480,48 +473,16 @@ cat /var/lib/tor/clout-relay/hostname
 # Example: abc123xyz.onion
 ```
 
-3. Start relay in Tor-only mode:
-```typescript
-import { RelayServer } from 'clout';
-
-const relay = new RelayServer({
-  port: 3000,
-  torOnly: true,  // Forces binding to 127.0.0.1
-  onionAddress: 'abc123xyz.onion'  // For logging
-});
-
-await relay.start();
-// [RelayServer] Started in Tor-only mode on 127.0.0.1:3000
-// [RelayServer] Client IP addresses are hidden from relay operator
+3. Start relay bound to localhost (Tor will proxy it):
+```bash
+node dist/src/vendor/hypertoken/relay/start-relay.js 3000
 ```
+
+The relay listens on `0.0.0.0:3000` by default. When behind a Tor hidden service, client IP addresses are hidden from the relay operator — Tor handles the routing.
 
 **Client Connection via Tor:**
 
-```typescript
-import { RelayClient } from 'clout';
-
-const client = new RelayClient({
-  publicKey: myPublicKey,
-  nodeType: 'light',
-  relayUrl: 'ws://abc123xyz.onion',
-  privateKey: myPrivateKey,
-  tor: {
-    proxyHost: 'localhost',
-    proxyPort: 9050  // Tor SOCKS5 proxy
-  },
-  requireTor: true  // Fail if Tor unavailable
-});
-
-await client.connect();
-// [RelayClient] Connected to ws://abc123xyz.onion (via Tor)
-```
-
-**Privacy Guarantees:**
-- Relay operator cannot see client IP addresses (only sees Tor circuits)
-- Traffic analysis is prevented by Tor's onion routing
-- Clients can verify they're using Tor via `client.isUsingTor()`
-
-**Configuration for clients:**
+Clients connect to the `.onion` address through their Tor SOCKS5 proxy. Configure the Tor proxy in your Clout node configuration:
 
 ```json
 {
@@ -535,6 +496,18 @@ await client.connect();
   }
 }
 ```
+
+Or via environment variables:
+```bash
+export TOR_ENABLED=true
+export TOR_PROXY=socks5://localhost:9050
+export HYPERTOKEN_RELAY_URL=ws://abc123xyz.onion
+```
+
+**Privacy Guarantees:**
+- Relay operator cannot see client IP addresses (only sees Tor circuits)
+- Traffic analysis is prevented by Tor's onion routing
+- Clients connect through Tor's SOCKS5 proxy for end-to-end anonymity
 
 ---
 

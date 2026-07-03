@@ -24,21 +24,20 @@ src/
   tor.ts                # Tor SOCKS proxy
   clout/                # Domain modules (economics, content, media, trust, feed, reactions, messaging, state-sync, relay, profile, local-data)
   web/
-    server.ts           # Express web server — primary runtime entrypoint (~1300 lines, lots of in-memory state)
+    server.ts           # Express web server — primary runtime entrypoint (~310 lines, thin composition root)
     auth.ts             # Token-based session auth (disabled by default)
     routes/             # 12 route factories: feed, trust, media, slides, settings, data, submit, admin, opengraph, freebird-proxy, validation, index
     public/             # PWA frontend: index.html, manifest.json, service-worker.js, js/ (14 browser modules), *-browser.js crypto helpers
   cli/                  # CLI entrypoint + commands/ (identity, config, clout)
   integrations/         # Adapters: freebird, freebird-admin, witness, hypertoken
-  network/              # P2P: clout-node, peer-manager, dht-discovery, relay-server, relay-client, webrtc-peer
   store/                # Server persistence: file-store, user-data-store, profile-store
-  storage/              # wnfs-manager.ts (content-addressed media, custom impl — does NOT import the `wnfs` npm pkg)
+  storage/              # block-store.ts (content-addressed media, custom impl)
   chronicle/            # CRDT state (uses @automerge/automerge)
-  vendor/               # Vendored: hypertoken/ (incl. WASM pkg/), freebird/ — DO NOT lint/edit generated WASM
+  vendor/               # Vendored: hypertoken/ (P2P transport), freebird/
 test/
-  integration/          # 5 integration test files (custom Node scripts, no framework)
+  integration/          # 9 integration test files (custom Node scripts, no framework)
   unit/                 # 3 unit test files
-  run-integration-tests.ts  # Custom spawn-based runner — NOTE: only runs 4 of 5 integration tests
+  run-integration-tests.ts  # Custom spawn-based runner — includes 5 of 9 (omits 05-live-services + 3 others)
 docker-compose.yaml     # Full stack: clout + cli + freebird issuer/verifier + redis + 3-node witness + gateway + hypertoken relay
 Dockerfile              # Multi-stage: builder, runtime (web), cli
 .forgejo/workflows/     # CI: docker.yml only (builds/pushes images — does NOT run tests or lint)
@@ -50,7 +49,7 @@ SECURITY_AUDIT.md       # 2025-12-06 audit; 7 high fixed, 8 medium / 10 low open
 
 ```bash
 npm ci                              # install (native module: @roamhq/wrtc)
-npm run build                        # tsc && copy-static (copies web/public + vendor WASM pkg to dist/)
+npm run build                        # tsc && copy-static (copies web/public to dist/)
 npm run web                          # build + run web server on PORT (default 3000)
 npm run web:dev                      # build (no watch) + run
 npm run dev                          # tsc --watch (no server)
@@ -66,7 +65,7 @@ docker compose up --build            # full stack on localhost
 docker compose run --rm cli <cmd>    # CLI commands
 ```
 
-Runtime requires `--experimental-wasm-modules` (already set in Dockerfile CMD). Node 20.
+Node 20.
 
 ## Coding conventions
 
@@ -103,8 +102,7 @@ Runtime requires `--experimental-wasm-modules` (already set in Dockerfile CMD). 
 2. **Trust signal canonical format** — the plaintext format (`hashObject({truster, trustee, weight, timestamp, revoked?})`, witness proof hash MUST equal payload hash, Ed25519 over `CLOUT_TRUST_SIGNAL_V1:{payloadHash}`) is a wire protocol. Don't change it without a migration plan.
 3. **Insecure fallback modes** (Witness/Freebird `allowInsecureFallback`) — don't enable by default, don't make fallback silent.
 4. **Auth defaults** — `CLOUT_AUTH=false` and visitor mode are on by default. Don't "harden" by flipping defaults without owner sign-off; local-first use depends on it.
-5. **Vendored WASM** (`src/vendor/hypertoken/pkg/`) is generated. Don't hand-edit; don't remove the eslint ignore.
-6. **`src/web/server.ts` in-memory state** (`invitationCodeToInviter`, `usedInvitationCodes`, `pendingInvitationClaims`, etc.) is a multi-step invitation redemption state machine. If you touch it, preserve the reserve→mint→consume ordering and the 15-min pending-claim cleanup.
+5. **`src/web/invitation-redemption.ts` in-memory state** (`invitationCodeToInviter`, `usedInvitationCodes`, `pendingInvitationClaims`, etc.) is a multi-step invitation redemption state machine. If you touch it, preserve the reserve→mint→consume ordering and the 15-min pending-claim cleanup.
 7. **External service contracts** (Freebird VOPRF, Witness threshold signatures, HyperToken relay protocol) — these are separate Rust repos. Don't change client adapters in ways that assume newer server versions without confirming compatibility.
 
 ## Definition of done
@@ -118,6 +116,6 @@ A change is complete when:
 - [ ] If you changed env vars, `.env.example` is updated.
 - [ ] If you changed the public API (`src/index.ts` exports), types are updated and downstream callers (`src/web/`, `src/cli/`) still compile.
 - [ ] If you touched crypto/identity/trust/auth/anti-Sybil: PR description includes threat-model notes.
-- [ ] If you touched `src/web/server.ts` invitation state: the reserve→mint→consume flow and restart-durability (`invitations.json` reload) still hold.
+- [ ] If you touched `src/web/invitation-redemption.ts` invitation state: the reserve→mint→consume flow and restart-durability (`invitations.json` reload) still hold.
 - [ ] No secrets, private keys, or full public keys logged. Keys truncated to ≤16 chars in logs.
 - [ ] `dist/` is not committed.

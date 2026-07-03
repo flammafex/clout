@@ -7,8 +7,7 @@
  * - Hop-distance based access control for media
  */
 
-import { StorageManager, type MediaMetadata } from '../storage/wnfs-manager.js';
-import type { CloutNode } from '../network/clout-node.js';
+import { StorageManager, type MediaMetadata } from '../storage/block-store.js';
 import type { ReputationValidator } from '../reputation.js';
 import type { PostPackage, CloutProfile, ContentGossipMessage } from '../clout-types.js';
 
@@ -16,7 +15,6 @@ export interface MediaConfig {
   publicKey: string;
   storage: StorageManager;
   mediaStorageEnabled: boolean;
-  getCloutNode: () => CloutNode | undefined;
   reputationValidator: ReputationValidator;
   getProfile: () => CloutProfile;
 }
@@ -25,7 +23,6 @@ export class CloutMedia {
   private readonly publicKeyHex: string;
   private readonly storage: StorageManager;
   private readonly mediaStorageEnabled: boolean;
-  private readonly getCloutNode: () => CloutNode | undefined;
   private readonly reputationValidator: ReputationValidator;
   private readonly getProfile: () => CloutProfile;
 
@@ -41,7 +38,6 @@ export class CloutMedia {
     this.publicKeyHex = config.publicKey;
     this.storage = config.storage;
     this.mediaStorageEnabled = config.mediaStorageEnabled;
-    this.getCloutNode = config.getCloutNode;
     this.reputationValidator = config.reputationValidator;
     this.getProfile = config.getProfile;
   }
@@ -53,47 +49,13 @@ export class CloutMedia {
    * 1. The requester is within our trust graph
    * 2. The media exists in our local storage
    */
-  async handleMediaRequest(request: {
+  async handleMediaRequest(_request: {
     cid: string;
     requester: string;
     postId: string;
   }): Promise<void> {
-    const cloutNode = this.getCloutNode();
-    if (!cloutNode || !this.mediaStorageEnabled) return;
-
-    const { cid, requester, postId } = request;
-
-    // Check if requester is in our trust graph (security check)
-    const reputation = this.reputationValidator.computeReputation(requester);
-    if (!reputation.visible) {
-      console.log(`[Clout] 🚫 Media request from untrusted peer: ${requester.slice(0, 8)}`);
-      return; // Silent drop - don't respond to untrusted requests
-    }
-
-    // Try to get the media from local storage
-    const mediaData = await this.storage.retrieve(cid);
-    const metadata = this.storage.getMetadata(cid);
-
-    // Send response back to requester
-    const response: ContentGossipMessage = {
-      type: 'media-response',
-      mediaResponse: {
-        cid,
-        data: mediaData,
-        mimeType: metadata?.mimeType,
-        error: mediaData ? undefined : 'Media not found'
-      },
-      timestamp: Date.now()
-    };
-
-    try {
-      await cloutNode.sendToPeer(requester, response);
-      if (mediaData) {
-        console.log(`[Clout] 📤 Sent media ${cid.slice(0, 12)}... to ${requester.slice(0, 8)}`);
-      }
-    } catch (err) {
-      console.warn(`[Clout] Failed to send media response to ${requester.slice(0, 8)}:`, err);
-    }
+    // P2P media serving removed (network layer deleted); no-op stub
+    return;
   }
 
   /**
@@ -165,25 +127,11 @@ export class CloutMedia {
     }
 
     // Step 2: If not fetching from network, return null
-    const cloutNode = this.getCloutNode();
-    if (!fetchFromNetwork || !cloutNode) {
+    // (P2P network layer removed; media can only be served from local storage)
+    if (!fetchFromNetwork) {
       return null;
     }
-
-    // Step 3: Check contentTypeFilters to determine allowed hop distance for this media
-    const mimeType = post.media?.mimeType || 'image/unknown';
-    const contentTypeFilter = this.getMediaHopLimit(mimeType);
-
-    // Step 4: Check author's hop distance
-    const authorReputation = this.reputationValidator.computeReputation(post.author);
-    if (authorReputation.distance > contentTypeFilter) {
-      // Author is beyond allowed hop distance for this media type
-      console.log(`[Clout] 🔒 Media from ${post.author.slice(0, 8)} at hop ${authorReputation.distance} exceeds limit ${contentTypeFilter} for ${mimeType}`);
-      return null;
-    }
-
-    // Step 5: Request media from the author's node
-    return this.requestMediaFromNetwork(cid, post.author, post.id);
+    return null;
   }
 
   /**
@@ -215,69 +163,6 @@ export class CloutMedia {
 
     // Fall back to global maxHops
     return profile.trustSettings.maxHops;
-  }
-
-  /**
-   * Request media from the network via P2P
-   */
-  private async requestMediaFromNetwork(
-    cid: string,
-    authorKey: string,
-    postId: string
-  ): Promise<Uint8Array | null> {
-    const cloutNode = this.getCloutNode();
-    if (!cloutNode) {
-      return null;
-    }
-
-    // Check if we already have a pending request for this CID
-    if (this.pendingMediaRequests.has(cid)) {
-      console.log(`[Clout] Already fetching media ${cid.slice(0, 12)}...`);
-      // Return the existing promise's result
-      return new Promise((resolve, reject) => {
-        const existing = this.pendingMediaRequests.get(cid);
-        if (existing) {
-          // Chain onto existing request
-          const originalResolve = existing.resolve;
-          existing.resolve = (data) => {
-            originalResolve(data);
-            resolve(data);
-          };
-        }
-      });
-    }
-
-    console.log(`[Clout] 🔄 Requesting media ${cid.slice(0, 12)}... from ${authorKey.slice(0, 8)}`);
-
-    return new Promise((resolve, reject) => {
-      // Set up timeout
-      const timeout = setTimeout(() => {
-        this.pendingMediaRequests.delete(cid);
-        console.log(`[Clout] ⏱️ Media request timeout for ${cid.slice(0, 12)}...`);
-        resolve(null);
-      }, this.mediaRequestTimeoutMs);
-
-      // Store pending request
-      this.pendingMediaRequests.set(cid, { resolve, reject, timeout });
-
-      // Send request to author
-      const request: ContentGossipMessage = {
-        type: 'media-request',
-        mediaRequest: {
-          cid,
-          requester: this.publicKeyHex,
-          postId
-        },
-        timestamp: Date.now()
-      };
-
-      cloutNode.sendToPeer(authorKey, request).catch(err => {
-        console.warn(`[Clout] Failed to send media request to ${authorKey.slice(0, 8)}:`, err);
-        clearTimeout(timeout);
-        this.pendingMediaRequests.delete(cid);
-        resolve(null);
-      });
-    });
   }
 
   /**

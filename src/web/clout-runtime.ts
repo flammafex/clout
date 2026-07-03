@@ -11,7 +11,6 @@ import { IdentityManager } from '../cli/identity-manager.js';
 import { InfrastructureManager } from '../cli/infrastructure.js';
 import { Clout } from '../clout.js';
 import { FileSystemStore } from '../store/file-store.js';
-import { tryLoadWasm } from '../vendor/hypertoken/WasmBridge.js';
 import { FreebirdBootstrap } from './freebird-bootstrap.js';
 import type { OwnerRegistry } from './owner-registry.js';
 import type { InvitationRedemption } from './invitation-redemption.js';
@@ -130,10 +129,4 @@ export class CloutRuntime {
     }
   }
 
-  /**
-   * Initialize WASM backend for Chronicle (7x performance boost).
-   */
-  static async loadWasm(): Promise<void> {
-    await tryLoadWasm();
-  }
 }

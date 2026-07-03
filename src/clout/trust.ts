@@ -11,7 +11,6 @@
 import { Crypto } from '../crypto.js';
 import { buildCanonicalPlaintextTrust, signPlaintextTrustPayloadHash } from '../trust/plaintext-signal.js';
 import type { CloutStateManager } from '../chronicle/clout-state.js';
-import type { CloutNode } from '../network/clout-node.js';
 import type { ReputationValidator } from '../reputation.js';
 import type { WitnessClient } from '../types.js';
 import type { ContentGossip } from '../post.js';
@@ -32,7 +31,6 @@ export interface TrustConfig {
   trustGraph: Set<string>;
   reputationValidator: ReputationValidator;
   useEncryptedTrustSignals: boolean;
-  getCloutNode: () => CloutNode | undefined;
 }
 
 export class CloutTrust {
@@ -44,7 +42,6 @@ export class CloutTrust {
   private readonly trustGraph: Set<string>;
   private readonly reputationValidator: ReputationValidator;
   private readonly useEncryptedTrustSignals: boolean;
-  private readonly getCloutNode: () => CloutNode | undefined;
 
   constructor(config: TrustConfig) {
     this.publicKeyHex = config.publicKey;
@@ -55,7 +52,6 @@ export class CloutTrust {
     this.trustGraph = config.trustGraph;
     this.reputationValidator = config.reputationValidator;
     this.useEncryptedTrustSignals = config.useEncryptedTrustSignals;
-    this.getCloutNode = config.getCloutNode;
   }
 
   /**
@@ -225,13 +221,6 @@ export class CloutTrust {
         trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
       });
     }
-
-    // 3. Trigger P2P connection to grow the Chronicle blob
-    const cloutNode = this.getCloutNode();
-    if (cloutNode) {
-      console.log(`[Clout] 🫧 Growing blob - connecting to ${trusteeKey.slice(0, 8)}...`);
-      await cloutNode.updateTrustGraph(this.trustGraph);
-    }
   }
 
   /**
@@ -332,13 +321,6 @@ export class CloutTrust {
         trustGraph: this.trustGraph,
         trustSettings: this.state.getState().profile?.trustSettings || DEFAULT_TRUST_SETTINGS
       });
-    }
-
-    // 4. Trigger P2P disconnection - shrink the Chronicle blob
-    const cloutNode = this.getCloutNode();
-    if (cloutNode) {
-      console.log(`[Clout] 🔌 Shrinking blob - disconnecting from ${trusteeKey.slice(0, 8)}...`);
-      await cloutNode.updateTrustGraph(this.trustGraph);
     }
   }
 

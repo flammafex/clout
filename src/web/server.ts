@@ -257,9 +257,6 @@ export class CloutWebServer {
    * Start the server.
    */
   async start(): Promise<void> {
-    // Initialize WASM backend for Chronicle (7x performance boost)
-    await CloutRuntime.loadWasm();
-
     // Initialize per-user data store (persistent storage)
     await this.userDataStore.init();
 

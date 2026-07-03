@@ -12,7 +12,6 @@
 import type { CloutStateManager } from '../chronicle/clout-state.js';
 import type { CloutLocalData } from './local-data.js';
 import type { CloutMessaging } from './messaging.js';
-import type { CloutNode } from '../network/clout-node.js';
 import type { ReputationValidator } from '../reputation.js';
 import type { ContentGossip } from '../post.js';
 import {
@@ -34,7 +33,6 @@ export interface FeedConfig {
   messaging: CloutMessaging;
   trustGraph: Set<string>;
   reputationValidator: ReputationValidator;
-  getCloutNode: () => CloutNode | undefined;
   getProfile: () => CloutProfile;
 }
 
@@ -47,7 +45,6 @@ export class CloutFeed {
   private readonly messaging: CloutMessaging;
   private readonly trustGraph: Set<string>;
   private readonly reputationValidator: ReputationValidator;
-  private readonly getCloutNode: () => CloutNode | undefined;
   private readonly getProfile: () => CloutProfile;
 
   // Feed cache to avoid duplicate store.getFeed() calls within a short window
@@ -63,7 +60,6 @@ export class CloutFeed {
     this.messaging = config.messaging;
     this.trustGraph = config.trustGraph;
     this.reputationValidator = config.reputationValidator;
-    this.getCloutNode = config.getCloutNode;
     this.getProfile = config.getProfile;
   }
 
@@ -650,8 +646,7 @@ export class CloutFeed {
       totalReactionCount = allReactions.filter((r: any) => !r.removed).length;
     }
 
-    const cloutNode = this.getCloutNode();
-    const connectedPeers = cloutNode?.getPeers().length ?? 0;
+    const connectedPeers = 0;
 
     const blobDensity = uniqueAuthors > 0
       ? trustSignals.length / uniqueAuthors

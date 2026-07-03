@@ -16,9 +16,7 @@ This directory contains vendored code from the [HyperToken](https://git.carpocra
 - **crypto.ts** - Cryptographic utility functions
 
 ### State Management
-- **Chronicle.ts** - CRDT state management (Automerge + WASM)
-- **WasmBridge.ts** - WASM module loader
-- **pkg/** - Compiled WASM binaries
+- **Chronicle.ts** - CRDT state management (TypeScript Automerge)
 
 ### Relay Server
 - **relay/RelayServer.ts** - Standalone P2P relay server

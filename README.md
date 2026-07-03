@@ -735,7 +735,7 @@ The codebase is organized into focused modules:
 |--------|----------------|
 | `economics.ts` | Day passes, tickets, delegation |
 | `content.ts` | Post creation, editing, retraction |
-| `media.ts` | WNFS storage, P2P media fetch |
+| `media.ts` | Content-addressed media storage, P2P media fetch |
 | `trust.ts` | Social graph, encrypted signals |
 | `reactions.ts` | Trust-weighted reactions |
 | `feed.ts` | Feed filtering, caching, edit chain resolution |

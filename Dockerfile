@@ -84,7 +84,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Volume for persistent data
 VOLUME ["/data"]
 
-CMD ["node", "--experimental-wasm-modules", "dist/src/web/server.js"]
+CMD ["node", "dist/src/web/server.js"]
 
 # ============================================
 # Stage 3: CLI
@@ -129,5 +129,5 @@ ENV HYPERTOKEN_RELAY_URL=ws://localhost:3000
 # Volume for persistent data
 VOLUME ["/data"]
 
-ENTRYPOINT ["node", "--experimental-wasm-modules", "dist/src/cli/index.js"]
+ENTRYPOINT ["node", "dist/src/cli/index.js"]
 CMD ["--help"]

@@ -11,7 +11,7 @@
 import { CloutPost, type PostConfig, type ContentGossip } from '../post.js';
 import { Crypto } from '../crypto.js';
 import { buildPostSignatureMessage } from '../post-canonical.js';
-import { StorageManager, type MediaMetadata } from '../storage/wnfs-manager.js';
+import { StorageManager, type MediaMetadata } from '../storage/block-store.js';
 import type { CloutStateManager } from '../chronicle/clout-state.js';
 import type { CloutTicket } from '../ticket-booth.js';
 import type { FreebirdClient, WitnessClient } from '../types.js';

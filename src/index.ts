@@ -37,13 +37,13 @@ export { CloutStateManager } from './chronicle/clout-state.js';
 export { InvitationManager } from './invitation.js';
 export type { Invitation, SigningFunction } from './invitation.js';
 
-// Storage (WNFS-based media storage)
-export { StorageManager, FileBlockStore } from './storage/wnfs-manager.js';
+// Storage (block-based media storage)
+export { StorageManager, FileBlockStore } from './storage/block-store.js';
 export type {
   MediaMetadata as StorageMediaMetadata,
   BlockStore,
   StorageManagerConfig
-} from './storage/wnfs-manager.js';
+} from './storage/block-store.js';
 
 // Types
 export type {
@@ -61,14 +61,6 @@ export type {
 } from './clout-types.js';
 
 export { DEFAULT_TRUST_SETTINGS } from './clout-types.js';
-
-// Network layer (Phase 6: P2P Integration)
-export { CloutNode } from './network/clout-node.js';
-export { PeerManager } from './network/peer-manager.js';
-export { DHTDiscovery } from './network/dht-discovery.js';
-export { RelayServer } from './network/relay-server.js';
-export { RelayClient } from './network/relay-client.js';
-export { WebRTCPeer } from './network/webrtc-peer.js';
 
 export type {
   NetworkConfig,

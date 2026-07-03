@@ -8,7 +8,6 @@ export default tseslint.config(
     ignores: [
       'dist/**',
       'node_modules/**',
-      'src/vendor/hypertoken/pkg/**', // Generated WASM bindings
     ],
   },
   {

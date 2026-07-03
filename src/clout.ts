@@ -17,12 +17,11 @@ import { TicketBooth, type CloutTicket, type TicketType } from './ticket-booth.j
 import { Crypto } from './crypto.js';
 import { ReputationValidator } from './reputation.js';
 import { CloutStateManager } from './chronicle/clout-state.js';
-import { StorageManager, type MediaMetadata } from './storage/wnfs-manager.js';
+import { StorageManager, type MediaMetadata } from './storage/block-store.js';
 import { ProfileStore } from './store/profile-store.js';
 import { CloutLocalData } from './clout/local-data.js';
 import { CloutMessaging } from './clout/messaging.js';
 import { CloutStateSync } from './clout/state-sync.js';
-import { CloutNode, type CloutNodeConfig } from './network/clout-node.js';
 
 // Module imports
 import { CloutEconomics } from './clout/economics.js';
@@ -83,11 +82,6 @@ export interface CloutConfig {
   enableMediaStorage?: boolean;
   mediaStoragePath?: string;
   maxMediaSize?: number;
-
-  // P2P Network Settings
-  enableP2P?: boolean;
-  relayServers?: string[];
-  enableDHT?: boolean;
 }
 
 export class Clout {
@@ -107,7 +101,6 @@ export class Clout {
   private readonly localData: CloutLocalData;
   private readonly messaging: CloutMessaging;
   private readonly stateSync: CloutStateSync;
-  private cloutNode?: CloutNode;
 
   // Modules
   private readonly economics: CloutEconomics;
@@ -205,12 +198,7 @@ export class Clout {
       gossip: this.gossip
     });
 
-    // 9. Initialize P2P Network (Chronicle blob growth)
-    if (config.enableP2P) {
-      this.initializeP2PNetwork(config);
-    }
-
-    // 10. Initialize Modules
+    // 9. Initialize Modules
     this.economics = new CloutEconomics({
       publicKey: this.publicKeyHex,
       privateKey: this.privateKey,
@@ -249,7 +237,6 @@ export class Clout {
       publicKey: this.publicKeyHex,
       storage: this.storage,
       mediaStorageEnabled: this.mediaStorageEnabled,
-      getCloutNode: () => this.cloutNode,
       reputationValidator: this.reputationValidator,
       getProfile: () => this.getProfile()
     });
@@ -262,8 +249,7 @@ export class Clout {
       state: this.state,
       trustGraph: this.trustGraph,
       reputationValidator: this.reputationValidator,
-      useEncryptedTrustSignals: this.useEncryptedTrustSignals,
-      getCloutNode: () => this.cloutNode
+      useEncryptedTrustSignals: this.useEncryptedTrustSignals
     });
 
     this.reactions = new CloutReactions({
@@ -285,7 +271,6 @@ export class Clout {
       messaging: this.messaging,
       trustGraph: this.trustGraph,
       reputationValidator: this.reputationValidator,
-      getCloutNode: () => this.cloutNode,
       getProfile: () => this.getProfile()
     });
 
@@ -309,35 +294,6 @@ export class Clout {
 
     // 11. Initialize Storage & Gossip Subscription
     this.initializeDataLayer();
-  }
-
-  /**
-   * Initialize P2P network for Chronicle blob growth
-   */
-  private async initializeP2PNetwork(config: CloutConfig): Promise<void> {
-    const nodeConfig: CloutNodeConfig = {
-      publicKey: this.publicKeyHex,
-      nodeType: 'light' as any,
-      trustGraph: this.trustGraph,
-      relayServers: config.relayServers,
-      enableDHT: config.enableDHT ?? true,
-      onPeerConnected: (peer) => {
-        console.log(`[Clout] 🔗 Peer connected: ${peer.publicKey.slice(0, 8)} - requesting Chronicle`);
-        this.stateSync.forceSync();
-      },
-      onMessage: (peer, message) => {
-        this.enqueueGossipMessage(message as ContentGossipMessage);
-      }
-    };
-
-    this.cloutNode = new CloutNode(nodeConfig);
-
-    try {
-      await this.cloutNode.start();
-      console.log('[Clout] 🌐 P2P network started - Chronicle blob ready to grow!');
-    } catch (error) {
-      console.error('[Clout] Failed to start P2P network:', error);
-    }
   }
 
   /**
@@ -425,11 +381,11 @@ export class Clout {
    * Load saved deletions from file store
    */
   private async loadSavedDeletions(): Promise<void> {
-    if (!this.store || !('getDeletions' in this.store)) {
+    if (!this.store?.getDeletions) {
       return;
     }
 
-    const savedDeletions = await (this.store as any).getDeletions();
+    const savedDeletions = await this.store.getDeletions();
     if (savedDeletions && savedDeletions.length > 0) {
       console.log(`[Clout] 📂 Restoring ${savedDeletions.length} saved deletions from local storage`);
 
@@ -443,11 +399,11 @@ export class Clout {
    * Load saved bookmarks from file store
    */
   private async loadSavedBookmarks(): Promise<void> {
-    if (!this.store || !('getBookmarks' in this.store)) {
+    if (!this.store?.getBookmarks) {
       return;
     }
 
-    const savedBookmarks = await (this.store as any).getBookmarks();
+    const savedBookmarks = await this.store.getBookmarks();
     if (savedBookmarks && savedBookmarks.length > 0) {
       console.log(`[Clout] 📂 Restoring ${savedBookmarks.length} saved bookmarks from local storage`);
 
@@ -696,71 +652,6 @@ export class Clout {
     return request;
   }
 
-  /**
-   * Get incoming trust requests (browser-side storage)
-   */
-  async getIncomingTrustRequests(_includeAll: boolean = false): Promise<any[]> {
-    // Browser-side handles storage - return empty for server
-    return [];
-  }
-
-  /**
-   * Get outgoing trust requests (browser-side storage)
-   */
-  async getOutgoingTrustRequests(): Promise<any[]> {
-    // Browser-side handles storage - return empty for server
-    return [];
-  }
-
-  /**
-   * Accept a trust request
-   * When accepting, we establish trust with the requester
-   */
-  async acceptTrustRequest(requestId: string): Promise<any> {
-    // Parse requester from request ID (format: requester-recipient-timestamp)
-    const parts = requestId.split('-');
-    if (parts.length < 3) {
-      throw new Error('Invalid request ID format');
-    }
-    const requester = parts[0];
-
-    // Establish trust with the requester
-    await this.trustModule.trust(requester);
-
-    console.log(`[Clout] ✅ Accepted trust request from ${requester.slice(0, 8)}`);
-    return { id: requestId, status: 'accepted', requester };
-  }
-
-  /**
-   * Reject a trust request (silently - requester sees it as pending/ghosted)
-   */
-  async rejectTrustRequest(requestId: string): Promise<void> {
-    // Just log - no trust established, requester doesn't know
-    console.log(`[Clout] 🚫 Rejected trust request ${requestId}`);
-  }
-
-  /**
-   * Withdraw an outgoing trust request
-   */
-  async withdrawTrustRequest(requestId: string): Promise<void> {
-    console.log(`[Clout] 🔙 Withdrew trust request ${requestId}`);
-  }
-
-  /**
-   * Retry a ghosted trust request
-   */
-  async retryTrustRequest(requestId: string): Promise<any> {
-    const now = Date.now();
-    console.log(`[Clout] 🔄 Retrying trust request ${requestId}`);
-    return {
-      id: requestId,
-      status: 'pending',
-      createdAt: now,
-      updatedAt: now,
-      retryCount: 1
-    };
-  }
-
   // =================================================================
   //  PROFILE - Delegated to CloutProfileModule
   // =================================================================
@@ -885,17 +776,13 @@ export class Clout {
   async bookmark(postId: string): Promise<void> {
     this.localData.bookmark(postId);
 
-    if (this.store && 'addBookmark' in this.store) {
-      await (this.store as any).addBookmark(postId);
-    }
+    await this.store?.addBookmark?.(postId);
   }
 
   async unbookmark(postId: string): Promise<void> {
     this.localData.unbookmark(postId);
 
-    if (this.store && 'removeBookmark' in this.store) {
-      await (this.store as any).removeBookmark(postId);
-    }
+    await this.store?.removeBookmark?.(postId);
   }
 
   isBookmarked(postId: string): boolean {

@@ -66,7 +66,7 @@ export class FileBlockStore implements BlockStore {
   private metadata: Map<string, { storedAt: number; size: number }>;
 
   constructor(customPath?: string) {
-    const baseDir = customPath || join(getCloutDataDir(), 'wnfs');
+    const baseDir = customPath || join(getCloutDataDir(), 'media');
     this.blocksDir = join(baseDir, 'blocks');
     this.metadataPath = join(baseDir, 'block-metadata.json');
     this.metadata = new Map();
@@ -195,7 +195,7 @@ export class FileBlockStore implements BlockStore {
  * Storage configuration options
  */
 export interface StorageManagerConfig {
-  /** Custom path for block storage (default: ~/.clout/wnfs) */
+  /** Custom path for block storage (default: ~/.clout/media) */
   storagePath?: string;
   /** Maximum file size in bytes (default: 100MB) */
   maxFileSize?: number;
@@ -244,7 +244,7 @@ export class StorageManager {
   private initialized: boolean = false;
 
   constructor(config: StorageManagerConfig = {}) {
-    const baseDir = config.storagePath || join(getCloutDataDir(), 'wnfs');
+    const baseDir = config.storagePath || join(getCloutDataDir(), 'media');
     this.blockStore = new FileBlockStore(baseDir);
     this.maxFileSize = config.maxFileSize ?? DEFAULT_MAX_FILE_SIZE;
     this.allowedMimeTypes = new Set(config.allowedMimeTypes ?? DEFAULT_ALLOWED_MIME_TYPES);
