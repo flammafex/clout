@@ -66,6 +66,19 @@
   border-radius: 50%;
 }
 
+/* Generative identicon avatar — a div sized to fill its parent avatar
+   container, with a fractal SVG (derived from the author's public key)
+   as its background. See js/utils/identicon.js. The parent (.feed-avatar /
+   .profile-avatar) provides clipping via border-radius + overflow. */
+.avatar-identicon {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 50%;
+}
+
 .feed-post-content {
   flex: 1;
   min-width: 0;
@@ -227,6 +240,21 @@
 
 .btn-action.active {
   color: var(--primary);
+}
+
+.btn-action.btn-reply:hover {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--hop-1, #22c55e);
+}
+
+.btn-action.btn-save:hover {
+  background: rgba(234, 179, 8, 0.1);
+  color: var(--hop-2, #eab308);
+}
+
+.btn-action.btn-revise:hover {
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--secondary, #8b5cf6);
 }
 
 .btn-action.btn-mute:hover {

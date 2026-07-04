@@ -82,6 +82,24 @@
   border-radius: 12px;
   padding: 2rem;
   max-width: 600px;
+  /* Contain the cover banner so its negative margins don't overflow
+     the card's rounded corners. */
+  overflow: hidden;
+}
+
+/* Generative profile cover banner — a fractal SVG derived from the
+   user's public key, rendered as a background-image. Spans the full
+   width of the card (negative margins counteract .profile-card padding)
+   and sits above the profile header. See js/utils/identicon.js. */
+.profile-cover {
+  height: 120px;
+  margin: -2rem -2rem 1.5rem -2rem;
+  background-color: var(--bg-secondary);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  /* Round only the top corners to hug the card. */
+  border-radius: 12px 12px 0 0;
 }
 
 .profile-header {
@@ -101,6 +119,7 @@
   justify-content: center;
   font-size: 3rem;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .profile-info {

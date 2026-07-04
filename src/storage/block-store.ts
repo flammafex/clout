@@ -1,8 +1,8 @@
 /**
- * StorageManager - WNFS-based media storage for Clout
+ * StorageManager - Content-addressed media storage for Clout
  *
  * Implements the "Offload-and-Link" pattern:
- * - Heavy file data resides in a local WNFS blockstore
+ * - Heavy file data resides in a local block store
  * - Posts only contain lightweight CID references
  *
  * Uses content-addressed storage: file CID changes if content changes.
@@ -41,7 +41,7 @@ export interface MediaMetadata {
 }
 
 /**
- * Block storage interface for WNFS-style content-addressed storage
+ * Block storage interface for content-addressed storage
  */
 export interface BlockStore {
   /** Store a block and return its CID */
@@ -227,10 +227,10 @@ const DEFAULT_ALLOWED_MIME_TYPES = [
 const DEFAULT_MAX_FILE_SIZE = 100 * 1024 * 1024;
 
 /**
- * StorageManager - High-level API for WNFS-based media storage
+ * StorageManager - High-level API for content-addressed media storage
  *
  * Provides the "Offload-and-Link" pattern:
- * 1. Offload: Store media files in content-addressed blockstore
+ * 1. Offload: Store media files in content-addressed block store
  * 2. Address: Get immutable CID that changes if content changes
  * 3. Link: Return CID for embedding in lightweight post metadata
  * 4. Retrieve: Fetch file content by CID
@@ -274,7 +274,7 @@ export class StorageManager {
     }
 
     this.initialized = true;
-    console.log('[StorageManager] Initialized WNFS media storage');
+    console.log('[StorageManager] Initialized media storage');
   }
 
   /**

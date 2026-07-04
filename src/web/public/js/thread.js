@@ -12,6 +12,7 @@ import { apiCall } from './api.js';
 import { $, $$, escapeHtml, escapeInlineJsString, formatRelativeTime, renderAvatar } from './ui.js';
 import { renderReactionsBar } from './reactions.js';
 import { renderPostContent, recalculateTrustForPosts } from './feed.js';
+import { renderIdenticonAvatar } from './utils/identicon.js';
 import * as router from './router.js';
 
 /**
@@ -129,7 +130,10 @@ function renderThreadPost(post, isParent = false) {
   const hasMedia = post.media && post.media.cid;
   const authorName = post.authorDisplayName || post.author.slice(0, 16) + '...';
   const hasNickname = !!post.authorNickname;
-  const avatar = post.authorAvatar || '&#x1F464;';
+  const avatar = post.authorAvatar || '';
+  // Fall back to a generative identicon when no avatar is set, matching
+  // the feed's avatar rendering. (See utils/identicon.js)
+  const avatarHtml = avatar ? renderAvatar(avatar) : renderIdenticonAvatar(post.author);
   const timestamp = post.proof?.timestamp || post.timestamp;
   const editedIndicator = post.isEdited ? '<span class="edited-badge" title="This post has been edited">edited</span>' : '';
   const visitor = isVisitorMode();
@@ -145,19 +149,19 @@ function renderThreadPost(post, isParent = false) {
 
   // Author actions - hide for visitors
   const authorActions = (!visitor && post.isAuthor)
-    ? `<button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${escapeInlineJsString(post.id)}')" title="Revise">Revise</button>
+    ? `<button class="btn-action btn-revise" onclick="event.stopPropagation(); window.cloutApp.startEditPost('${escapeInlineJsString(post.id)}')" title="Revise">Revise</button>
        <button class="btn-action btn-retract" onclick="event.stopPropagation(); window.cloutApp.retractPost('${escapeInlineJsString(post.id)}')" title="Retract">Retract</button>`
     : '';
 
   // Save button - hide for visitors
   const saveBtn = visitor ? '' : `
-    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${escapeInlineJsString(post.id)}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+    <button class="btn-action btn-save ${post.isBookmarked ? 'active' : ''}" onclick="event.stopPropagation(); window.cloutApp.toggleBookmark('${escapeInlineJsString(post.id)}')" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
       ${post.isBookmarked ? 'Saved' : 'Save'}
     </button>`;
 
   // Reply button - hide for visitors
   const replyBtn = visitor ? '' : `
-    <button class="btn-action" onclick="event.stopPropagation(); window.cloutApp.startReply('${escapeInlineJsString(post.id)}', '${escapeInlineJsString(authorName)}')">Reply</button>`;
+    <button class="btn-action btn-reply" onclick="event.stopPropagation(); window.cloutApp.startReply('${escapeInlineJsString(post.id)}', '${escapeInlineJsString(authorName)}')">Reply</button>`;
 
   const parentClass = isParent ? 'thread-parent-post' : '';
   const clickHandler = isParent ? '' : `onclick="window.cloutApp.viewThread('${escapeInlineJsString(post.id)}')" style="cursor: pointer;"`;
@@ -165,7 +169,7 @@ function renderThreadPost(post, isParent = false) {
   return `
     <div class="feed-item ${parentClass} ${hasMedia ? 'has-media' : ''}" ${clickHandler}>
       <div class="feed-item-wrapper">
-        <div class="feed-avatar">${renderAvatar(avatar)}</div>
+        <div class="feed-avatar">${avatarHtml}</div>
         <div class="feed-post-content">
           <div class="feed-author"><span class="${hasNickname ? 'has-nickname' : ''}" title="${post.author}">${escapeHtml(authorName)}</span></div>
           ${post.replyTo ? `<div class="feed-reply-indicator">&#x21B3; Reply to ${post.replyTo.slice(0, 8)}... <a href="#" onclick="event.preventDefault(); event.stopPropagation(); window.cloutApp.viewThread('${escapeInlineJsString(post.resolvedReplyTo || post.replyTo)}')">View parent</a></div>` : ''}

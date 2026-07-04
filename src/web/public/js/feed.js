@@ -15,6 +15,7 @@ import {
   renderAvatar, getReputationColor, switchToTab, renderMarkdown
 } from './ui.js';
 import { renderReactionsBar } from './reactions.js';
+import { renderIdenticonAvatar } from './utils/identicon.js';
 
 /**
  * VirtualScroller - Renders only visible posts for performance
@@ -930,7 +931,7 @@ export function renderFeedItem(post, fullFeatures = true) {
 
   // Author actions (Revise/Retract) - hide for visitors
   const authorActions = (!visitor && post.isAuthor && fullFeatures)
-    ? `<button class="btn-action" data-action="startEditPost" data-post-id="${escapeHtml(post.id)}" title="Revise post">Revise</button>
+    ? `<button class="btn-action btn-revise" data-action="startEditPost" data-post-id="${escapeHtml(post.id)}" title="Revise post">Revise</button>
        <button class="btn-action btn-retract" data-action="retractPost" data-post-id="${escapeHtml(post.id)}" title="Retract post">Retract</button>`
     : '';
 
@@ -947,20 +948,26 @@ export function renderFeedItem(post, fullFeatures = true) {
 
   // Save button - hide for visitors
   const saveBtn = visitor ? '' : `
-    <button class="btn-action ${post.isBookmarked ? 'active' : ''}" data-action="toggleBookmark" data-post-id="${escapeHtml(post.id)}" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
+    <button class="btn-action btn-save ${post.isBookmarked ? 'active' : ''}" data-action="toggleBookmark" data-post-id="${escapeHtml(post.id)}" title="${post.isBookmarked ? 'Remove bookmark' : 'Bookmark'}">
       ${post.isBookmarked ? 'Saved' : 'Save'}
     </button>`;
 
   // Reply button - hide for visitors
   const replyBtn = visitor ? '' : `
-    <button class="btn-action" data-action="startReply" data-post-id="${escapeHtml(post.id)}" data-author-name="${escapeHtml(authorName)}">Reply</button>`;
+    <button class="btn-action btn-reply" data-action="startReply" data-post-id="${escapeHtml(post.id)}" data-author-name="${escapeHtml(authorName)}">Reply</button>`;
 
-  const authorAvatar = post.authorAvatar || '&#x1F464;';
+  const authorAvatar = post.authorAvatar || '';
+  // When the author has no avatar set (no URL, no emoji), fall back to a
+  // generative identicon derived from their public key — every identity
+  // gets a unique, recognizable visual signature. (See utils/identicon.js)
+  const avatarHtml = authorAvatar
+    ? renderAvatar(authorAvatar)
+    : renderIdenticonAvatar(post.author);
 
   return `
     <div class="feed-item ${hasMedia ? 'has-media' : ''} ${hasLink ? 'has-link' : ''} ${post.nsfw ? 'nsfw-post' : ''} ${hasCW ? 'has-cw' : ''} ${distanceClass}" role="button" tabindex="0" aria-label="Open post thread" data-action="viewThread" data-post-id="${escapeHtml(post.id)}" style="cursor: pointer;">
       <div class="feed-item-wrapper" role="article">
-        <div class="feed-avatar">${renderAvatar(authorAvatar)}</div>
+        <div class="feed-avatar">${avatarHtml}</div>
         <div class="feed-post-content">
           <div class="feed-header">
             <div class="feed-author">

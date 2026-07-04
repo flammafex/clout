@@ -181,6 +181,7 @@ h2 {
 
 .status-dot.active {
   background: var(--success);
+  box-shadow: 0 0 8px var(--success);
 }
 
 @keyframes pulse {
@@ -746,15 +747,15 @@ h3, h4 {
   font-family: var(--font-body);
   font-weight: 500;
   opacity: 0;
-  transform: translateY(1rem);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transform: translateY(1rem) scale(0.95);
+  transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   pointer-events: auto;
   max-width: 90vw;
   box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 .toast-visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
 .toast-info {
   background: var(--bg-card);

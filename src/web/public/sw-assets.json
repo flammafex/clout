@@ -28,6 +28,7 @@
   "/js/thread.js",
   "/js/trust.js",
   "/js/ui.js",
+  "/js/utils/identicon.js",
   "/manifest.json",
   "/styles/admin.css",
   "/styles/base.css",

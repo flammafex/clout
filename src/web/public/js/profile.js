@@ -14,6 +14,7 @@ import * as state from './state.js';
 import { apiCall } from './api.js';
 import { $, showLoading, showResult, showToast, escapeHtml, escapeInlineJsString, formatRelativeTime, renderAvatar } from './ui.js';
 import { loadFeed } from './feed.js';
+import { renderIdenticonAvatar, getFractalDataUrl } from './utils/identicon.js';
 
 // =========================================================================
 // Identity & Profile
@@ -87,7 +88,21 @@ export async function loadProfile() {
 
     $('profile-name-display').textContent = profile?.displayName || '(No name set)';
     $('profile-bio-display').textContent = profile?.bio || '';
-    $('profile-avatar-display').innerHTML = renderAvatar(profile?.avatar);
+    // Avatar: use the user's chosen avatar if set, otherwise fall back to a
+    // generative identicon derived from their public key.
+    $('profile-avatar-display').innerHTML = profile?.avatar
+      ? renderAvatar(profile.avatar)
+      : renderIdenticonAvatar(identity.publicKeyHex);
+
+    // Profile cover: always generative — there's no cover-image field in
+    // the profile model, so every identity gets a unique fractal banner
+    // derived from their public key. Uses a wider viewBox for the banner
+    // aspect ratio.
+    const coverEl = $('profile-cover');
+    if (coverEl) {
+      const coverUrl = getFractalDataUrl(identity.publicKeyHex + 'cover', { width: 600, height: 140 });
+      coverEl.style.backgroundImage = `url('${coverUrl}')`;
+    }
 
     if (profile?.bio) {
       $('profile-bio-display').style.display = 'block';
