@@ -18,7 +18,7 @@
   <!-- Stylesheets split by concern; load order matches @layer order declared in base.css -->
   <script>
     (function() {
-      const theme = localStorage.getItem('clout-theme') || 'dark';
+      const theme = localStorage.getItem('clout-theme') || 'light';
       document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
@@ -752,7 +752,7 @@
               <label for="theme-select">Theme</label>
               <select id="theme-select" class="select">
                 <option value="dark">Dark</option>
-                <option value="light">Light</option>
+                <option value="light" selected>Light</option>
               </select>
               <p class="help-text-small">Choose your interface color scheme</p>
             </div>

@@ -827,7 +827,7 @@ export function setupSettings(requireMembership) {
   // Theme toggle
   const themeSelect = $('theme-select');
   if (themeSelect) {
-    themeSelect.value = localStorage.getItem('clout-theme') || 'dark';
+    themeSelect.value = localStorage.getItem('clout-theme') || 'light';
     themeSelect.addEventListener('change', (e) => {
       const value = e.target.value;
       localStorage.setItem('clout-theme', value);
