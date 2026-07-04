@@ -277,6 +277,135 @@
   color: var(--text-dim);
 }
 
+/* "People You Trust" widget — surfaces the top trusted users with
+   generative identicon avatars (see js/utils/identicon.js). Mirrors
+   hypermind-swarm's always-visible "Following" list. */
+.sidebar-trusted-people {
+  /* Compact rows; the widget shows up to 8 people. */
+}
+
+.trusted-people-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.trusted-people-header h4 {
+  margin: 0;
+}
+
+.manage-link {
+  background: none;
+  border: none;
+  color: var(--primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.1rem 0.2rem;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.manage-link:hover {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary-hover);
+}
+
+.trusted-people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.trusted-people-loading,
+.trusted-people-empty {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  padding: 0.5rem 0.25rem;
+  line-height: 1.4;
+}
+
+.trusted-person-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.35rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.trusted-person-item:hover {
+  background: var(--bg-hover);
+}
+
+.trusted-person-avatar {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-hover);
+  flex-shrink: 0;
+}
+
+/* Identicon fills the avatar container (see .avatar-identicon in feed.css) */
+.trusted-person-avatar .avatar-identicon {
+  border-radius: 50%;
+}
+
+.trusted-person-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.trusted-person-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trusted-person-key {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trusted-person-weight {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--primary);
+}
+
+.trusted-person-weight.weight-full {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--hop-1, #22c55e);
+}
+
+.trusted-person-weight.weight-medium {
+  background: rgba(234, 179, 8, 0.15);
+  color: var(--hop-2, #eab308);
+}
+
+.trusted-person-weight.weight-low {
+  background: rgba(249, 115, 22, 0.15);
+  color: var(--hop-3, #f97316);
+}
+
 .daypass-row {
   display: flex;
   align-items: center;

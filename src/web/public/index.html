@@ -16,6 +16,12 @@
   <link rel="apple-touch-icon" href="/icons/icon.svg">
 
   <!-- Stylesheets split by concern; load order matches @layer order declared in base.css -->
+  <script>
+    (function() {
+      const theme = localStorage.getItem('clout-theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
   <link rel="stylesheet" href="styles/base.css">
   <link rel="stylesheet" href="styles/layout.css">
   <link rel="stylesheet" href="styles/feed.css">
@@ -743,6 +749,15 @@
             <h3>Content Filtering</h3>
 
             <div class="setting-item">
+              <label for="theme-select">Theme</label>
+              <select id="theme-select" class="select">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+              <p class="help-text-small">Choose your interface color scheme</p>
+            </div>
+
+            <div class="setting-item">
               <label class="checkbox-label">
                 <input type="checkbox" id="settings-nsfw-enabled">
                 <span class="checkbox-text">Show NSFW content</span>
@@ -990,6 +1005,16 @@
             <div class="sidebar-stat"><span class="sidebar-stat-value" id="clout-authors">-</span><span class="sidebar-stat-label">authors</span></div>
             <div class="sidebar-stat"><span class="sidebar-stat-value" id="clout-reactions">-</span><span class="sidebar-stat-label">reactions</span></div>
             <div class="sidebar-stat"><span class="sidebar-stat-value" id="clout-peers">-</span><span class="sidebar-stat-label">peers</span></div>
+          </div>
+        </div>
+
+        <div class="sidebar-widget sidebar-trusted-people">
+          <div class="trusted-people-header">
+            <h4>People You Trust</h4>
+            <button class="manage-link" data-action="switchToTab" data-tab="trust" title="Manage your trust circle">Manage</button>
+          </div>
+          <div id="trusted-people-list" class="trusted-people-list">
+            <div class="trusted-people-loading">Loading…</div>
           </div>
         </div>
 

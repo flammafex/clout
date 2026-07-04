@@ -824,6 +824,21 @@ export function setupSettings(requireMembership) {
   $('save-media-filters-btn').addEventListener('click', () => saveMediaFilters(requireMembership));
   $('add-tag-btn').addEventListener('click', addTag);
 
+  // Theme toggle
+  const themeSelect = $('theme-select');
+  if (themeSelect) {
+    themeSelect.value = localStorage.getItem('clout-theme') || 'dark';
+    themeSelect.addEventListener('change', (e) => {
+      const value = e.target.value;
+      localStorage.setItem('clout-theme', value);
+      document.documentElement.setAttribute('data-theme', value);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) {
+        meta.setAttribute('content', value === 'light' ? '#f8fafc' : '#6366f1');
+      }
+    });
+  }
+
   // Browser identity export/import (in Profile tab)
   const exportBrowserBtn = $('export-browser-identity-btn');
   if (exportBrowserBtn) {

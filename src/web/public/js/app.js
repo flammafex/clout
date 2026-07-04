@@ -34,7 +34,8 @@ import { viewThread, loadThread } from './thread.js';
 import {
   loadTrustedUsers, trustUser, quickTrust, muteUser, unmuteUser, untrustUser,
   editNickname, updateTrustWeightDisplay, loadTrustRequests, sendTrustRequest,
-  acceptTrustRequest, rejectTrustRequest, withdrawTrustRequest, retryTrustRequest
+  acceptTrustRequest, rejectTrustRequest, withdrawTrustRequest, retryTrustRequest,
+  loadTrustedPeopleWidget
 } from './trust.js';
 import { sendSlide, loadSlides, startSlideReply } from './slides.js';
 import {
@@ -213,6 +214,7 @@ async function initializeClout() {
     await loadFeed();
     await loadIdentity();
     await loadProfile();
+    loadTrustedPeopleWidget();
     loadSlides().catch(() => {});
 
     connectLiveUpdates();

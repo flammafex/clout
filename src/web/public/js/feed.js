@@ -1011,6 +1011,58 @@ export function renderFeedItem(post, fullFeatures = true) {
   `;
 }
 
+/**
+ * Prepend a single post to the top of the feed list.
+ *
+ * Used by the real-time SSE handler (notifications.js) when a new post
+ * arrives and the user is near the top of the feed. Renders the post via
+ * the standard renderFeedItem(), inserts it at the top of #feed-list, and
+ * applies a fade-in + slide-down entrance animation.
+ *
+ * @param {object} post - full post object (already trust-recalculated)
+ */
+export function prependFeedItem(post) {
+  const feedList = $('feed-list');
+  if (!feedList) return;
+
+  // Cache the post for edit lookups
+  state.cachePost(post);
+
+  const html = renderFeedItem(post, true);
+  feedList.insertAdjacentHTML('afterbegin', html);
+
+  // Animate the new item in. The .entering class starts at opacity:0 /
+  // translateY(-10px); forcing a reflow then swapping to .entered triggers
+  // the CSS transition (see .feed-item.entering / .entered in feed.css).
+  const newItem = feedList.firstElementChild;
+  if (newItem && newItem.classList.contains('feed-item')) {
+    newItem.classList.add('entering');
+    // Force reflow so the browser registers the starting state.
+    void newItem.offsetWidth;
+    newItem.classList.remove('entering');
+    newItem.classList.add('entered');
+    // Clean up the animation class after it completes so it doesn't
+    // interfere with hover transitions later.
+    setTimeout(() => newItem.classList.remove('entered'), 350);
+  }
+}
+
+/**
+ * Prepend multiple posts to the top of the feed at once (batch mode).
+ *
+ * Posts are prepended in reverse order so the most recent ends up on top.
+ * Each item gets the entrance animation.
+ *
+ * @param {object[]} posts - array of full post objects (newest first)
+ */
+export function prependFeedItems(posts) {
+  if (!posts || posts.length === 0) return;
+  // Prepend in reverse so posts[0] ends up at the top.
+  for (let i = posts.length - 1; i >= 0; i--) {
+    prependFeedItem(posts[i]);
+  }
+}
+
 // Link preview decay time: 24 hours
 const LINK_PREVIEW_DECAY_MS = 24 * 60 * 60 * 1000;
 

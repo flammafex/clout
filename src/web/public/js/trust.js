@@ -14,6 +14,7 @@ import { apiCall, submitSignedTrust } from './api.js';
 import { $, showLoading, showResult, showToast, escapeHtml, escapeInlineJsString, getWeightLabel, renderAvatar } from './ui.js';
 import { loadFeed } from './feed.js';
 import { sendTrustAcceptanceSlide } from './slides.js';
+import { renderIdenticonAvatar } from './utils/identicon.js';
 
 // Helper to invalidate trust cache after mutations
 function invalidateTrustCacheAfterMutation() {
@@ -196,6 +197,103 @@ export async function loadTrustedUsers() {
 }
 
 /**
+ * Load the "People You Trust" sidebar widget.
+ *
+ * Surfaces the top 8 trusted users (by weight) in the right sidebar with
+ * their generative identicon avatars. Mirrors hypermind-swarm's always-
+ * visible "Following" list. Renders nothing for visitors or when no
+ * browser identity exists.
+ *
+ * Called on init and after every trust mutation (trustUser, quickTrust,
+ * untrustUser, unmuteUser) so the widget stays in sync with the Network
+ * tab.
+ */
+export async function loadTrustedPeopleWidget() {
+  const container = $('trusted-people-list');
+  if (!container) return;
+
+  // Visitors have no trust graph — the widget is hidden via CSS, but
+  // bail early to avoid unnecessary work.
+  if (state.isVisitor) return;
+
+  if (!window.CloutIdentity || !window.CloutUserData) {
+    container.innerHTML = '<div class="trusted-people-loading">Unavailable</div>';
+    return;
+  }
+
+  try {
+    const identity = await window.CloutIdentity.load();
+    if (!identity) {
+      container.innerHTML = '<div class="trusted-people-loading">No identity</div>';
+      return;
+    }
+
+    const myKey = identity.publicKeyHex;
+    const [trustedKeys, localNicknames] = await Promise.all([
+      window.CloutUserData.getTrustedUsers(),
+      window.CloutUserData.getAllNicknames()
+    ]);
+
+    // Exclude self — the sidebar widget is about *other* people you trust.
+    const otherTrustedKeys = trustedKeys.filter(k => k !== myKey);
+
+    if (otherTrustedKeys.length === 0) {
+      container.innerHTML = `
+        <div class="trusted-people-empty">
+          No one yet. <a href="#" data-action="switchToTab" data-tab="trust">Add someone</a>.
+        </div>
+      `;
+      return;
+    }
+
+    // Fetch profiles + trust weights in parallel (avoids N+1).
+    const [profiles, trustDataList] = await Promise.all([
+      Promise.all(otherTrustedKeys.map(k => window.CloutUserData.getProfile(k))),
+      Promise.all(otherTrustedKeys.map(k => window.CloutUserData.getTrustData(k)))
+    ]);
+
+    // Build a compact user list, then sort by weight (desc) and take top 8.
+    const users = otherTrustedKeys.map((publicKey, i) => {
+      const profile = profiles[i];
+      const trustData = trustDataList[i];
+      const weight = trustData?.weight ?? 1.0;
+      const nickname = localNicknames.get(publicKey);
+      const displayName = profile?.displayName
+        || nickname
+        || publicKey.slice(0, 12) + '...';
+      return { publicKey, displayName, weight };
+    }).sort((a, b) => b.weight - a.weight).slice(0, 8);
+
+    container.innerHTML = users.map(user => {
+      const weight = user.weight;
+      const weightLabel = getWeightLabel(weight);
+      // Hide the weight badge when it's full (1.0) — the default — to
+      // reduce visual noise on the most common case.
+      const weightBadge = weight < 1.0
+        ? `<span class="trusted-person-weight ${weight >= 0.7 ? 'weight-full' : weight >= 0.5 ? 'weight-medium' : 'weight-low'}" title="${weightLabel}">${weight.toFixed(1)}</span>`
+        : '';
+      // Avatar: use the author's chosen avatar if set, otherwise the
+      // generative identicon derived from their public key.
+      const avatarHtml = renderIdenticonAvatar(user.publicKey);
+
+      return `
+        <div class="trusted-person-item" data-action="switchToTab" data-tab="trust" title="${escapeHtml(user.publicKey)}">
+          <div class="trusted-person-avatar">${avatarHtml}</div>
+          <div class="trusted-person-info">
+            <span class="trusted-person-name">${escapeHtml(user.displayName)}</span>
+            <span class="trusted-person-key">${user.publicKey.slice(0, 10)}…</span>
+          </div>
+          ${weightBadge}
+        </div>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('[Trust] Error loading sidebar widget:', error);
+    container.innerHTML = '<div class="trusted-people-loading">Error</div>';
+  }
+}
+
+/**
  * Trust a user
  */
 export async function trustUser(requireMembership) {
@@ -236,6 +334,7 @@ export async function trustUser(requireMembership) {
     }
 
     await loadTrustedUsers();
+    loadTrustedPeopleWidget();
   } catch (error) {
     showResult('trust-result', `Error: ${error.message}`, false);
   } finally {
@@ -264,6 +363,7 @@ export async function quickTrust(publicKey, requireMembership) {
 
     showResult('feed-result', `Added ${publicKey.slice(0, 8)}... to your trust circle!`, true);
     setTimeout(() => loadFeed(), 1000);
+    loadTrustedPeopleWidget();
   } catch (error) {
     showToast(`Could not trust user: ${error.message}`, 'error');
   }
@@ -299,6 +399,7 @@ export async function unmuteUser(publicKey) {
       await window.CloutUserData.unmute(publicKey);
     }
     await loadTrustedUsers();
+    loadTrustedPeopleWidget();
     showResult('trust-result', `Unredacted ${publicKey.slice(0, 8)}...`, true);
   } catch (error) {
     showToast(`Could not unredact user: ${error.message}`, 'error');
@@ -325,6 +426,7 @@ export async function untrustUser(publicKey, displayName) {
 
     showResult('trust-result', `Removed ${publicKey.slice(0, 8)}... from trust circle`, true);
     await loadTrustedUsers();
+    loadTrustedPeopleWidget();
     await loadFeed();
   } catch (error) {
     showToast(`Could not remove user: ${error.message}`, 'error');
@@ -349,6 +451,7 @@ export async function editNickname(publicKey, currentNickname) {
     }
 
     await loadTrustedUsers();
+    loadTrustedPeopleWidget();
     await loadFeed();
 
     if (newNickname.trim()) {
@@ -682,6 +785,7 @@ export async function acceptTrustRequest(requestId) {
 
     await loadTrustRequests();
     await loadTrustedUsers();
+    loadTrustedPeopleWidget();
   } catch (error) {
     showToast(`Error accepting request: ${error.message}`, 'error');
   }

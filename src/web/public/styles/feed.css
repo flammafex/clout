@@ -25,16 +25,31 @@
 }
 
 .feed-item {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.5rem;
-  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 1rem 1.25rem;
+  transition: background 0.2s, border-color 0.2s, opacity 0.3s ease, transform 0.3s ease;
 }
 
 .feed-item:hover {
-  border-color: var(--primary);
-  transform: translateX(4px);
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+/* Entrance animation for real-time prepended posts.
+   Added by prependFeedItem() and removed after the transition completes.
+   Fades in + slides down from above so new posts arrive visibly without
+   yanking the user's scroll position. */
+.feed-item.entering {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.feed-item.entered {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .feed-item-wrapper {

@@ -271,7 +271,8 @@ body.offline .btn-action::after {
 .visitor-mode .feed-tabs,
 .visitor-mode .feed-sort-row,
 .visitor-mode .sidebar-feed-legend,
-.visitor-mode .sidebar-search {
+.visitor-mode .sidebar-search,
+.visitor-mode .sidebar-trusted-people {
   display: none !important;
 }
 /* Identity backup reminder */
