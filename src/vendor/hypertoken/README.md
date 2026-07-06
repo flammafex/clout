@@ -9,6 +9,7 @@ This directory contains vendored code from the [HyperToken](https://git.carpocra
 - **PeerConnection.ts** - WebSocket-based P2P connection class
 - **WebRTCConnection.ts** - WebRTC DataChannel connection
 - **SignalingService.ts** - WebRTC signaling handler
+- **MessageCodec.ts** - Unified message encoding/decoding (MessagePack + compression, JSON fallback)
 - **webrtc-polyfill.ts** - Node.js WebRTC compatibility
 
 ### Core Utilities
@@ -63,9 +64,10 @@ Original source: https://git.carpocratian.org/sibyl/hypertoken
 
 Minor modifications have been made:
 - Removed `Engine` import from PeerConnection.ts (changed type to `any`)
+- Re-added `webrtc-polyfill` import to WebRTCConnection.ts (Node.js WebRTC support)
 - Updated import paths to be local to this vendor directory
-- Added WebRTC tie-breaker to prevent glare in HybridPeerManager
 - Added "Vendored for Clout" notices
+- The WebRTC tie-breaker glare fix is now upstreamed (no longer a Clout-only patch)
 
 ## Updating
 

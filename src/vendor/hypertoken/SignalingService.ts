@@ -4,6 +4,8 @@
  *
  * Uses the existing WebSocket PeerConnection infrastructure to exchange
  * WebRTC session descriptions (SDP) and ICE candidates between peers.
+ *
+ * Vendored from hypertoken for Clout integration.
  */
 import { Emitter } from "./events.js";
 import { PeerConnection } from "./PeerConnection.js";
@@ -148,10 +150,4 @@ export class SignalingService extends Emitter {
     return this.wsConnection;
   }
 
-  /**
-   * Check if the WebSocket connection is ready
-   */
-  isReady(): boolean {
-    return this.wsConnection.connected && this.wsConnection.peerId !== null;
-  }
 }

@@ -4,9 +4,13 @@
  *
  * Provides a high-level abstraction over RTCPeerConnection and RTCDataChannel
  * for reliable, low-latency P2P communication.
+ *
+ * Vendored from hypertoken for Clout integration.
+ * Clout modification: re-added webrtc-polyfill import for Node.js support.
  */
 import { Emitter } from "./events.js";
 import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } from "./webrtc-polyfill.js";
+import { MessageCodec, defaultCodec } from "./MessageCodec.js";
 
 export interface WebRTCConfig {
   iceServers: RTCIceServer[];
@@ -17,6 +21,8 @@ export interface WebRTCConfig {
   enableTurnFallback?: boolean;
   connectionTimeout?: number; // ms to wait before considering connection failed
   maxRetries?: number;
+  // Message codec (default: msgpack with compression)
+  codec?: MessageCodec;
 }
 
 export const DEFAULT_RTC_CONFIG: WebRTCConfig = {
@@ -68,11 +74,13 @@ export class WebRTCConnection extends Emitter {
   private connectionTimeout: NodeJS.Timeout | null = null;
   private retryCount: number = 0;
   private usingTurn: boolean = false;
+  private codec: MessageCodec;
 
   constructor(remotePeerId: string, config: WebRTCConfig = DEFAULT_RTC_CONFIG) {
     super();
     this.remotePeerId = remotePeerId;
     this.config = config;
+    this.codec = config.codec ?? defaultCodec;
 
     this.initializePeerConnection();
   }
@@ -174,8 +182,10 @@ export class WebRTCConnection extends Emitter {
     }
 
     try {
-      const payload = typeof data === 'string' ? data : JSON.stringify(data);
-      this.dataChannel!.send(payload);
+      const encoded = this.codec.encode(data);
+      // DataChannel.send() accepts string, ArrayBuffer, or ArrayBufferView
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.dataChannel!.send(encoded as any);
       return true;
     } catch (err) {
       console.error('[WebRTC] Send error:', err);
@@ -197,20 +207,6 @@ export class WebRTCConnection extends Emitter {
 
     this.peerConnection.close();
     this.emit('rtc:disconnected', { peerId: this.remotePeerId });
-  }
-
-  /**
-   * Check if currently using TURN servers
-   */
-  isUsingTurn(): boolean {
-    return this.usingTurn;
-  }
-
-  /**
-   * Get current retry count
-   */
-  getRetryCount(): number {
-    return this.retryCount;
   }
 
   /**
@@ -350,6 +346,9 @@ export class WebRTCConnection extends Emitter {
   private setupDataChannelHandlers(): void {
     if (!this.dataChannel) return;
 
+    // Set binary type for efficient message handling
+    this.dataChannel.binaryType = 'arraybuffer';
+
     this.dataChannel.onopen = () => {
       console.log(`[WebRTC] DataChannel opened with ${this.remotePeerId}`);
       this.clearConnectionTimeout(); // Connection successful
@@ -376,7 +375,7 @@ export class WebRTCConnection extends Emitter {
 
     this.dataChannel.onmessage = (event) => {
       try {
-        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        const data = this.codec.decode(event.data);
         this.emit('rtc:data', {
           payload: data,
           fromPeerId: this.remotePeerId

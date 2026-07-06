@@ -89,13 +89,6 @@ export class HybridPeerManager extends Emitter {
   }
 
   /**
-   * Get the number of reconnection attempts
-   */
-  getReconnectAttempts(): number {
-    return this.wsConnection.getReconnectAttempts();
-  }
-
-  /**
    * Connect to the server via WebSocket
    */
   connect(): void {
@@ -142,15 +135,26 @@ export class HybridPeerManager extends Emitter {
    * Broadcast data to all connected peers
    */
   broadcast(type: string, payload: any = {}): void {
-    // Send to all WebRTC-connected peers
+    const rtcSent = new Set<string>();
+
+    // Send to all WebRTC-connected peers directly
     for (const [peerId, rtcConn] of this.rtcConnections) {
       if (rtcConn.isConnected()) {
         rtcConn.send({ type, payload });
+        rtcSent.add(peerId);
       }
     }
 
-    // Also broadcast via WebSocket for peers without WebRTC
-    this.wsConnection.broadcast(type, payload);
+    // Send to remaining peers via WebSocket relay (avoid double-delivery)
+    if (rtcSent.size === 0) {
+      this.wsConnection.broadcast(type, payload);
+    } else {
+      for (const peerId of this.wsConnection.peers) {
+        if (!rtcSent.has(peerId)) {
+          this.wsConnection.sendToPeer(peerId, { type, payload });
+        }
+      }
+    }
   }
 
   /**
@@ -228,8 +232,8 @@ export class HybridPeerManager extends Emitter {
       this.emit('net:peer:connected', evt);
 
       // Auto-upgrade to WebRTC after delay
-      // CLOUT FIX: Add tie-breaker to prevent glare (both sides initiating simultaneously)
-      // Only the peer with the "lower" ID initiates the connection.
+      // Use tie-breaker to prevent glare (both sides initiating simultaneously)
+      // Only the peer with the lexicographically "lower" ID initiates the connection
       const myPeerId = this.getPeerId();
       const shouldInitiate = myPeerId && peerId && myPeerId < peerId;
 
@@ -408,6 +412,3 @@ export class HybridPeerManager extends Emitter {
     });
   }
 }
-
-// Re-export connection types for convenience
-export { ConnectionState, ReconnectConfig } from "./PeerConnection.js";

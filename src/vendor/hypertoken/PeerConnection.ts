@@ -2,13 +2,15 @@
  * network/PeerConnection.ts
  * Robust handling for both Node (ws) and Browser (WebSocket) environments.
  *
- * Renamed from NetworkInterface to avoid confusion with UI adapters.
  * This is network transport infrastructure for P2P engine synchronization.
  * Includes automatic reconnection with exponential backoff.
  *
  * Vendored from hypertoken for Clout integration.
+ * Clout modification: Engine import removed (type uses `any` to avoid
+ * depending on hypertoken's engine module).
  */
 import { Emitter } from "./events.js";
+import { MessageCodec, CodecConfig, jsonCodec } from "./MessageCodec.js";
 import * as Ws from "ws";
 
 // Message Types
@@ -57,6 +59,10 @@ export const DEFAULT_RECONNECT_CONFIG: ReconnectConfig = {
 };
 
 export interface PeerConnectionOptions {
+  /** Message codec configuration (default: JSON for compatibility) */
+  codec?: MessageCodec | Partial<CodecConfig>;
+  /** Use binary WebSocket mode when codec supports it */
+  binaryMode?: boolean;
   /** Reconnection configuration */
   reconnect?: Partial<ReconnectConfig> | false;
   /** Maximum messages to buffer during reconnection (default: 100) */
@@ -86,6 +92,9 @@ export class PeerConnection extends Emitter {
   peerId: string | null = null;
   peers: Set<string> = new Set();
 
+  private codec: MessageCodec;
+  private binaryMode: boolean;
+
   // Reconnection state
   private reconnectConfig: ReconnectConfig;
   private connectionState: ConnectionState = ConnectionState.Disconnected;
@@ -106,6 +115,17 @@ export class PeerConnection extends Emitter {
     this.socket = null;
     this.connected = false;
 
+    // Setup codec (default to JSON for backward compatibility)
+    if (options.codec instanceof MessageCodec) {
+      this.codec = options.codec;
+    } else if (options.codec) {
+      this.codec = new MessageCodec(options.codec);
+    } else {
+      this.codec = jsonCodec;
+    }
+
+    this.binaryMode = options.binaryMode ?? this.codec.getConfig().format === "msgpack";
+
     // Setup reconnection config
     if (options.reconnect === false) {
       this.reconnectConfig = { ...DEFAULT_RECONNECT_CONFIG, enabled: false };
@@ -121,13 +141,6 @@ export class PeerConnection extends Emitter {
    */
   getConnectionState(): ConnectionState {
     return this.connectionState;
-  }
-
-  /**
-   * Get number of reconnection attempts
-   */
-  getReconnectAttempts(): number {
-    return this.reconnectAttempts;
   }
 
   connect(): void {
@@ -159,6 +172,11 @@ export class PeerConnection extends Emitter {
 
     if (!this.socket) return;
 
+    // Set binary type for ArrayBuffer handling
+    if (this.binaryMode && this.socket.binaryType !== undefined) {
+      this.socket.binaryType = "arraybuffer";
+    }
+
     // Use standard 'on' pattern if available (Node/ws), fall back to addEventListener (Browser)
     if (typeof (this.socket as any).on === "function") {
       (this.socket as any).on("open", () => this._onOpen());
@@ -185,14 +203,6 @@ export class PeerConnection extends Emitter {
     this.connectionState = ConnectionState.Disconnected;
   }
 
-  /**
-   * Reset reconnection state (call before re-connecting after intentional disconnect)
-   */
-  resetReconnection(): void {
-    this.reconnectAttempts = 0;
-    this.intentionalClose = false;
-  }
-
   sendToPeer(targetPeerId: string, payload: any): void {
     this._send({ type: "p2p", targetPeerId, payload });
   }
@@ -211,7 +221,9 @@ export class PeerConnection extends Emitter {
     }
 
     if (!this.socket || this.socket.readyState !== 1) return;
-    this.socket.send(JSON.stringify(msg));
+
+    const encoded = this.codec.encode(msg);
+    this.socket.send(encoded);
   }
 
   /**
@@ -339,31 +351,31 @@ export class PeerConnection extends Emitter {
   // Core logic handling raw data string/buffer
   private _handleMessageData(data: any) {
     try {
-      const str = data.toString(); // Convert buffer to string if necessary
-      const msg = JSON.parse(str);
+      // Decode using codec (handles both binary and JSON)
+      const msg = this.codec.decode(data) as NetworkMessage;
 
       switch (msg.type) {
         case "welcome":
-          this.peerId = msg.peerId;
+          this.peerId = (msg as any).peerId;
           this.emit("net:ready", { peerId: this.peerId });
           break;
 
         case "peer:joined":
-          if (msg.peerId !== this.peerId) {
-            this.peers.add(msg.peerId);
-            this.emit("net:peer:connected", { peerId: msg.peerId });
+          if ((msg as any).peerId !== this.peerId) {
+            this.peers.add((msg as any).peerId);
+            this.emit("net:peer:connected", { peerId: (msg as any).peerId });
           }
           break;
 
         case "peer:left":
-          this.peers.delete(msg.peerId);
-          this.emit("net:peer:disconnected", { peerId: msg.peerId });
+          this.peers.delete((msg as any).peerId);
+          this.emit("net:peer:disconnected", { peerId: (msg as any).peerId });
           break;
 
         case "p2p":
           this.emit("net:message", {
             ...msg.payload,
-            fromPeerId: msg.fromPeerId
+            fromPeerId: msg.fromPeerId,
           });
           break;
 
@@ -380,7 +392,3 @@ export class PeerConnection extends Emitter {
     }
   }
 }
-
-// DEPRECATED: Backward compatibility alias
-// TODO: Remove in next major version
-export const NetworkInterface = PeerConnection;
