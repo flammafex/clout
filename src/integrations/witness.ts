@@ -275,12 +275,14 @@ export interface WitnessAdapterConfig {
  * Merkle inclusion proof for light client verification
  */
 export interface MerkleProof {
-  /** The leaf hash being proven (hex) */
+  /** The raw leaf bytes being proven (hex) */
   leaf: string;
   /** Sibling hashes from leaf to root (hex array) */
   siblings: string[];
   /** Index of the leaf in the tree */
-  index: number;
+  leaf_index: number;
+  /** Size of the tree */
+  tree_size: number;
   /** The merkle root (hex) */
   root: string;
 }
@@ -414,7 +416,10 @@ export class WitnessAdapter implements WitnessClient {
   }
 
   private parseSignedAttestation(data: any, fallbackHash: string): Attestation {
-    const canonical = normalizeSignedAttestation(data?.attestation ?? data, fallbackHash);
+    // The new async job response wraps the signed attestation in `signed_attestation`.
+    // Unwrap it first; fall back to the legacy shapes for backward compatibility.
+    const signed = data?.signed_attestation ?? data?.attestation ?? data;
+    const canonical = normalizeSignedAttestation(signed, fallbackHash);
 
     return {
       hash: canonical.attestation.hash ?? fallbackHash,
@@ -452,7 +457,7 @@ export class WitnessAdapter implements WitnessClient {
 
     if (validConfig) {
       this.config = validConfig;
-      console.log('[Witness] Connected to network:', this.config.network_id || 'unknown');
+      console.log('[Witness] Connected to network:', this.config.id || this.config.network_id || 'unknown');
     } else {
       if (!this.allowInsecureFallback) {
         throw new Error(
@@ -526,7 +531,7 @@ export class WitnessAdapter implements WitnessClient {
 
       const timestampPromises = this.gatewayUrls.map(async (gatewayUrl) => {
         try {
-          const response = await this.fetch(`${gatewayUrl}/v1/timestamp`, {
+          const response = await this.fetch(`${gatewayUrl}/v1/attestations`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
@@ -534,22 +539,45 @@ export class WitnessAdapter implements WitnessClient {
 
           if (response.ok) {
             const data = await response.json();
-            return this.parseSignedAttestation(data, hash);
+            // The Witness API is now async job-based. If the job is not yet
+            // confirmed, poll GET /v1/attestations/{hash} until it is.
+            if (data?.status === 'confirmed') {
+              return this.parseSignedAttestation(data, hash);
+            }
+            if (data?.status === 'pending' || data?.status === 'retryable') {
+              const maxAttempts = 40;
+              const delayMs = 250;
+              for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                const pollResponse = await this.fetch(`${gatewayUrl}/v1/attestations/${hash}`);
+                if (!pollResponse.ok) break;
+                const pollData = await pollResponse.json();
+                if (pollData?.status === 'confirmed') {
+                  return this.parseSignedAttestation(pollData, hash);
+                }
+                if (pollData?.status === 'failed') {
+                  throw new Error(`Gateway ${gatewayUrl} attestation job failed`);
+                }
+              }
+            }
           }
-          return null;
+          // Throw so Promise.any can skip this gateway and short-circuit on
+          // whichever gateway succeeds first.
+          throw new Error(`Gateway ${gatewayUrl} did not confirm attestation`);
         } catch (error) {
           console.warn(`[Witness] Timestamping failed for gateway ${gatewayUrl}:`, error);
-          return null;
+          throw error;
         }
       });
 
-      // Wait for first successful response
-      const results = await Promise.all(timestampPromises);
-      const successfulResult = results.find(r => r !== null);
-
-      if (successfulResult) {
+      // Short-circuit on the first gateway to succeed, so a slow/lagging
+      // gateway doesn't block the fast path (each may poll up to ~10s).
+      try {
+        const successfulResult = await Promise.any(timestampPromises);
         console.log('[Witness] Successfully timestamped via gateway');
         return successfulResult;
+      } catch {
+        // All gateways failed - fall through to fallback logic below
       }
 
       // All gateways failed - check if fallback is allowed
@@ -873,7 +901,7 @@ export class WitnessAdapter implements WitnessClient {
       // Query all gateways in parallel
       const checkPromises = this.gatewayUrls.map(async (gatewayUrl) => {
         try {
-          const response = await this.fetch(`${gatewayUrl}/v1/timestamp/${hash}`);
+          const response = await this.fetch(`${gatewayUrl}/v1/attestations/${hash}`);
 
           if (response.status === 404) {
             return { seen: false, gateway: gatewayUrl };
@@ -881,8 +909,9 @@ export class WitnessAdapter implements WitnessClient {
 
           if (response.ok) {
             const data = await response.json();
-            // Check if we have valid attestation with threshold signatures
-            const sigCount = this.signatureCount(data.attestation);
+            // The job response only carries signatures once confirmed, in the
+            // `signed_attestation` field. If absent, treat as not-yet-seen.
+            const sigCount = this.signatureCount(data?.signed_attestation);
             const threshold = this.config.threshold || 2;
             return {
               seen: sigCount >= threshold,
@@ -961,7 +990,7 @@ export class WitnessAdapter implements WitnessClient {
       // Try all gateways in parallel
       const attestationPromises = this.gatewayUrls.map(async (gatewayUrl) => {
         try {
-          const response = await this.fetch(`${gatewayUrl}/v1/timestamp/${hash}`);
+          const response = await this.fetch(`${gatewayUrl}/v1/attestations/${hash}`);
 
           if (response.status === 404) {
             return null;
@@ -969,7 +998,11 @@ export class WitnessAdapter implements WitnessClient {
 
           if (response.ok) {
             const data = await response.json();
-            return this.parseSignedAttestation(data, hash);
+            // Only return a signed attestation once the job is confirmed.
+            if (data?.status === 'confirmed' && data?.signed_attestation) {
+              return this.parseSignedAttestation(data, hash);
+            }
+            return null;
           }
           return null;
         } catch (error) {
@@ -1031,8 +1064,12 @@ export class WitnessAdapter implements WitnessClient {
    * Light clients can use this proof to verify that a hash was timestamped
    * without downloading the full attestation history.
    *
+   * The full positional MerkleProof struct (leaf, siblings, leaf_index,
+   * tree_size, root) is only available once the attestation has been batched,
+   * via GET /v1/bundle/{hash} -> batch_inclusion.merkle_proof.
+   *
    * @param hash - The hash to get proof for (hex string)
-   * @returns Merkle proof or null if not found
+   * @returns Merkle proof or null if not found / not yet batched
    */
   async getProof(hash: string): Promise<MerkleProof | null> {
     await this.init();
@@ -1040,7 +1077,7 @@ export class WitnessAdapter implements WitnessClient {
     // Try each gateway
     for (const gatewayUrl of this.gatewayUrls) {
       try {
-        const response = await this.fetch(`${gatewayUrl}/v1/proof/${hash}`, {
+        const response = await this.fetch(`${gatewayUrl}/v1/bundle/${hash}`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -1053,8 +1090,15 @@ export class WitnessAdapter implements WitnessClient {
           throw new Error(`Proof request failed: ${response.status}`);
         }
 
-        const proof = await response.json();
-        return proof as MerkleProof;
+        const data = await response.json();
+        // The bundle response nests the MerkleProof under batch_inclusion.
+        // If the attestation is not yet batched, batch_inclusion is absent.
+        const merkleProof = data?.batch_inclusion?.merkle_proof;
+        if (!merkleProof) {
+          // Not yet batched at this gateway, try next
+          continue;
+        }
+        return merkleProof as MerkleProof;
       } catch (error) {
         console.warn(`[Witness] Failed to get proof from ${gatewayUrl}:`, error);
         continue;
@@ -1067,49 +1111,78 @@ export class WitnessAdapter implements WitnessClient {
   /**
    * Verify a Merkle proof locally
    *
-   * Uses sorted hashing (same as Witness network) to verify the proof
-   * without contacting any gateway.
+   * Uses RFC 9162 positional hashing with domain separation (same as the
+   * Witness network) to verify the proof without contacting any gateway.
    *
    * @param proof - The Merkle proof to verify
    * @returns true if proof is valid
    */
   verifyProof(proof: MerkleProof): boolean {
-    // Convert hex strings to bytes
-    const leafBytes = this.hexToBytes(proof.leaf);
-    const siblingBytes = proof.siblings.map(s => this.hexToBytes(s));
-    const rootBytes = this.hexToBytes(proof.root);
-
-    let current = leafBytes;
-
-    for (const sibling of siblingBytes) {
-      // Sorted hash: always put smaller value first
-      const [left, right] = this.compareBytes(current, sibling) <= 0
-        ? [current, sibling]
-        : [sibling, current];
-
-      // SHA-256(left || right)
-      current = this.sha256Concat(left, right);
+    // A boolean verifier must return false on malformed input, never throw.
+    if (!proof || typeof proof.leaf !== 'string' || !Array.isArray(proof.siblings) || typeof proof.root !== 'string') {
+      return false;
+    }
+    if (
+      !Number.isSafeInteger(proof.leaf_index) ||
+      !Number.isSafeInteger(proof.tree_size) ||
+      proof.leaf_index < 0 ||
+      proof.tree_size < 0
+    ) {
+      return false;
     }
 
-    return this.bytesEqual(current, rootBytes);
+    const leaf = this.hexToBytes(proof.leaf);
+    if (leaf === null) return false;
+    const siblings: Uint8Array[] = [];
+    for (const s of proof.siblings) {
+      const sb = this.hexToBytes(s);
+      if (sb === null) return false;
+      siblings.push(sb);
+    }
+    const root = this.hexToBytes(proof.root);
+    if (root === null) return false;
+    const leafIndex = proof.leaf_index;
+    const treeSize = proof.tree_size;
+
+    if (treeSize === 0 || leafIndex >= treeSize) return false;
+
+    let fn = leafIndex;
+    let sn = treeSize - 1;
+    // hash_leaf: SHA-256(0x00 || leaf)
+    let r = this.sha256DomainSeparated(0x00, leaf);
+
+    for (const p of siblings) {
+      if (sn === 0) return false; // walked off top of tree with siblings left
+      if ((fn & 1) === 1 || fn === sn) {
+        r = this.sha256DomainSeparated(0x01, p, r); // hash_internal(p, r)
+        if ((fn & 1) !== 1) {
+          // fn === sn: shift past trailing zeros
+          while ((fn & 1) === 0 && fn !== 0) {
+            fn >>= 1;
+            sn >>= 1;
+          }
+        }
+      } else {
+        r = this.sha256DomainSeparated(0x01, r, p); // hash_internal(r, p)
+      }
+      fn >>= 1;
+      sn >>= 1;
+    }
+
+    return fn === 0 && sn === 0 && this.bytesEqual(r, root);
   }
 
-  // Helper: hex to bytes
-  private hexToBytes(hex: string): Uint8Array {
+  // Helper: hex to bytes. Returns null on invalid input (odd length or
+  // non-hex characters) so callers can reject malformed data safely.
+  private hexToBytes(hex: string): Uint8Array | null {
+    if (typeof hex !== 'string' || hex.length % 2 !== 0) return null;
     const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < hex.length; i += 2) {
-      bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+      const byte = parseInt(hex.substring(i, i + 2), 16);
+      if (Number.isNaN(byte)) return null;
+      bytes[i / 2] = byte;
     }
     return bytes;
-  }
-
-  // Helper: compare byte arrays
-  private compareBytes(a: Uint8Array, b: Uint8Array): number {
-    const len = Math.min(a.length, b.length);
-    for (let i = 0; i < len; i++) {
-      if (a[i] !== b[i]) return a[i] - b[i];
-    }
-    return a.length - b.length;
   }
 
   // Helper: check byte array equality
@@ -1126,6 +1199,20 @@ export class WitnessAdapter implements WitnessClient {
     const combined = new Uint8Array(a.length + b.length);
     combined.set(a, 0);
     combined.set(b, a.length);
+    return sha256(combined);
+  }
+
+  // Helper: RFC 9162 domain-separated SHA-256 over [prefix, ...parts]
+  private sha256DomainSeparated(prefix: number, ...parts: Uint8Array[]): Uint8Array {
+    let total = 1;
+    for (const part of parts) total += part.length;
+    const combined = new Uint8Array(total);
+    combined[0] = prefix;
+    let offset = 1;
+    for (const part of parts) {
+      combined.set(part, offset);
+      offset += part.length;
+    }
     return sha256(combined);
   }
 
@@ -1181,6 +1268,11 @@ export class WitnessAdapter implements WitnessClient {
         + '/ws/events';
 
       const socket = new WebSocket(wsUrl);
+
+      // NOTE: The gateway may send {"type":"auth_required"} first and require
+      // {"token":"..."} within 5s. Clout has no WS auth token configured in
+      // WitnessAdapterConfig, so this is not handled here. If WS auth is ever
+      // required, add a token field to the config and respond to auth_required.
 
       socket.onopen = () => {
         console.log(`[Witness] WebSocket connected to ${gatewayUrl}`);
